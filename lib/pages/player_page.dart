@@ -49,7 +49,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   Timer? _hideTimer;
   Timer? _ticker;
-  Timer? _tapTimer;
+  DateTime? _lastTapAt;
   Timer? _revealTimer;
   Offset? _tapPos;
 
@@ -332,7 +332,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _hideTimer?.cancel();
     _ticker?.cancel();
     _bufTimer?.cancel();
-    _tapTimer?.cancel();
     _doubleTimer?.cancel();
     _scrubWatch?.cancel();
     _revealTimer?.cancel();
@@ -380,21 +379,27 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   // ---------------- 手势 ----------------
   void _onTap() {
-    // 手动双击判定：250ms 内第二次点击 → 快进/退。
-    // 不用 GestureDetector.onDoubleTap：它会把竞技场里所有点击回调
-    // 拖住 ~300ms，导致按压态释放和点击响应都明显滞后。
-    if (_tapTimer != null) {
-      _tapTimer?.cancel();
-      _tapTimer = null;
+    if (_locked) return;
+    final now = DateTime.now();
+    // 双击判定：距上次点击 < 300ms 视为双击 → 快进/退。
+    // 单击不再等待 250ms 才响应——控件显隐立即生效，避免“点了没反应、
+    // 再点一下却落进双击”的误触。双击的第一击虽会短暂切换一次控件显隐，
+    // 但第二击随即走 _doDoubleTap 把控件重新唤出，视觉上仅轻微闪一下。
+    if (_lastTapAt != null &&
+        now.difference(_lastTapAt!).inMilliseconds < 300) {
+      _lastTapAt = null;
       _doDoubleTap();
       return;
     }
-    _tapTimer = Timer(const Duration(milliseconds: 250), () {
-      _tapTimer = null;
-      if (mounted && !_locked) {
-        setState(() => _controlsVisible = !_controlsVisible);
-      }
-    });
+    _lastTapAt = now;
+    setState(() => _controlsVisible = !_controlsVisible);
+    if (_controlsVisible) {
+      // 唤出控件时重新开始 4s 自动隐藏，避免被上一次的旧计时器“秒杀”
+      _resetHideTimer();
+    } else {
+      // 手动隐藏时取消待触发的自动隐藏，避免刚收起又被旧计时器打断
+      _hideTimer?.cancel();
+    }
   }
 
   void _doDoubleTap() {
@@ -499,7 +504,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final t = target.clamp(0.0, _totalSeconds);
     _scrubPos = t;
     if (_demo) {
-      if (mounted) setState(() => _demoPosition = t);
+      // 演示模式也要复位 _seeking：否则一旦有真实跳转正在进行、
+      // 又来了演示分支的跳转，_seeking 会被永远卡在 true，进度显示冻结。
+      if (mounted) {
+        setState(() {
+          _seeking = false;
+          _demoPosition = t;
+        });
+      }
       return;
     }
     if (mounted) setState(() => _seeking = true);
