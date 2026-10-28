@@ -1,0 +1,30 @@
+name: camby
+description: "Camby · Android 端 Emby 播放器（Yamby 的能力 + EplayerX 的页面 + 数据总结）"
+publish_to: 'none'
+version: 1.7.14+54
+
+environment:
+  sdk: ^3.13.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  video_player: ^2.11.0
+  http: ^1.4.0
+  shared_preferences: ^2.5.6
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  volume_controller: ^3.7.1
+  screen_brightness: ^2.1.11
+  inspire_blur: ^0.4.1
+  cached_network_image: ^3.4.1
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
