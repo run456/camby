@@ -83,4 +83,36 @@ Dialogue: 0,0:00:01.00,0:00:02.00,test
       'https://x/Videos/1/2/Subtitles/0/Stream.srt?api_key=k',
     );
   });
+  test('ASS 的 Dialogue 行能解析成条目', () {
+    const ass = """
+[Script Info]
+Title: t
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.50,Default,,0,0,0,,\u7b2c\u4e00\u53e5
+Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\\an8}\u7b2c\u4e8c\\N\u6362\u884c
+""";
+    final cues = Subtitles.parseAss(ass);
+    expect(cues.length, 2);
+    expect(cues.first.start, 1.0);
+    expect(cues.first.end, 3.5);
+    expect(cues.first.text, '\u7b2c\u4e00\u53e5');
+    // {\an8} 定位标签去掉，\N 变真换行
+    expect(cues.last.text.contains('\n'), isTrue);
+    expect(cues.last.text.contains('an8'), isFalse);
+  });
+
+  test('UTF-16LE 编码的 SRT 也能正确解码', () async {
+    const srt = '1\r\n00:00:01,000 --> 00:00:02,500\r\n\u4f60\u597d\r\n';
+    final units = srt.codeUnits;
+    final bytes = <int>[
+      0xFF, 0xFE,
+      for (final u in units) ...[u & 0xFF, u >> 8],
+    ];
+    final cues = await Subtitles.load('x', fetcher: (_) async => bytes);
+    expect(cues.length, 1);
+    expect(cues.first.text, '\u4f60\u597d');
+    expect(cues.first.end, 2.5);
+  });
 }

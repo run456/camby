@@ -514,6 +514,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   Future<void> _endScrub() async {
+    // 只有真的在拖动时才提交。onHorizontalDragCancel 在手势竞技场判负时
+    // 也会触发（普通点按就可能走到），以前无条件提交，会把 _scrubPos
+    // （初值 0 或上次拖动留下的旧位置）当成目标真跳一次 —— 表现就是
+    // "点一下画面，视频顿 1 秒再回退几帧"。
+    if (!_scrubbing) return;
     final target = _scrubPos.clamp(0.0, _totalSeconds);
     _scrubbing = false;
     _scrubWatch?.cancel();
@@ -559,6 +564,18 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         setState(() {
           _seeking = false;
           _demoPosition = t;
+        });
+      }
+      return;
+    }
+    // 目标与当前位置几乎一致：不发给播放器。ExoPlayer 即便 seek 到当前
+    // 位置也会重新缓冲（停顿约 1 秒，并从稍早的帧继续）。
+    final cur = _player?.positionSeconds ?? t;
+    if ((t - cur).abs() <= 1.0) {
+      if (mounted) {
+        setState(() {
+          _seeking = false;
+          _seekDiag = '已在 ${_fmt(t)}';
         });
       }
       return;
@@ -763,7 +780,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final cues = await _loadCues(track);
       if (!mounted) return;
       if (cues.isEmpty) {
-        showToast(context, '该字幕无法作为文本显示（可能为图形字幕 PGS），可切 MPV 内核');
+        showToast(context, _subFailText());
       } else {
         showToast(context, '字幕：${track.menuLabel}');
       }
@@ -777,14 +794,29 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _resetHideTimer();
   }
 
+  /// 字幕失败提示：带上具体原因（HTTP 状态 / 编码 / 无时间轴），
+  /// 便于用户直接反馈是哪一步出的问题。
+  String _subFailText() {
+    final d = Subtitles.lastDiag;
+    if (d.isEmpty) return '该字幕无法作为文本显示（可切 MPV 内核）';
+    return '字幕加载失败 · $d（可切 MPV 内核）';
+  }
+
   /// 字幕下载通道：复用 App 的 Emby 鉴权（Token 头 + 忽略自签证书），
   /// 与视频同源，避免 Exo 字幕叠加层在 LAN 服务器上 401 / 证书失败。
-  Future<String?> _subFetcher(String url) =>
-      widget.state.server?.fetchText(url) ?? Future<String?>.value(null);
+  Future<List<int>?> _subFetcher(String url) async {
+    final srv = widget.state.server;
+    if (srv == null) return null;
+    return srv.fetchBytes(url);
+  }
 
   /// 拉取文本字幕（Exo 叠加层用）。期间又换了字幕就丢弃本次结果。
   Future<List<SubtitleCue>> _loadCues(SubtitleTrackInfo track) async {
-    final cues = await Subtitles.load(track.textUrl, fetcher: _subFetcher);
+    final cues = await Subtitles.load(
+      track.textUrl,
+      fetcher: _subFetcher,
+      fallbackUrl: track.url,
+    );
     if (!mounted || _subtitle?.url != track.url) return const [];
     setState(() {
       _cues = cues;
@@ -806,12 +838,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 加载一条字幕到叠加层（仅非原生内核需要）
   Future<void> _loadCuesFor(SubtitleTrackInfo track) async {
-    final cues = await Subtitles.load(track.textUrl, fetcher: _subFetcher);
+    final cues = await Subtitles.load(
+      track.textUrl,
+      fetcher: _subFetcher,
+      fallbackUrl: track.url,
+    );
     if (!mounted || _subtitle?.url != track.url) return;
     setState(() => _cues = cues);
-    if (cues.isEmpty) {
-      showToast(context, '该字幕无法作为文本显示（可能为图形字幕 PGS），可切 MPV 内核');
-    }
+    if (cues.isEmpty) showToast(context, _subFailText());
   }
 
   void _showInfo() {
@@ -891,7 +925,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           onHorizontalDragUpdate: _onHorizontalUpdate,
           onHorizontalDragEnd: _onHorizontalEnd,
           // 手势被系统/弹层打断时也要收尾，否则大时间提示会一直挂着
-          onHorizontalDragCancel: () => unawaited(_endScrub()),
+          onHorizontalDragCancel: () {
+            if (_scrubbing) unawaited(_endScrub());
+          },
           onVerticalDragStart: _onVerticalStart,
           onVerticalDragUpdate: _onVerticalUpdate,
           onVerticalDragEnd: _onVerticalEnd,

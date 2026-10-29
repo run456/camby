@@ -21,30 +21,64 @@ class SubtitleCue {
 class Subtitles {
   const Subtitles._();
 
+  /// 最近一次 load 的失败原因（给 UI 提示用，方便用户反馈）
+  static String lastDiag = '';
+
   /// 抓取并解析。失败返回空列表（调用方据此提示）。
-  /// [fetcher] 可选：注入 App 的鉴权下载通道（带 Token 头 + 忽略自签证书），
-  /// 与视频走同一套鉴权，避免 Emby/Jellyfin 对字幕流要求头鉴权或自签证书时 401。
+  /// [fetcher] 注入 App 的鉴权下载通道，返回**原始字节**（不是字符串），
+  /// 这样 UTF-16 / GBK 编码的 SRT 也能在这里正确解码。
+  /// [fallbackUrl] 原格式地址（如 Stream.ass）：Emby 对部分片源不会按
+  /// 扩展名转码，主地址拿不到时间轴时再用它按 ASS 解析一次。
   static Future<List<SubtitleCue>> load(
     String url, {
-    Future<String?> Function(String)? fetcher,
+    Future<List<int>?> Function(String)? fetcher,
+    String? fallbackUrl,
   }) async {
-    if (url.isEmpty) return const [];
-    var raw = await _fetch(url, fetcher);
-    if (raw == null) return const [];
-    // ASS/SSA 直接解析不了文本：让 Emby 转成 SRT 再取一次
-    if (_looksBinaryOrAss(raw)) {
-      final alt = _toSrtUrl(url);
-      if (alt != null && alt != url) {
-        final raw2 = await _fetch(alt, fetcher);
-        if (raw2 != null && !_looksBinaryOrAss(raw2)) raw = raw2;
+    lastDiag = '';
+    final urls = <String>[
+      if (url.isNotEmpty) url,
+      if (fallbackUrl != null &&
+          fallbackUrl.isNotEmpty &&
+          fallbackUrl != url)
+        fallbackUrl,
+    ];
+    if (urls.isEmpty) {
+      lastDiag = '字幕地址为空';
+      return const [];
+    }
+    for (final u in urls) {
+      var bytes = await _fetchBytes(u, fetcher);
+      if (bytes == null) {
+        if (lastDiag.isEmpty) lastDiag = '下载失败';
+        continue;
+      }
+      var raw = _decode(bytes);
+      if (_looksBinaryOrAss(raw)) {
+        // 拿到的是 ASS：先试 Emby 的 .srt 转码端点
+        final alt = _toSrtUrl(u);
+        if (alt != null && alt != u) {
+          final bytes2 = await _fetchBytes(alt, fetcher);
+          if (bytes2 != null) {
+            final raw2 = _decode(bytes2);
+            if (!_looksBinaryOrAss(raw2)) raw = raw2;
+          }
+        }
+      }
+      final cues = parseAny(raw);
+      if (cues.isNotEmpty) {
+        lastDiag = '';
+        return cues;
+      }
+      if (lastDiag.isEmpty) {
+        lastDiag = raw.trim().isEmpty ? '内容为空' : '识别不到时间轴';
       }
     }
-    return parse(raw);
+    return const [];
   }
 
-  static Future<String?> _fetch(
+  static Future<List<int>?> _fetchBytes(
     String url,
-    Future<String?> Function(String)? fetcher,
+    Future<List<int>?> Function(String)? fetcher,
   ) async {
     // 优先走注入的鉴权通道（与视频同款鉴权 + 忽略 LAN 自签证书）
     if (fetcher != null) {
@@ -62,21 +96,56 @@ class Subtitles {
       final req = await client.getUrl(Uri.parse(url));
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       final res = await req.close().timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
-      final bytes = await res
+      if (res.statusCode != 200) {
+        lastDiag = 'HTTP ${res.statusCode}';
+        return null;
+      }
+      return await res
           .fold<List<int>>(<int>[], (a, b) => a..addAll(b))
           .timeout(const Duration(seconds: 15));
-      // 先按 UTF-8 严格解；失败退回宽松解（GBK 会显示为替换符，但至少不崩）
-      try {
-        return utf8.decode(bytes);
-      } on FormatException {
-        return utf8.decode(bytes, allowMalformed: true);
-      }
     } catch (_) {
+      lastDiag = '请求异常';
       return null;
     } finally {
       client?.close(force: true);
     }
+  }
+
+  /// 字节 → 文本：兼容 UTF-8(含 BOM) / UTF-16LE / UTF-16BE / GBK 等
+  /// 非 UTF-8 编码（中文 SRT 很常见；原来是纯 utf8 解码，时间轴都读不出来）
+  static String _decode(List<int> bytes) {
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      return utf8.decode(bytes.sublist(3), allowMalformed: true);
+    }
+    if (bytes.length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+      return _utf16(bytes.sublist(2), little: true);
+    }
+    if (bytes.length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+      return _utf16(bytes.sublist(2), little: false);
+    }
+    // 无 BOM 的 UTF-16：ASCII 字符高位/低位字节为 0，0x00 占比很高
+    final probe = bytes.length > 200 ? bytes.sublist(0, 200) : bytes;
+    final zeros = probe.where((b) => b == 0).length;
+    if (probe.length > 20 && zeros > probe.length * 0.25) {
+      return _utf16(bytes, little: probe[1] == 0);
+    }
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      // GBK 等：严格 utf8 会抛，宽松解码至少能保住 ASCII 的时间轴
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
+
+  static String _utf16(List<int> b, {required bool little}) {
+    final units = <int>[];
+    for (var i = 0; i + 1 < b.length; i += 2) {
+      units.add(little ? b[i] | (b[i + 1] << 8) : (b[i] << 8) | b[i + 1]);
+    }
+    return String.fromCharCodes(units);
   }
 
   static bool _looksBinaryOrAss(String s) {
@@ -127,6 +196,55 @@ class Subtitles {
       final bodyStart = nl < 0 ? block.length : nl + 1;
       final body = _clean(block.substring(bodyStart));
       if (body.isEmpty || end <= start) continue;
+      cues.add(SubtitleCue(start, end, body));
+    }
+    cues.sort((a, b) => a.start.compareTo(b.start));
+    return cues;
+  }
+
+  /// 先按 SRT/VTT 解析；解析不出来再按 ASS/SSA 的 Dialogue 解析。
+  /// （Emby 有时不管扩展名，直接回原 ASS 内容）
+  static List<SubtitleCue> parseAny(String raw) {
+    final srt = parse(raw);
+    if (srt.isNotEmpty) return srt;
+    return parseAss(raw);
+  }
+
+  static final RegExp _assTimeRe = RegExp(
+    r'(\d+):(\d{1,2}):(\d{1,2})[.:](\d{1,3})',
+  );
+
+  static double? _assTime(String s) {
+    final m = _assTimeRe.firstMatch(s.trim());
+    if (m == null) return null;
+    // ASS 是厘秒（2 位），补齐成毫秒
+    final cs = m.group(4)!.padRight(3, '0').substring(0, 3);
+    return int.parse(m.group(1)!) * 3600 +
+        int.parse(m.group(2)!) * 60 +
+        int.parse(m.group(3)!) +
+        int.parse(cs) / 1000.0;
+  }
+
+  /// 解析 ASS/SSA 的 Dialogue 行（含特效字幕的 \N 换行与 {\an8} 定位标签）
+  static List<SubtitleCue> parseAss(String raw) {
+    final text = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final cues = <SubtitleCue>[];
+    var inEvents = false;
+    for (final line in text.split('\n')) {
+      final t = line.trim();
+      if (t.startsWith('[')) {
+        inEvents = t.toLowerCase().startsWith('[events]');
+        continue;
+      }
+      if (!inEvents || !t.toLowerCase().startsWith('dialogue:')) continue;
+      // Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+      final parts = t.substring(9).split(',');
+      if (parts.length < 10) continue;
+      final start = _assTime(parts[1]);
+      final end = _assTime(parts[2]);
+      if (start == null || end == null || end <= start) continue;
+      final body = _clean(parts.sublist(9).join(','));
+      if (body.isEmpty) continue;
       cues.add(SubtitleCue(start, end, body));
     }
     cues.sort((a, b) => a.start.compareTo(b.start));

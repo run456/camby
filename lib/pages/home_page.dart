@@ -638,6 +638,7 @@ class _HomePageState extends State<HomePage> {
                     ),
                     const SizedBox(width: 10),
                     _GlassCircleBtn(
+                      icon: Icons.search_rounded,
                       semanticLabel: '搜索',
                       onTap: () => Navigator.of(
                         context,
@@ -787,10 +788,12 @@ class _HomePageState extends State<HomePage> {
 /// 刻意不做实时 BackdropFilter：海报横移时每帧重算模糊是横滑掉帧主因
 class _GlassCircleBtn extends StatelessWidget {
   const _GlassCircleBtn({
+    required this.icon,
     required this.onTap,
     this.semanticLabel,
   });
 
+  final IconData icon;
   final VoidCallback onTap;
   final String? semanticLabel;
 
@@ -806,82 +809,36 @@ class _GlassCircleBtn extends StatelessWidget {
         height: 40,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: LinearGradient(
+          // 与右侧「wifi + 片数」胶囊用同一套玻璃参数：
+          // 之前圆钮边框更亮(0.28)、还叠了一条顶部高光直线，直线在圆弧上
+          // 像一道断开的弦，整个外圈看起来很怪。这里统一为胶囊的观感。
+          gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withOpacity(0.26),
-              Colors.white.withOpacity(0.08),
-            ],
+            colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
           ),
-          border: Border.all(color: Colors.white.withOpacity(0.28)),
+          border: Border.all(color: const Color(0x42FFFFFF)),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x4D000000),
-              blurRadius: 14,
-              offset: Offset(0, 5),
+              color: Color(0x40000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
             ),
           ],
         ),
-        child: Stack(
-          children: [
-            // 上缘镜面高光
-            Positioned(
-              left: 9,
-              right: 9,
-              top: 1,
-              child: Container(
-                height: 1,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(1),
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0),
-                      Colors.white.withOpacity(0.55),
-                      Colors.white.withOpacity(0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            // 搜索图标：Material 的 search 线太细、柄太短，缩到 20dp 后像字母 Q。
-            // 这里自绘一个粗线、长柄的放大镜，视觉上更清楚。
-            Center(
-              child: CustomPaint(
-                size: const Size.square(20),
-                painter: const _SearchGlyphPainter(),
-              ),
-            ),
-          ],
+        child: Center(
+          child: Icon(
+            icon,
+            size: 20,
+            color: Colors.white,
+            shadows: const [
+              Shadow(color: Color(0x66000000), blurRadius: 6),
+            ],
+          ),
         ),
       ),
     );
   }
-}
-
-/// 粗线放大镜：圆环 + 45° 长柄，笔帽圆头
-class _SearchGlyphPainter extends CustomPainter {
-  const _SearchGlyphPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final s = size.width;
-    final paint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = s * 0.12
-      ..strokeCap = StrokeCap.round;
-    final center = Offset(s * 0.42, s * 0.42);
-    final r = s * 0.27;
-    canvas.drawCircle(center, r, paint);
-    // 手柄：从圆环的 45° 边缘出发，画到右下角，长度比默认图标更长
-    final from = center + Offset(r * 0.7071, r * 0.7071) * 0.80;
-    final to = Offset(s * 0.90, s * 0.90);
-    canvas.drawLine(from, to, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _Pill extends StatelessWidget {
