@@ -26,8 +26,15 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "cn.camby.camby"
+        // 正式包名。测试包可用 -PcambyAppId=<别的包名> 覆盖，
+        // 以便和已安装的正式版共存（签名不同时无法覆盖安装）。
+        val appIdOverride = project.findProperty("cambyAppId") as String?
+        applicationId = appIdOverride ?: "cn.camby.camby"
+        resValue(
+            "string",
+            "app_name",
+            if (appIdOverride != null) "Camby Test" else "Camby",
+        )
         // Camby 最低支持 Android 9 (API 28)，目标平台 Android 16 (API 36)
         minSdk = 28
         targetSdk = 36
@@ -48,6 +55,11 @@ android {
                 storePassword = keystoreProperties["storePassword"] as String
             }
         }
+    }
+
+    // 允许在 defaultConfig 里用 resValue 生成 app_name（区分正式版 / 测试版）
+    buildFeatures {
+        resValues = true
     }
 
     buildTypes {
