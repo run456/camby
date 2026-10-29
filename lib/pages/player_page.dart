@@ -86,6 +86,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   PlaybackFit _fit = PlaybackFit.fit;
   String _bufText = '';
   Timer? _bufTimer;
+  // Exo 没有字节速率接口：用「缓冲时长增速 × 平均码率」估算下载速度
+  double _lastBufSec = 0;
+  int _lastBufMs = 0;
+  double _emaBps = 0;
+  int _emaAtMs = 0;
   bool _demoPlaying = true;
   double _demoPosition = 0;
 
@@ -153,7 +158,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
   }
 
-  /// 缓冲状态：MPV 读 cache-speed（字节/秒）；Exo 用已缓冲位置兜底。
+  /// 缓冲状态：MPV 读 cache-speed（字节/秒）；Exo 用「缓冲时长增速 × 平均码率」
+  /// 估算下载速度（video_player 只暴露已缓冲时长，不暴露字节数）。
   /// 字段赋值即可，300ms ticker 会带上渲染。
   Future<void> _pollBuffer() async {
     final p = _player;
@@ -161,15 +167,41 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       if (_bufText.isNotEmpty) _bufText = '';
       return;
     }
+    final buf = p.bufferedSeconds;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    double? bps;
+
     if (p.engine == PlaybackEngine.mpv) {
-      final bps = await p.cacheSpeedBytes();
+      bps = await p.cacheSpeedBytes();
       if (!mounted) return;
       if (bps != null && bps > 0) {
         _bufText = '缓冲 ${(bps / 1048576).toStringAsFixed(1)} MB/s';
         return;
       }
+    } else {
+      // Exo：已缓冲时长增加多少秒 → 乘以平均码率 → 换算成字节/秒
+      final dur = p.durationSeconds;
+      final fileSize = widget.item.fileSizeBytes;
+      if (_lastBufMs > 0 && dur > 0 && fileSize > 0) {
+        final dt = (now - _lastBufMs) / 1000.0;
+        final dbuf = buf - _lastBufSec;
+        if (dt > 0.2 && dbuf > 0.05) {
+          final inst = (dbuf / dt) * (fileSize / dur);
+          // 平滑：Exo 的缓冲是一次一大段跳变的，直接显示会剧烈跳动
+          _emaBps = _emaBps <= 0 ? inst : (_emaBps * 0.55 + inst * 0.45);
+          _emaAtMs = now;
+        }
+      }
+      _lastBufSec = buf;
+      _lastBufMs = now;
+      // 只保留最近 6 秒内测到的速度，避免缓冲满后一直显示旧值
+      if (_emaBps > 0 && now - _emaAtMs < 6000) bps = _emaBps;
     }
-    final buf = p.bufferedSeconds;
+
+    if (bps != null && bps > 0) {
+      _bufText = '缓冲 ${(bps / 1048576).toStringAsFixed(1)} MB/s';
+      return;
+    }
     _bufText = buf > p.positionSeconds + 1 ? '缓冲至 ${_fmt(buf)}' : '';
   }
 

@@ -638,7 +638,6 @@ class _HomePageState extends State<HomePage> {
                     ),
                     const SizedBox(width: 10),
                     _GlassCircleBtn(
-                      icon: Icons.search_rounded,
                       semanticLabel: '搜索',
                       onTap: () => Navigator.of(
                         context,
@@ -788,12 +787,10 @@ class _HomePageState extends State<HomePage> {
 /// 刻意不做实时 BackdropFilter：海报横移时每帧重算模糊是横滑掉帧主因
 class _GlassCircleBtn extends StatelessWidget {
   const _GlassCircleBtn({
-    required this.icon,
     required this.onTap,
     this.semanticLabel,
   });
 
-  final IconData icon;
   final VoidCallback onTap;
   final String? semanticLabel;
 
@@ -847,14 +844,12 @@ class _GlassCircleBtn extends StatelessWidget {
                 ),
               ),
             ),
+            // 搜索图标：Material 的 search 线太细、柄太短，缩到 20dp 后像字母 Q。
+            // 这里自绘一个粗线、长柄的放大镜，视觉上更清楚。
             Center(
-              child: Icon(
-                icon,
-                size: 20,
-                color: Colors.white,
-                shadows: const [
-                  Shadow(color: Color(0x66000000), blurRadius: 6),
-                ],
+              child: CustomPaint(
+                size: const Size.square(20),
+                painter: const _SearchGlyphPainter(),
               ),
             ),
           ],
@@ -862,6 +857,31 @@ class _GlassCircleBtn extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 粗线放大镜：圆环 + 45° 长柄，笔帽圆头
+class _SearchGlyphPainter extends CustomPainter {
+  const _SearchGlyphPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width;
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.12
+      ..strokeCap = StrokeCap.round;
+    final center = Offset(s * 0.42, s * 0.42);
+    final r = s * 0.27;
+    canvas.drawCircle(center, r, paint);
+    // 手柄：从圆环的 45° 边缘出发，画到右下角，长度比默认图标更长
+    final from = center + Offset(r * 0.7071, r * 0.7071) * 0.80;
+    final to = Offset(s * 0.90, s * 0.90);
+    canvas.drawLine(from, to, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _Pill extends StatelessWidget {

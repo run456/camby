@@ -9,7 +9,7 @@ import '../widgets/media_poster.dart';
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
 ///  · 顶栏排序按钮：直接显示当前字段 + 方向箭头
 ///  · 顶栏漏斗按钮：角标 = 激活筛选数
-///  · 抽屉内：排序（5 字段 × 升/降）、分辨率多选、中文字幕开关、类型/标签多选
+///  · 抽屉内：排序（5 字段 × 升/降）、分辨率多选、中文字幕开关、标签多选
 ///  · 应用后在媒体库行下方显示摘要条，单条可移除、一键清空
 ///  · 组内「或」、组间「且」；点「应用」才重算列表（_compute 缓存机制不变）
 class LibraryPage extends StatefulWidget {
@@ -38,7 +38,6 @@ class _LibraryPageState extends State<LibraryPage> {
   // 筛选条件（组内或、组间且）
   final Set<String> _resFilters = {};
   bool _cnOnly = false;
-  final Set<String> _genreFilters = {};
   final Set<String> _tagFilters = {};
 
   bool _viewLoading = false;
@@ -100,15 +99,11 @@ class _LibraryPageState extends State<LibraryPage> {
   // ---------------- 条件管理 ----------------
 
   int get _activeCount =>
-      _resFilters.length +
-      (_cnOnly ? 1 : 0) +
-      _genreFilters.length +
-      _tagFilters.length;
+      _resFilters.length + (_cnOnly ? 1 : 0) + _tagFilters.length;
 
   void _clearFilters() {
     _resFilters.clear();
     _cnOnly = false;
-    _genreFilters.clear();
     _tagFilters.clear();
   }
 
@@ -122,9 +117,6 @@ class _LibraryPageState extends State<LibraryPage> {
       list.retainWhere((e) => _resFilters.contains(resolutionBucket(e)));
     }
     if (_cnOnly) list.retainWhere(itemHasChineseSubtitle);
-    if (_genreFilters.isNotEmpty) {
-      list.retainWhere((e) => e.genres.any(_genreFilters.contains));
-    }
     if (_tagFilters.isNotEmpty) {
       list.retainWhere((e) => e.tags.any(_tagFilters.contains));
     }
@@ -162,16 +154,6 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Map<String, int> get _resCounts => _countsOf(resolutionBucket);
 
-  Map<String, int> get _genreCounts {
-    final m = <String, int>{};
-    for (final e in _source) {
-      for (final g in e.genres) {
-        m[g] = (m[g] ?? 0) + 1;
-      }
-    }
-    return m;
-  }
-
   Map<String, int> get _tagCounts {
     final m = <String, int>{};
     for (final e in _source) {
@@ -194,10 +176,8 @@ class _LibraryPageState extends State<LibraryPage> {
         desc: List<bool>.from(_desc),
         resFilters: Set<String>.from(_resFilters),
         cnOnly: _cnOnly,
-        genreFilters: Set<String>.from(_genreFilters),
         tagFilters: Set<String>.from(_tagFilters),
         resCounts: _resCounts,
-        genreCounts: _genreCounts,
         tagCounts: _tagCounts,
         total: _source.length,
       ),
@@ -210,9 +190,6 @@ class _LibraryPageState extends State<LibraryPage> {
         ..clear()
         ..addAll(result.resFilters);
       _cnOnly = result.cnOnly;
-      _genreFilters
-        ..clear()
-        ..addAll(result.genreFilters);
       _tagFilters
         ..clear()
         ..addAll(result.tagFilters);
@@ -226,7 +203,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final wide = MediaQuery.of(context).size.width >= 840;
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
-        '|$_cnOnly|${_genreFilters.join()}|${_tagFilters.join()}'
+        '|$_cnOnly|${_tagFilters.join()}'
         '|${_viewItems?.length ?? -1}|${state.items.length}';
     final list = _compute(key);
     final top = MediaQuery.of(context).padding.top;
@@ -244,12 +221,6 @@ class _LibraryPageState extends State<LibraryPage> {
     if (_cnOnly) {
       summary.add(_FilterChip('字幕', '中文字幕', () => setState(() {
         _cnOnly = false;
-        _cacheKey = '';
-      })));
-    }
-    for (final g in _genreFilters.toList()..sort()) {
-      summary.add(_FilterChip('类型', g, () => setState(() {
-        _genreFilters.remove(g);
         _cacheKey = '';
       })));
     }
@@ -320,9 +291,11 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         )
                       else ...[
-                        // 排序入口：方向箭头 + 当前字段
+                        // 排序 + 筛选共用一个入口：方向箭头 + 当前字段 + 筛选条件数角标
+                        // （原来这里还有一个漏斗按钮，点开的是同一个抽屉，纯重复）
                         _TopBtn(
                           onTap: _openSheet,
+                          badge: _activeCount,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -344,17 +317,6 @@ class _LibraryPageState extends State<LibraryPage> {
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // 筛选入口：漏斗 + 激活条件数角标
-                        _TopBtn(
-                          onTap: _openSheet,
-                          badge: _activeCount,
-                          child: const Icon(
-                            Icons.tune_rounded,
-                            size: 16,
-                            color: AppColors.ink,
                           ),
                         ),
                       ],
@@ -521,7 +483,6 @@ class LibraryFilterResult {
     required this.desc,
     required this.resFilters,
     required this.cnOnly,
-    required this.genreFilters,
     required this.tagFilters,
   });
 
@@ -529,7 +490,6 @@ class LibraryFilterResult {
   final List<bool> desc;
   final Set<String> resFilters;
   final bool cnOnly;
-  final Set<String> genreFilters;
   final Set<String> tagFilters;
 }
 
@@ -541,10 +501,8 @@ class LibraryFilterSheet extends StatefulWidget {
     required this.desc,
     required this.resFilters,
     required this.cnOnly,
-    required this.genreFilters,
     required this.tagFilters,
     required this.resCounts,
-    required this.genreCounts,
     required this.tagCounts,
     required this.total,
   });
@@ -553,10 +511,8 @@ class LibraryFilterSheet extends StatefulWidget {
   final List<bool> desc;
   final Set<String> resFilters;
   final bool cnOnly;
-  final Set<String> genreFilters;
   final Set<String> tagFilters;
   final Map<String, int> resCounts;
-  final Map<String, int> genreCounts;
   final Map<String, int> tagCounts;
   final int total;
 
@@ -572,7 +528,6 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
   late List<bool> _desc;
   late Set<String> _res;
   late bool _cn;
-  late Set<String> _genres;
   late Set<String> _tags;
 
   @override
@@ -582,12 +537,10 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
     _desc = List<bool>.from(widget.desc);
     _res = Set<String>.from(widget.resFilters);
     _cn = widget.cnOnly;
-    _genres = Set<String>.from(widget.genreFilters);
     _tags = Set<String>.from(widget.tagFilters);
   }
 
-  int get _activeCount =>
-      _res.length + (_cn ? 1 : 0) + _genres.length + _tags.length;
+  int get _activeCount => _res.length + (_cn ? 1 : 0) + _tags.length;
 
   @override
   Widget build(BuildContext context) {
@@ -677,20 +630,6 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                     on: _cn,
                     onChanged: (v) => setState(() => _cn = v),
                   ),
-                  _sectionTitle('类型', '多选 · 同组内「或」，组间「且」'),
-                  _chipWrap(
-                    (widget.genreCounts.keys.toList()..sort()).map((g) =>
-                        _fChip(
-                          g,
-                          count: widget.genreCounts[g] ?? 0,
-                          on: _genres.contains(g),
-                          onTap: () => setState(() {
-                            _genres.contains(g)
-                                ? _genres.remove(g)
-                                : _genres.add(g);
-                          }),
-                        )),
-                  ),
                   _sectionTitle('标签', '多选 · 可滚动'),
                   _chipWrap(
                     (widget.tagCounts.keys.toList()..sort()).map((t) =>
@@ -718,7 +657,6 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                     onTap: () => setState(() {
                       _res.clear();
                       _cn = false;
-                      _genres.clear();
                       _tags.clear();
                     }),
                     radius: 14,
@@ -753,7 +691,6 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                           desc: _desc,
                           resFilters: _res,
                           cnOnly: _cn,
-                          genreFilters: _genres,
                           tagFilters: _tags,
                         ),
                       ),

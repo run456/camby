@@ -583,35 +583,61 @@ class _StackTile extends StatelessWidget {
     );
   }
 
-  /// depth: 0 = 最上层（封面），越深越靠后、越倾斜
+  /// depth: 0 = 最上层（夹内最新海报）；1~3 = 后方渐变卡，按设计稿向两侧扇形散开。
+  /// 之前每层都画海报，四张海报色调相近、叠起来糊成一张，看不出"扑克牌"层次。
   Widget _layer(int depth, double w, double h) {
-    final angle = switch (depth) {
-      3 => 0.14,
-      2 => -0.10,
-      1 => 0.06,
-      _ => 0.0,
+    // 角度 / 位移取自设计稿（卡片 132×198 时的 8°/4°/-4° 与 7/4/-4px）
+    final (angle, dxr, dyr) = switch (depth) {
+      3 => (0.155, 0.078, -0.036),
+      2 => (0.085, 0.044, -0.019),
+      1 => (-0.105, -0.074, -0.019),
+      _ => (0.0, 0.0, 0.0),
     };
-    final dx = switch (depth) {
-      3 => w * 0.055,
-      2 => -w * 0.050,
-      1 => w * 0.024,
-      _ => 0.0,
+    final tints = switch (depth) {
+      3 => const [Color(0xFF2C415C), Color(0xFF111A28)],
+      2 => const [Color(0xFF3B5270), Color(0xFF172231)],
+      1 => const [Color(0xFF5B3C4A), Color(0xFF1D1726)],
+      _ => const [Color(0xFF3F3560), Color(0xFF181D33)],
     };
-    final dy = switch (depth) {
-      3 => -h * 0.022,
-      2 => -h * 0.020,
-      1 => -h * 0.011,
-      _ => 0.0,
-    };
-    final item = covers.isEmpty
-        ? null
-        : covers[depth < covers.length ? depth : covers.length - 1];
+    // 只有最上层用真实海报；后层用纯渐变卡托出扇面
+    final item = depth == 0 && covers.isNotEmpty ? covers.first : null;
+
+    Widget inner;
+    if (item != null) {
+      inner = CachedImage(
+        url: item.posterUrlFor(600),
+        memWidth: 600,
+        errorWidget: _placeholder,
+      );
+    } else {
+      inner = DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: tints,
+          ),
+        ),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: h * 0.10),
+            child: Icon(
+              Icons.movie_creation_outlined,
+              size: depth == 0 ? 24 : 19,
+              color: Colors.white.withOpacity(depth == 0 ? 0.30 : 0.15),
+            ),
+          ),
+        ),
+      );
+    }
 
     Widget card = Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
-          color: Colors.white.withOpacity(depth == 0 ? 0.22 : 0.12),
+          width: depth == 0 ? 1.4 : 1.0,
+          color: Colors.white.withOpacity(depth == 0 ? 0.26 : 0.20),
         ),
         boxShadow: const [
           BoxShadow(
@@ -623,28 +649,16 @@ class _StackTile extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(13),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (item != null)
-              CachedImage(
-                url: item.posterUrlFor(600),
-                memWidth: 600,
-                errorWidget: _placeholder,
-              )
-            else
-              _placeholder,
-            // 后层压暗，形成堆叠纵深
-            if (depth > 0)
-              Container(color: Colors.black.withOpacity(0.10 * depth)),
-          ],
-        ),
+        child: inner,
       ),
     );
 
     card = Transform.rotate(
       angle: angle,
-      child: Transform.translate(offset: Offset(dx, dy), child: card),
+      child: Transform.translate(
+        offset: Offset(w * dxr, h * dyr),
+        child: card,
+      ),
     );
     return SizedBox(width: w, height: h, child: card);
   }
