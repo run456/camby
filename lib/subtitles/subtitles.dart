@@ -22,25 +22,43 @@ class Subtitles {
   const Subtitles._();
 
   /// 抓取并解析。失败返回空列表（调用方据此提示）。
-  static Future<List<SubtitleCue>> load(String url) async {
+  /// [fetcher] 可选：注入 App 的鉴权下载通道（带 Token 头 + 忽略自签证书），
+  /// 与视频走同一套鉴权，避免 Emby/Jellyfin 对字幕流要求头鉴权或自签证书时 401。
+  static Future<List<SubtitleCue>> load(
+    String url, {
+    Future<String?> Function(String)? fetcher,
+  }) async {
     if (url.isEmpty) return const [];
-    var raw = await _fetch(url);
+    var raw = await _fetch(url, fetcher);
     if (raw == null) return const [];
     // ASS/SSA 直接解析不了文本：让 Emby 转成 SRT 再取一次
     if (_looksBinaryOrAss(raw)) {
       final alt = _toSrtUrl(url);
       if (alt != null && alt != url) {
-        final raw2 = await _fetch(alt);
+        final raw2 = await _fetch(alt, fetcher);
         if (raw2 != null && !_looksBinaryOrAss(raw2)) raw = raw2;
       }
     }
     return parse(raw);
   }
 
-  static Future<String?> _fetch(String url) async {
+  static Future<String?> _fetch(
+    String url,
+    Future<String?> Function(String)? fetcher,
+  ) async {
+    // 优先走注入的鉴权通道（与视频同款鉴权 + 忽略 LAN 自签证书）
+    if (fetcher != null) {
+      try {
+        final r = await fetcher(url);
+        if (r != null && r.isNotEmpty) return r;
+      } catch (_) {}
+    }
     HttpClient? client;
     try {
-      client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 10)
+        // 家庭媒体服务器多为自签/Let's Encrypt 证书，直连需忽略证书错误
+        ..badCertificateCallback = (_, __, ___) => true;
       final req = await client.getUrl(Uri.parse(url));
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       final res = await req.close().timeout(const Duration(seconds: 15));

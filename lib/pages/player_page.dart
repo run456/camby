@@ -745,9 +745,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _resetHideTimer();
   }
 
+  /// 字幕下载通道：复用 App 的 Emby 鉴权（Token 头 + 忽略自签证书），
+  /// 与视频同源，避免 Exo 字幕叠加层在 LAN 服务器上 401 / 证书失败。
+  Future<String?> _subFetcher(String url) =>
+      widget.state.server?.fetchText(url) ?? Future<String?>.value(null);
+
   /// 拉取文本字幕（Exo 叠加层用）。期间又换了字幕就丢弃本次结果。
   Future<List<SubtitleCue>> _loadCues(SubtitleTrackInfo track) async {
-    final cues = await Subtitles.load(track.textUrl);
+    final cues = await Subtitles.load(track.textUrl, fetcher: _subFetcher);
     if (!mounted || _subtitle?.url != track.url) return const [];
     setState(() {
       _cues = cues;
@@ -769,7 +774,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 加载一条字幕到叠加层（仅非原生内核需要）
   Future<void> _loadCuesFor(SubtitleTrackInfo track) async {
-    final cues = await Subtitles.load(track.textUrl);
+    final cues = await Subtitles.load(track.textUrl, fetcher: _subFetcher);
     if (!mounted || _subtitle?.url != track.url) return;
     setState(() => _cues = cues);
     if (cues.isEmpty) {
@@ -863,20 +868,21 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             fit: StackFit.expand,
             children: [
               Center(
-                child: _player != null && _player!.ready
-                    ? _player!.buildView()
-                    : DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              item.colors.first.withOpacity(0.9),
-                              Colors.black,
-                            ],
-                          ),
-                        ),
+                child: _VideoSurface(
+                  _player,
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          item.colors.first.withOpacity(0.9),
+                          Colors.black,
+                        ],
                       ),
+                    ),
+                  ),
+                ),
               ),
               if (_initializing)
                 const Center(
@@ -1774,5 +1780,55 @@ class _InfoRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// 视频渲染层：把原生播放器表面与「控件 / 进度条 / 字幕」所在的频繁重建树隔离。
+///
+/// 播放页每 300ms 全量 setState + 每次点按都会重建整页。若视频视图直接写在
+/// 这棵树里，media_kit 的 Video / ExoPlayer 的 VideoPlayer 底层 Surface 会被反复
+/// 重同步，表现为「点一下画面卡顿、回退几帧、甚至短暂暂停」。这里缓存
+/// buildView() 产出的 widget 实例，只有播放器对象、就绪态或画面比例真正变化时才
+/// 重建，彻底避免重建牵连到视频表面（与 Yamby 把原生播放器渲染与 UI 解耦的思路一致）。
+class _VideoSurface extends StatefulWidget {
+  final PlaybackController? player;
+  final Widget placeholder;
+  const _VideoSurface(this.player, this.placeholder);
+
+  @override
+  State<_VideoSurface> createState() => _VideoSurfaceState();
+}
+
+class _VideoSurfaceState extends State<_VideoSurface> {
+  Widget? _child;
+  PlaybackController? _lastPlayer;
+  bool _lastReady = false;
+  PlaybackFit _lastFit = PlaybackFit.fit;
+
+  @override
+  void didUpdateWidget(covariant _VideoSurface old) {
+    if (widget.player != old.player) {
+      _child = null;
+      _lastPlayer = null;
+      _lastReady = false;
+    }
+    super.didUpdateWidget(old);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.player;
+    final ready = p?.ready ?? false;
+    final fit = p?.fit ?? PlaybackFit.fit;
+    if (_child == null ||
+        p != _lastPlayer ||
+        ready != _lastReady ||
+        fit != _lastFit) {
+      _lastPlayer = p;
+      _lastReady = ready;
+      _lastFit = fit;
+      _child = (p != null && ready) ? p.buildView() : widget.placeholder;
+    }
+    return _child!;
   }
 }

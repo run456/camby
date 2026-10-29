@@ -659,6 +659,45 @@ class EmbyServer {
     }
   }
 
+  /// 下载原始字节（外挂字幕 / 图片等）。与 _getJson 同款鉴权头 + 忽略自签证书，
+  /// 让字幕叠加层等非 video_player 通道的下载，与视频一样能过 LAN 证书与头鉴权。
+  Future<List<int>?> fetchBytes(String url) async {
+    if (_token == null) return null;
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10)
+      ..badCertificateCallback = (_, __, ___) => true;
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      req.headers.set('X-Emby-Token', _token!);
+      req.headers.set(
+        'Authorization',
+        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", '
+        'Version="1.0.0", Token="$_token"',
+      );
+      req.headers.set(HttpHeaders.acceptHeader, '*/*');
+      final res = await req.close().timeout(const Duration(seconds: 15));
+      if (res.statusCode != 200) return null;
+      return await res
+          .fold<List<int>>(<int>[], (a, b) => a..addAll(b))
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// 下载文本（字幕叠加层用），自动处理 UTF-8 / GBK 容错
+  Future<String?> fetchText(String url) async {
+    final bytes = await fetchBytes(url);
+    if (bytes == null) return null;
+    try {
+      return utf8.decode(bytes);
+    } on FormatException {
+      return utf8.decode(bytes, allowMalformed: true);
+    }
+  }
+
   /// 最近播放的条目（按 DatePlayed 倒序，普通用户权限即可）
   Future<List<MediaItem>> recentPlayed({int limit = 10}) async {
     final json = await _getJson(
