@@ -83,7 +83,12 @@ class _ToastBubbleState extends State<_ToastBubble>
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.86,
               ),
-              child: Container(
+              child: Material(
+                // 挂在根 Overlay 上，没有 Material 祖先时 MaterialApp 会退回
+                // 到 _errorTextStyle（红字 + 黄色双下划线）。这里包一层透明
+                // Material 提供正常 DefaultTextStyle，消除文字下的黄线。
+                type: MaterialType.transparency,
+                child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 10,
@@ -122,6 +127,7 @@ class _ToastBubbleState extends State<_ToastBubble>
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),

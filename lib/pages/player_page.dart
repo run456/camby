@@ -50,6 +50,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Timer? _hideTimer;
   Timer? _ticker;
   DateTime? _lastTapAt;
+  Offset? _lastTapPos;
+  DateTime? _lastDoubleTapAt;
   Timer? _revealTimer;
   Offset? _tapPos;
 
@@ -381,17 +383,21 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   void _onTap() {
     if (_locked) return;
     final now = DateTime.now();
-    // 双击判定：距上次点击 < 300ms 视为双击 → 快进/退。
-    // 单击不再等待 250ms 才响应——控件显隐立即生效，避免“点了没反应、
-    // 再点一下却落进双击”的误触。双击的第一击虽会短暂切换一次控件显隐，
-    // 但第二击随即走 _doDoubleTap 把控件重新唤出，视觉上仅轻微闪一下。
+    final pos = _tapPos ?? Offset.zero;
+    // 双击判定：距上次点击 < 300ms 且两次点击位置接近（< 64dp）才算双击。
+    // 加位置约束是为了避免“点屏幕唤出控件后，又在别处快速点一下”被误判成
+    // 双击快进/退，进而触发 seek 打断播放。单击依旧立即切换控件显隐。
     if (_lastTapAt != null &&
-        now.difference(_lastTapAt!).inMilliseconds < 300) {
+        _lastTapPos != null &&
+        now.difference(_lastTapAt!).inMilliseconds < 300 &&
+        (pos - _lastTapPos!).distance <= 64) {
       _lastTapAt = null;
+      _lastTapPos = null;
       _doDoubleTap();
       return;
     }
     _lastTapAt = now;
+    _lastTapPos = pos;
     setState(() => _controlsVisible = !_controlsVisible);
     if (_controlsVisible) {
       // 唤出控件时重新开始 4s 自动隐藏，避免被上一次的旧计时器“秒杀”
@@ -404,15 +410,25 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   void _doDoubleTap() {
     if (_locked) return;
+    final now = DateTime.now();
+    // 防抖：一次双击跳转后 700ms 内忽略再次双击。视频 seek 到新位置
+    // 会短暂缓冲，用户着急连点时，若不设防抖会反复 seek，形成“点一下
+    // 又缓冲、再点又跳”的无限循环，视频始终放不出来。
+    if (_lastDoubleTapAt != null &&
+        now.difference(_lastDoubleTapAt!).inMilliseconds < 700) {
+      return;
+    }
+    _lastDoubleTapAt = now;
     final w = MediaQuery.of(context).size.width;
     final left = (_tapPos?.dx ?? 0) < w / 2;
-    _seek(_positionSeconds + (left ? -10 : 10));
-    _showDoubleTip(left ? '-10秒' : '+10秒');
+    unawaited(_quickSeek(_positionSeconds + (left ? -10 : 10)));
+    _showDoubleTip(left ? '-10秒' : '+10秒', left);
     _resetHideTimer();
   }
 
-  void _showDoubleTip(String label) {
+  void _showDoubleTip(String label, bool left) {
     _doubleTip = label;
+    _doubleTipLeft = left;
     if (mounted) setState(() {});
     _doubleTimer?.cancel();
     _doubleTimer = Timer(const Duration(milliseconds: 600), () {
@@ -422,6 +438,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   Timer? _doubleTimer;
   String? _doubleTip;
+  bool _doubleTipLeft = false;
 
   void _onHorizontalStart(DragStartDetails d) {
     if (_locked) return;
@@ -581,10 +598,20 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     setState(() {});
   }
 
-  /// ±10 秒、双击快进等离散跳转：立即反映到进度条，再异步提交
-  void _seek(double seconds) {
-    final target = seconds.clamp(0.0, _totalSeconds);
-    unawaited(_commitSeek(target));
+  /// 轻量跳转：双击快进/退、快进退按钮用。只 seek 一次、不进入拖动那套
+  /// 1.2s 轮询确认流程——±10 秒的小跳转无需精确对位，反而要尽快返回，
+  /// 否则视频会被长时间的 _seeking 打断，表现为“暂停 2-3 秒才继续”。
+  Future<void> _quickSeek(double seconds) async {
+    final t = seconds.clamp(0.0, _totalSeconds);
+    _scrubPos = t;
+    if (_demo) {
+      if (mounted) setState(() => _demoPosition = t);
+      return;
+    }
+    try {
+      await _player?.seek(t);
+    } catch (_) {}
+    if (mounted) setState(() {});
     _resetHideTimer();
   }
 
@@ -598,15 +625,38 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   void _skip(int delta) {
-    _seek(_positionSeconds + delta);
+    unawaited(_quickSeek(_positionSeconds + delta));
     showToast(context, delta < 0 ? '已快退 10 秒' : '已快进 10 秒');
   }
 
-  void _setSpeed(double v) async {
+  Future<void> _setSpeed(double v) async {
     final next = v.clamp(0.25, 3.0);
     setState(() => _playbackSpeed = next);
     await _player?.setSpeed(next);
     _resetHideTimer();
+  }
+
+  /// 倍速选择弹层：底栏「倍速」胶囊点开后选档，替代右侧竖排调节杆
+  Future<void> _pickSpeed() async {
+    const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+    final picked = await showModalBottomSheet<double>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _Sheet(
+        title: '播放速度',
+        children: speeds.map((s) {
+          final label = s.toStringAsFixed(2)
+              .replaceAll(RegExp(r'0+$'), '')
+              .replaceAll(RegExp(r'\.$'), '');
+          return _SheetRow(
+            label: '$label×',
+            selected: _playbackSpeed == s,
+            onTap: () => Navigator.pop(ctx, s),
+          );
+        }).toList(),
+      ),
+    );
+    if (picked != null) await _setSpeed(picked);
   }
 
   /// 画面比例：自适配（完整显示）↔ 满屏（裁切铺满）
@@ -866,9 +916,13 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // 双击快进提示
+              // 双击快进提示：显示在对应半屏的上方，避开正中央的播放按钮，
+              // 不再和播放/暂停圆钮重叠。
               if (_doubleTip != null)
-                Center(
+                Align(
+                  alignment: _doubleTipLeft
+                      ? const Alignment(-0.55, -0.22)
+                      : const Alignment(0.55, -0.22),
                   child: Glass(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 22,
@@ -1061,7 +1115,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                       _topBar(context, item),
                       // 拖动进度时隐藏中央按钮，把画面让给大时间提示
                       if (!_scrubbing) _centerControls(),
-                      if (!_scrubbing && _adjustSide == null) _speedRail(),
                       _bottomBar(context, pos, total),
                     ],
                   ),
@@ -1241,56 +1294,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     );
   }
 
-  /// 右侧倍速轨道：− / 当前倍速 / ＋
-  Widget _speedRail() {
-    return Positioned(
-      right: 16,
-      top: 0,
-      bottom: 0,
-      child: Center(
-        child: Glass(
-          width: 48,
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-          radius: 16,
-          blur: 18,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _RailBtn(
-                icon: Icons.remove_rounded,
-                onTap: () => _setSpeed(_playbackSpeed - 0.25),
-              ),
-              const SizedBox(height: 6),
-              LiquidPress(
-                onTap: () => _setSpeed(1.0),
-                radius: 8,
-                scale: 0.9,
-                // FittedBox：0.75× / 1.25× 不再折行
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    _speedLabel,
-                    maxLines: 1,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              _RailBtn(
-                icon: Icons.add_rounded,
-                onTap: () => _setSpeed(_playbackSpeed + 0.25),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _bottomBar(BuildContext context, double pos, double total) {
     return Positioned(
       left: 16,
@@ -1350,11 +1353,18 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                   onTap: _pickSubtitle,
                 ),
                 const SizedBox(width: 8),
-                // 画面比例：自适配 / 满屏（倍速统一由右侧调节杆负责）
+                // 画面比例：自适配 / 满屏
                 _Chip(
                   label: _fit == PlaybackFit.fill ? '满屏' : '自适配',
                   icon: Icons.aspect_ratio_rounded,
                   onTap: _toggleFit,
+                ),
+                const SizedBox(width: 8),
+                // 倍速：紧挨画面比例，不再占用右侧竖排调节杆
+                _Chip(
+                  label: _speedLabel,
+                  icon: Icons.speed_rounded,
+                  onTap: _pickSpeed,
                 ),
                 const SizedBox(width: 10),
                 // 缓冲速度替代原来的标题（标题顶栏已有，重复且占位）
@@ -1412,30 +1422,6 @@ class _GlassPlayBtn extends StatelessWidget {
           size: 23,
           color: enabled ? AppColors.ink : AppColors.ink.withOpacity(0.3),
         ),
-      ),
-    );
-  }
-}
-
-class _RailBtn extends StatelessWidget {
-  const _RailBtn({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 10,
-      scale: 0.92,
-      child: Container(
-        width: 30,
-        height: 30,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: Colors.white.withOpacity(0.14),
-        ),
-        child: Icon(icon, size: 17, color: Colors.white),
       ),
     );
   }

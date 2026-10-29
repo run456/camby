@@ -114,14 +114,18 @@ class ExoController implements PlaybackController {
     if (c == null || !c.value.isInitialized) return const SizedBox.shrink();
     final aspect = c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio;
     if (fit == PlaybackFit.fill) {
-      // 满屏：按视频比例给定内在尺寸，FittedBox cover 裁切铺满
-      return ClipRect(
-        child: FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: 1024,
-            height: 1024 / aspect,
-            child: VideoPlayer(c),
+      // 满屏：先 SizedBox.expand 强制占满整屏，再 FittedBox cover 裁切铺满。
+      // 若直接放在 Center 的松约束里，FittedBox 会缩到视频本征尺寸，
+      // 结果只是把画面居中缩小，根本没有裁切铺满。
+      return SizedBox.expand(
+        child: ClipRect(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: 1024,
+              height: 1024 / aspect,
+              child: VideoPlayer(c),
+            ),
           ),
         ),
       );
