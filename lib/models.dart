@@ -161,6 +161,7 @@ class SubtitleTrackInfo {
     this.isDefault = false,
     this.isForced = false,
     this.url,
+    this.altUrls = const <String>[],
   });
 
   final int index;
@@ -169,7 +170,24 @@ class SubtitleTrackInfo {
   final String codec;
   final bool isDefault;
   final bool isForced;
+
+  /// 首选字幕地址（v1.7.22 起优先取服务器返回的 `DeliveryUrl`）
   final String? url;
+
+  /// 备用地址，按优先级排列，由 [url] 失败后逐个尝试。
+  ///
+  /// 为什么需要多个：Emby 的字幕路由在不同版本/插件下不一致 —— 带
+  /// `mediaSourceId`、带 `StartPositionTicks` 的新路由，以及只有
+  /// `/Videos/{id}/Subtitles/{idx}/Stream.ext` 的旧路由，各家服务器支持情况
+  /// 不同。只拼一种就 404 的话，表现就是「字幕不显示」且没有任何报错。
+  final List<String> altUrls;
+
+  /// 所有候选地址：[url] 在前，[altUrls] 依次在后，去重且跳过空串。
+  List<String> get candidates => <String>[
+        if ((url ?? '').isNotEmpty) url!,
+        for (final u in altUrls)
+          if (u.isNotEmpty && u != url) u,
+      ];
 
   String get codecLabel {
     final c = codec.toLowerCase();
@@ -231,9 +249,17 @@ class SubtitleTrackInfo {
 
   /// 文本叠加渲染用地址：统一请求 SRT（Emby 会按扩展名自动转码，
   /// ASS/PGS/SUP 也能拿到文本流），供 Exo 内核的字幕叠加层使用
-  String get textUrl {
-    final u = url;
-    if (u == null || u.isEmpty) return '';
+  String get textUrl => _asSrtUrl(url ?? '');
+
+  /// 全部候选地址的文本版（与 [candidates] 一一对应，保持优先级）
+  List<String> get textCandidates =>
+      <String>[for (final u in candidates) _asSrtUrl(u)]
+          .where((u) => u.isNotEmpty)
+          .toList();
+
+  /// 把地址里的 `Stream.xxx` 换成 `Stream.srt`
+  static String _asSrtUrl(String u) {
+    if (u.isEmpty) return '';
     return u.replaceFirstMapped(
       RegExp(r'Stream\.(ass|ssa|vtt|sub|pgs|sup|smi)(\?|$)'),
       (m) => 'Stream.srt${m[2] ?? ''}',
@@ -248,6 +274,7 @@ class SubtitleTrackInfo {
     'isDefault': isDefault,
     'isForced': isForced,
     'url': url,
+    'altUrls': altUrls,
   };
 
   factory SubtitleTrackInfo.fromJson(Map<String, dynamic> j) =>
@@ -259,6 +286,10 @@ class SubtitleTrackInfo {
         isDefault: j['isDefault'] as bool? ?? false,
         isForced: j['isForced'] as bool? ?? false,
         url: j['url'] as String?,
+        altUrls: <String>[
+          for (final u in (j['altUrls'] as List<dynamic>? ?? const []))
+            if (u is String) u,
+        ],
       );
 }
 

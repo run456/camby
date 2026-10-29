@@ -45,6 +45,20 @@ class EmbyServer {
   String get baseUrl =>
       '${secure ? 'https' : 'http'}://$host:$port${kind == ServerKind.jellyfin ? '' : '/emby'}';
 
+  /// 把服务器返回的相对地址补成绝对地址。
+  ///
+  /// Emby/Jellyfin 的 `DeliveryUrl` 有时是 `/Videos/...` 这样的站内相对路径，
+  /// 直接交给下载器会解析失败，必须先拼上主机。
+  String _absolutize(String u) {
+    if (u.startsWith('http://') || u.startsWith('https://')) return u;
+    final origin = '${secure ? 'https' : 'http'}://$host:$port';
+    final path = u.startsWith('/') ? u : '/$u';
+    // 服务器已经带了 /emby 前缀时直接拼 origin，避免出现 /emby/emby
+    if (path.startsWith('/emby/')) return '$origin$path';
+    final prefix = kind == ServerKind.jellyfin ? '' : '/emby';
+    return '$origin$prefix$path';
+  }
+
   /// 认证：POST /Users/AuthenticateByName
   ///
   /// 兼容性要点（缺任一都会报 400 "Value cannot be null. (Parameter 'name）"）：
@@ -345,6 +359,13 @@ class EmbyServer {
 
     // 字幕轨：Type=Subtitle 的媒体流
     final subtitles = <SubtitleTrackInfo>[];
+    // Emby 的 MediaSourceId：字幕路由带上它才算「精确指定来源」，
+    // 无此参数的部分服务器版本会直接 404
+    final sourceId = (j['MediaSources'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((e) => e['Id'] as String?)
+        .firstWhere((e) => e != null && e.isNotEmpty, orElse: () => null) ??
+        id;
     for (final s in streams) {
       final m = s as Map<String, dynamic>;
       if (m['Type'] != 'Subtitle') continue;
@@ -353,6 +374,23 @@ class EmbyServer {
       final fmt = (codec.contains('ass') || codec.contains('ssa'))
           ? 'ass'
           : (codec.contains('vtt') ? 'vtt' : 'srt');
+
+      // ---- v1.7.22：字幕地址多候选 ----
+      // 1) 服务器直接给的 DeliveryUrl / DeliveryUrl 绝对优先（它已经是最权威的）
+      // 2) 新路由：带 mediaSourceId + StartPositionTicks
+      // 3) 旧路由：只有 Videos/{id}/Subtitles/{idx}/Stream.ext
+      final delivery = ((m['DeliveryUrl'] as String?) ??
+              (m['SubtitleDeliveryUrl'] as String?) ??
+              '')
+          .trim();
+      final newRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+          'Stream.$fmt?api_key=$_token&StartPositionTicks=0';
+      final oldRoute = '$baseUrl/Videos/$id/Subtitles/$idx/'
+          'Stream.$fmt?api_key=$_token';
+
+      final primary = delivery.isNotEmpty
+          ? _absolutize(delivery)
+          : newRoute;
       subtitles.add(
         SubtitleTrackInfo(
           index: idx,
@@ -362,7 +400,11 @@ class EmbyServer {
           codec: codec,
           isDefault: m['IsDefault'] as bool? ?? false,
           isForced: m['IsForced'] as bool? ?? false,
-          url: '$baseUrl/Videos/$id/Subtitles/$idx/Stream.$fmt?api_key=$_token',
+          url: primary,
+          altUrls: <String>[
+            if (delivery.isEmpty) oldRoute else newRoute,
+            if (delivery.isEmpty) newRoute else oldRoute,
+          ],
         ),
       );
     }

@@ -29,14 +29,19 @@ class Subtitles {
   /// 这样 UTF-16 / GBK 编码的 SRT 也能在这里正确解码。
   /// [fallbackUrl] 原格式地址（如 Stream.ass）：Emby 对部分片源不会按
   /// 扩展名转码，主地址拿不到时间轴时再用它按 ASS 解析一次。
+  /// [altUrls] 备用候选地址（v1.7.22）：Emby 各版本字幕路由不一致，主地址
+  /// 404 时逐个回退，否则表现就是「字幕不显示且无任何报错」。
   static Future<List<SubtitleCue>> load(
     String url, {
     Future<List<int>?> Function(String)? fetcher,
     String? fallbackUrl,
+    List<String> altUrls = const <String>[],
   }) async {
     lastDiag = '';
     final urls = <String>[
       if (url.isNotEmpty) url,
+      for (final u in altUrls)
+        if (u.isNotEmpty && u != url) u,
       if (fallbackUrl != null &&
           fallbackUrl.isNotEmpty &&
           fallbackUrl != url)

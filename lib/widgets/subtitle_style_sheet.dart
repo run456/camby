@@ -74,6 +74,10 @@ class SubtitleStyle {
         color: Color((j['color'] as num?)?.toInt() ?? 0xFFFFFFFF),
       );
 
+  /// 字号基准（dp）：libmpv 的 `sub-scale = 1.0` 按这个字号对齐，
+  /// 保证 Exo 叠加层与 MPV 原生渲染的观感一致。
+  static const double baseSize = 17;
+
   /// 叠加层文字的最终样式（播放页直接拿去给 Text 用）
   TextStyle get textStyle => TextStyle(
         fontSize: size,

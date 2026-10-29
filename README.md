@@ -131,8 +131,10 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 - **硬解 / 软解热切换**：顶栏新增「硬解 / 软解」胶囊，长按切换，不需要重建播放器。MPV 内核通过 `platform.setProperty('hwdec', 'auto-safe' | 'no')` 实时生效，Exo 内核恒为硬解（切换时给出提示）。播放中切换会同步回写 `set_hw_decode`，与设置页双向一致。证据：`_toggleHardware`、`hwdec`、`hwdec-codecs`、`getDefaultHwdec`。
 - **码率上限现场切换**：`MaxStreamingBitrate` 从「只能进设置页预设」变成播放页可调。Emby 侧会以该值重新出流，因此比客户端侧限速更省流量。取值 `-1` 走 `-1` 哨兵表示「不限」并返回原片地址。证据：`_changeBitrate`、`MaxStreamingBitrate=`、`set_max_bitrate`、`fallback_bitrate_handler`。
 - **字幕样式面板**：外挂字幕叠加层原来硬编码「17 号白字 + 四向黑描边」，在明亮动画画面 / 横屏大屏上偏小偏淡。现开放字号、位置、偏移、不透明度、描边六项 + 六色调色板，拖动手势即时预览（`_emit`，不落盘）、松手写盘（`_commit`）；滑块旁补 ± 微调按钮（`_nudge`，大屏上滑块很难拖准）。入口有两处：播放页长按「字幕」胶囊、设置页「字幕样式」。持久化键沿用 APK 中的 `camby_sub_size / pos / opa / stroke / offset / color`。
-- **播放进度写回服务器**：原来播放位置只写本机，换台设备 / 重装就丢。现在 `_reportProgress`（节流 5 秒）+ `_reportProgressNow` 定时把当前位置写回条目 UserData，服务端「继续观看」与其它设备上的续播位置跟着走。
-  上报选择了 `POST /Users/{UserId}/Items/{ItemId}/UserData` 而不是 `Sessions/Playing*` 三件套——APK 里只有 `/Users/`、`/Items/`、`/UserData` 三个插值片段，找不到 `Sessions` 或 `Playing/` 字面量；前者单请求即可入账，也不需要维护会话生命周期。证据：`_reportProgress`、`_reportProgressNow`。
+- **字幕样式双内核落地（v1.7.22 对齐）**：面板改的不只是 Exo 叠加层。MPV 内核真正接管字幕渲染，样式会被翻译成 libmpv 原生属性下发：`sub-scale`（字号，以 `SubtitleStyle.baseSize` = 17 为 1.0 基准）、`sub-pos`（位置，方向相反——App 存「距底比例」，libmpv 吃「距顶百分比」，换算 `(1 - bottomRatio) * 100`）、`sub-delay`（偏移，正值 = 字幕延后）、`sub-color`、`sub-border-color`（恒黑描边）、`sub-opacity`、`sub-border-size`。任一项失败都被吞掉，不打断播放；切内核与冷启动读盘后都会重新下发一次。证据：`applySubtitleStyle`、`_mpvColor`、`sub-pos`、`sub-delay`、`sub-border-color`、`sub-opacity`。
+- **字幕地址多候选（v1.7.22 对齐）**：Emby 的字幕路由在各版本上不一致，旧实现只拼 `/Videos/{id}/Subtitles/{idx}/Stream.ext`，缺 `mediaSourceId` 与 `StartPositionTicks`，部分服务器直接 404 —— 表现就是「没有字幕，且没有任何报错」。现在优先用服务器返回的 `DeliveryUrl`（相对路径会自动补成绝对地址），并同时准备「带 mediaSourceId 的新路由」与「旧路由」两份候选，`Subtitles.load` 逐个尝试，任一成功即用。证据：`DeliveryUrl`、`_absolutize`、`SubtitleTrackInfo.altUrls`。
+- **中央按钮精简（v1.7.22 对齐）**：去掉中央的「上一部 / 下一部」两个按钮，它们既挤压播放键的呼吸空间，又和双击 ±10 秒提示抢位置。中央只留「快退 / 播放 / 快进」，双击提示直接占回腾出的位置（设计值距屏幕中心 148dp，窄屏自动内收）。
+- **播放进度写回服务器**：原来播放位置只写本机，换台设备 / 重装就丢。现在 `_reportProgress`（节流 5 秒）+ `_reportProgressNow` 定时把当前位置写回条目 UserData，服务端「继续观看」与其它设备上的续播位置跟着走。  上报选择了 `POST /Users/{UserId}/Items/{ItemId}/UserData` 而不是 `Sessions/Playing*` 三件套——APK 里只有 `/Users/`、`/Items/`、`/UserData` 三个插值片段，找不到 `Sessions` 或 `Playing/` 字面量；前者单请求即可入账，也不需要维护会话生命周期。证据：`_reportProgress`、`_reportProgressNow`。
 - **长按锁定 / 解锁**：顶栏新增锁形入口，锁定后隐藏所有控件并禁用手势，`GestureDetector(onLongPress)` 长按才解锁，避免躺着看手机误触。「锁定态」有两处证据：`_lockScreen`、`_unlockScreen`。
 - **倍速胶囊**：底栏倍速按钮在 ≠1× 时用冷色描边高亮，一眼看出当前是否在变速播放。
 

@@ -242,6 +242,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final s = await SubtitleStyleStore.load();
     if (!mounted) return;
     setState(() => _subStyle = s);
+    // 冷启动进来时播放器可能还没建好，这里扑个空也没关系：
+    // _start() 建完内核后会再下发一次
+    unawaited(_player?.applySubtitleStyle(s) ?? Future<void>.value());
   }
 
   /// 打开字幕样式面板：拖动即时预览，松手落盘
@@ -262,6 +265,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           onChanged: (next, commit) {
             if (!mounted) return;
             setState(() => _subStyle = next);
+            // 面板里拖一下就要立刻反映到画面：
+            // Exo 走叠加层（读 _subStyle 重建即可），MPV 需要下发原生属性
+            unawaited(_player?.applySubtitleStyle(next) ?? Future<void>.value());
           },
         ),
       ),
@@ -504,10 +510,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
   }
 
-  bool get _hasPrev => _episodeIndex > 0;
-  bool get _hasNext =>
-      _episodeIndex >= 0 && _episodeIndex < _episodes.length - 1;
-
+  /// 切上一集 / 下一集。
+  ///
+  /// v1.7.22 移除中央按钮后暂时没有 UI 入口（分集列表在详情页），方法先留着，
+  /// 等做「连播到底自动下一集」时复用。
+  // ignore: unused_element
   void _goEpisode(int delta) {
     final next = _episodes[_episodeIndex + delta];
     Navigator.of(context).pushReplacement(
@@ -571,6 +578,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       });
       await prev?.dispose();
       await p.play();
+      // 新建的内核（尤其是 MPV）需要重新下发一次字幕样式
+      unawaited(p.applySubtitleStyle(_subStyle));
       return true;
     } catch (_) {
       await p?.dispose();
@@ -1083,8 +1092,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 拉取文本字幕（Exo 叠加层用）。期间又换了字幕就丢弃本次结果。
   Future<List<SubtitleCue>> _loadCues(SubtitleTrackInfo track) async {
+    final texts = track.textCandidates;
     final cues = await Subtitles.load(
-      track.textUrl,
+      texts.isEmpty ? track.textUrl : texts.first,
+      altUrls: texts.length > 1 ? texts.sublist(1) : const <String>[],
       fetcher: _subFetcher,
       fallbackUrl: track.url,
     );
@@ -1109,8 +1120,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 加载一条字幕到叠加层（仅非原生内核需要）
   Future<void> _loadCuesFor(SubtitleTrackInfo track) async {
+    final texts = track.textCandidates;
     final cues = await Subtitles.load(
-      track.textUrl,
+      texts.isEmpty ? track.textUrl : texts.first,
+      altUrls: texts.length > 1 ? texts.sublist(1) : const <String>[],
       fetcher: _subFetcher,
       fallbackUrl: track.url,
     );
@@ -1266,28 +1279,37 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // 双击快进提示：显示在对应半屏的上方，避开正中央的播放按钮，
-              // 不再和播放/暂停圆钮重叠。
+              // 双击快进提示：v1.7.22 起中央的「上一部/下一部」已移除，
+              // 提示直接占回它们腾出的位置 —— 距屏幕中心 148dp 处。
+              // 窄屏按可用宽度内收，避免贴边。
               if (_doubleTip != null)
                 Align(
-                  alignment: _doubleTipLeft
-                      ? const Alignment(-0.55, -0.22)
-                      : const Alignment(0.55, -0.22),
-                  child: Glass(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 22,
-                      vertical: 12,
-                    ),
-                    radius: 16,
-                    blur: 20,
-                    blurEnabled: false,
-                    child: Text(
-                      _doubleTip!,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  alignment: Alignment.center,
+                  child: Builder(
+                    builder: (ctx) {
+                      final w = MediaQuery.sizeOf(ctx).width;
+                      // 148dp 是设计值；屏宽不够时留 76dp 边距（玻璃气泡半宽）
+                      final dx = (w / 2 - 76).clamp(0.0, 148.0);
+                      return Transform.translate(
+                        offset: Offset(_doubleTipLeft ? -dx : dx, 0),
+                        child: Glass(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 22,
+                            vertical: 12,
+                          ),
+                          radius: 16,
+                          blur: 20,
+                          blurEnabled: false,
+                          child: Text(
+                            _doubleTip!,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
 
@@ -1608,17 +1630,15 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     );
   }
 
+  // v1.7.22：去掉中央的「上一部 / 下一部」两个按钮 —— 它们既挤压了
+  // 播放键的呼吸空间，又和双击 ±10 秒的提示抢位置。中央只留
+  // 「快退 / 播放 / 快进」三件套，切集走详情页的分集列表。
+  // 顺带修掉旧注释里「底栏有下一段」的说法：底栏从来没有这个按钮。
   Widget _centerControls() {
     return Positioned.fill(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _GlassPlayBtn(
-            icon: Icons.skip_previous_rounded,
-            enabled: _hasPrev,
-            onTap: () => _goEpisode(-1),
-          ),
-          const SizedBox(width: 26),
           _GlassPlayBtn(icon: Icons.replay_rounded, onTap: () => _skip(-10)),
           const SizedBox(width: 26),
           LiquidPress(
@@ -1654,12 +1674,6 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             icon: Icons.replay_rounded,
             flipX: true,
             onTap: () => _skip(10),
-          ),
-          const SizedBox(width: 26),
-          _GlassPlayBtn(
-            icon: Icons.skip_next_rounded,
-            enabled: _hasNext,
-            onTap: () => _goEpisode(1),
           ),
         ],
       ),
@@ -1765,18 +1779,16 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 }
 
-/// 中央玻璃圆钮；enabled=false 时置灰且不可点
+/// 中央玻璃圆钮（v1.7.22 起只剩快退 / 快进两个，不再需要禁用态）
 class _GlassPlayBtn extends StatelessWidget {
   const _GlassPlayBtn({
     required this.icon,
     required this.onTap,
-    this.enabled = true,
     this.flipX = false,
   });
 
   final IconData icon;
   final VoidCallback onTap;
-  final bool enabled;
 
   /// 水平镜像（快进 = 快退图标的镜像，保证严格对称）
   final bool flipX;
@@ -1790,13 +1802,13 @@ class _GlassPlayBtn extends StatelessWidget {
       radius: 25,
       blur: 20,
       blurEnabled: false,
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
       child: Transform.flip(
         flipX: flipX,
         child: Icon(
           icon,
           size: 23,
-          color: enabled ? AppColors.ink : AppColors.ink.withOpacity(0.3),
+          color: AppColors.ink,
         ),
       ),
     );

@@ -5,6 +5,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:video_player/video_player.dart';
 
+import '../widgets/subtitle_style_sheet.dart';
+
 /// 播放内核
 enum PlaybackEngine { exo, mpv }
 
@@ -68,6 +70,14 @@ abstract class PlaybackController {
 
   /// 运行时切换外挂字幕（null = 关闭）。返回 true 表示内核已接管显示。
   Future<bool> setSubtitle(String? url);
+
+  /// 下发字幕样式（1.7.38 / v1.7.22）。
+  ///
+  /// 只有 MPV 内核真正接管字幕渲染，才需要把样式翻译成 libmpv 原生属性：
+  /// `sub-scale` / `sub-pos` / `sub-delay` / `sub-color` / `sub-border-color` /
+  /// `sub-opacity`。Exo 内核由播放页叠加层自绘，这里空实现即可 —— 两内核
+  /// 观感保持一致，靠的是同一份 [SubtitleStyle] 数据源。
+  Future<void> applySubtitleStyle(SubtitleStyle style);
 
   Future<void> dispose();
 }
@@ -202,6 +212,11 @@ class ExoController implements PlaybackController {
   @override
   Future<bool> setSubtitle(String? url) async => false;
 
+  // Exo 内核的字幕是播放页叠加层画的，样式由页面直接作用于 Text，
+  // 内核侧没有可调项（这里保持空实现，避免误以为没生效）
+  @override
+  Future<void> applySubtitleStyle(SubtitleStyle style) async {}
+
   @override
   Future<void> dispose() async => _c?.dispose();
 }
@@ -274,6 +289,59 @@ class MpvController implements PlaybackController {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 把 [SubtitleStyle] 翻译成 libmpv 原生字幕属性（v1.7.22 修复项）。
+  ///
+  /// 设计稿要求的映射关系：
+  ///   大小      → `sub-scale`        （1.0 = libmpv 默认字号）
+  ///   垂直位置  → `sub-pos`          （0–100，**值越大越靠下**，与 App 的
+  ///                                   bottomRatio 语义相反，需换算）
+  ///   时间偏移  → `sub-delay`        （秒，正值 = 字幕延后）
+  ///   颜色      → `sub-color`
+  ///   描边色    → `sub-border-color`
+  ///   不透明度  → `sub-opacity`
+  ///
+  /// 任意一项失败都不影响其余项，也不打断播放（服务器/内核版本差异都可能拒绝）。
+  @override
+  Future<void> applySubtitleStyle(SubtitleStyle style) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+
+    /// sub-pos：App 的 pos 是「距底部比例」，libmpv 是「距顶部百分比」。
+    /// bottomRatio 0.12 ≈ 贴底 → sub-pos ≈ 88。
+    final subPos = ((1.0 - style.bottomRatio) * 100).clamp(0.0, 100.0);
+
+    /// sub-scale：以 [SubtitleStyle.baseSize] 为 1.0 基准
+    final subScale = (style.size / SubtitleStyle.baseSize).clamp(0.3, 3.0);
+
+    /// 描边宽度 → libmpv 的边框粗细（0 时连同边框色一起关掉）。
+    final borderSize = style.stroke <= 0 ? 0.0 : style.stroke;
+
+    final pairs = <String, String>{
+      'sub-scale': subScale.toStringAsFixed(3),
+      'sub-pos': subPos.toStringAsFixed(2),
+      'sub-delay': style.offset.toStringAsFixed(2),
+      'sub-color': _mpvColor(style.color),
+      // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
+      'sub-border-color': '#000000',
+      'sub-opacity': style.opa.clamp(0.0, 1.0).toStringAsFixed(2),
+      'sub-border-size': borderSize.toStringAsFixed(2),
+    };
+    for (final e in pairs.entries) {
+      try {
+        await platform.setProperty(e.key, e.value);
+      } catch (_) {
+        // 老版本 libmpv 可能没有某个属性，跳过即可
+      }
+    }
+  }
+
+  /// Flutter [Color] → libmpv 的 `#RRGGBB` 串（libmpv 不吃 alpha，透明度
+  /// 走独立的 sub-opacity）
+  static String _mpvColor(Color c) {
+    final v = c.toARGB32() & 0xFFFFFF;
+    return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
   }
 
   @override
