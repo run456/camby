@@ -162,6 +162,7 @@ class SubtitleTrackInfo {
     this.isForced = false,
     this.url,
     this.altUrls = const <String>[],
+    this.sourcePath = '',
   });
 
   final int index;
@@ -181,6 +182,79 @@ class SubtitleTrackInfo {
   /// `/Videos/{id}/Subtitles/{idx}/Stream.ext` 的旧路由，各家服务器支持情况
   /// 不同。只拼一种就 404 的话，表现就是「字幕不显示」且没有任何报错。
   final List<String> altUrls;
+
+  /// 字幕文件在服务器上的绝对路径（`MediaStreams[].Path`）。
+  ///
+  /// strm 片源上它是唯一还能拿到字幕的线索 —— `/Videos/…/Subtitles/…` 那几条
+  /// 路由对 strm 常常 404，只能用 `/Items/{id}/File?Path=` 直取文件。
+  final String sourcePath;
+
+  /// 是否为中文字幕。
+  ///
+  /// v1.7.23 起判定链改为三级：语言代码 → 显示名 → 文件路径/文件名，
+  /// 因为外挂字幕在 Emby 里经常 `Language` 为空、`DisplayTitle` 只有 `(SRT)`，
+  /// 只看语言会把它们全判成「未知」。
+  ///
+  /// v1.7.27 补了一条兜底：**完全没有语言标记的文本字幕默认当中文**。
+  /// 中文用户的片源以中字为主，漏判的代价（标签不出现、不自动预选）远大于
+  /// 误判的代价（多一个标签，用户还能自己换）。
+  bool get isChinese {
+    const zhLangs = {'chi', 'zho', 'zh', 'zh-cn', 'zh-hans', 'zh-hant', 'chs', 'cht'};
+    final lang = language.toLowerCase().trim();
+    if (zhLangs.contains(lang)) return true;
+
+    // 明确是外语的不翻转（保真）
+    const foreign = {
+      'eng', 'en', 'jpn', 'ja', 'kor', 'ko', 'fre', 'fra', 'fr',
+      'ger', 'deu', 'de', 'spa', 'es', 'rus', 'ru', 'ita', 'it',
+      'por', 'pt', 'tha', 'th', 'vie', 'vi',
+    };
+    final knownForeign = foreign.contains(lang);
+
+    // 第二级：显示名里的中文标记（用分段匹配，避免 "scene" 里的 "en" 之类误伤）
+    if (_hasZhMarker(displayTitle)) return true;
+    // 第三级：外挂字幕的文件名 / 路径
+    if (_hasZhMarker(sourcePath)) return true;
+    if (_hasZhMarker(url ?? '')) return true;
+
+    if (knownForeign) return false;
+
+    // 兜底：无语言标记的文本字幕（srt/ass/ssa/vtt/sub/smi）默认中文。
+    // pgs/sup 是图片字幕，无法叠加渲染，不参与兜底。
+    final c = codec.toLowerCase();
+    final isText = c.contains('srt') ||
+        c.contains('subrip') ||
+        c.contains('ass') ||
+        c.contains('ssa') ||
+        c.contains('vtt') ||
+        c.contains('smi') ||
+        c.contains('text');
+    return isText;
+  }
+
+  /// 在一段文本里找中文标记。按分隔符切段后再比对，避免 `scene` 命中 `en`、
+  /// `menu` 命中 `en` 这类子串误判。
+  static bool _hasZhMarker(String s) {
+    if (s.isEmpty) return false;
+    // 直接含中日韩统一表意文字 → 一定是中文（显示名常写成「简体中文」）
+    for (final r in s.runes) {
+      if (r >= 0x4E00 && r <= 0x9FFF) return true;
+    }
+    final lower = s.toLowerCase();
+    // 先按常见分隔符切成「词」，再做全词/前后缀比对
+    final tokens = lower.split(RegExp(r'[^a-z0-9]+'));
+    const zhTokens = {'chs', 'cht', 'chi', 'zho', 'zh', 'cn', 'gb', 'big5'};
+    for (final t in tokens) {
+      if (t.isEmpty) continue;
+      if (zhTokens.contains(t)) return true;
+      // zh-cn 会被切成 zh 和 cn，上面的集合已覆盖；这里补 chinese/zh_cn 之类
+      if (t == 'chinese' || t == 'mandarin' || t == 'simplified' ||
+          t == 'traditional') {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// 所有候选地址：[url] 在前，[altUrls] 依次在后，去重且跳过空串。
   List<String> get candidates => <String>[
@@ -275,6 +349,7 @@ class SubtitleTrackInfo {
     'isForced': isForced,
     'url': url,
     'altUrls': altUrls,
+    'sourcePath': sourcePath,
   };
 
   factory SubtitleTrackInfo.fromJson(Map<String, dynamic> j) =>
@@ -290,6 +365,7 @@ class SubtitleTrackInfo {
           for (final u in (j['altUrls'] as List<dynamic>? ?? const []))
             if (u is String) u,
         ],
+        sourcePath: j['sourcePath'] as String? ?? '',
       );
 }
 
@@ -1269,27 +1345,12 @@ String resolutionBucket(MediaItem item) {
 }
 
 /// 是否含中文字幕轨（详情页「中文字幕」标签与字幕筛选页共用）
-bool itemHasChineseSubtitle(MediaItem item) {  for (final s in item.subtitles) {
-    final lang = s.language.toLowerCase().replaceAll('_', '-');
-    final title = s.displayTitle.toLowerCase();
-    if (lang.startsWith('zh') ||
-        lang == 'chi' ||
-        lang == 'zho' ||
-        lang == 'chs' ||
-        lang == 'cht' ||
-        lang == 'cn') {
-      return true;
-    }
-    if (title.contains('中文') ||
-        title.contains('简体') ||
-        title.contains('繁体') ||
-        title.contains('繁體') ||
-        title.contains('中字') ||
-        title.contains('chs') ||
-        title.contains('cht') ||
-        title.contains('chinese')) {
-      return true;
-    }
+///
+/// 判定逻辑收敛到 [SubtitleTrackInfo.isChinese]：语言代码 → 显示名 → 文件路径
+/// 三级匹配，并对外挂字幕做「无语言标记默认中文」兜底（v1.7.23 / v1.7.27）。
+bool itemHasChineseSubtitle(MediaItem item) {
+  for (final s in item.subtitles) {
+    if (s.isChinese) return true;
   }
   return false;
 }

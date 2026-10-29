@@ -209,6 +209,8 @@ class _AppShellState extends State<AppShell>
           backgroundColor: AppColors.bg,
           body: Stack(
             children: [
+              // 压在栈最底层：启动时跑一遍毛玻璃/裁剪/缩放/淡入的 shader
+              const _ShaderWarmup(),
               Positioned.fill(
                 // 保活：切 Tab 不再销毁重建整页（图片不重解码、滚动位置保留）
                 // 未访问过的页面先放占位，避免启动时一次性构建 5 页
@@ -429,6 +431,62 @@ class _GlassNavBar extends StatelessWidget {
                 }),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 首帧着色器预热（v1.7.39）。
+///
+/// 毛玻璃（BackdropFilter）、圆角裁剪（ClipRRect）、缩放与淡入各自对应一段
+/// GPU shader，第一次用到时才会即时编译 —— 表现就是「第一次进详情页/第一次
+/// 弹面板卡一下」。这里在启动后用 2×2 的隐形控件把这四类先画一遍，两帧后
+/// 自行移除，常驻开销为零（不是常驻的动画，只是让 shader 进缓存）。
+class _ShaderWarmup extends StatefulWidget {
+  const _ShaderWarmup();
+
+  @override
+  State<_ShaderWarmup> createState() => _ShaderWarmupState();
+}
+
+class _ShaderWarmupState extends State<_ShaderWarmup> {
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 第一帧画完后，再等一帧确认已上屏，然后把自己拆掉
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _done = true);
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: 2,
+          height: 2,
+          child: Transform.scale(
+            scale: 1,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(1),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 1, sigmaY: 1),
+                child: const FadeTransition(
+                  opacity: AlwaysStoppedAnimation<double>(0.02),
+                  child: ColoredBox(color: Color(0xFFFFFFFF)),
+                ),
+              ),
+            ),
           ),
         ),
       ),

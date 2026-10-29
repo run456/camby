@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import '../routes.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
@@ -178,7 +179,7 @@ class _DetailPageState extends State<DetailPage> {
 
   void _openSubtitleFilter() {
     Navigator.of(context).push(
-      MaterialPageRoute(
+      CambyRoutes.fade(
         builder: (_) => SubtitleFilterPage(
           state: widget.state,
           onOpenDetail: widget.onOpenDetail,
@@ -189,7 +190,7 @@ class _DetailPageState extends State<DetailPage> {
 
   void _openTag(String tag) {
     Navigator.of(context).push(
-      MaterialPageRoute(
+      CambyRoutes.fade(
         builder: (_) => TagPage(
           tag: tag,
           state: widget.state,
@@ -871,7 +872,7 @@ class _DetailPageState extends State<DetailPage> {
               if (p.id == null) return;
               Navigator.push(
                 context,
-                MaterialPageRoute(
+                CambyRoutes.fade(
                   builder: (_) => PersonPage(
                     person: p,
                     state: widget.state,

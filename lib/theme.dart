@@ -495,3 +495,30 @@ class MediaItemPlaceholder {
   final String title;
   final List<Color> colors;
 }
+
+/// 动效规范常量（v1.7.38）。
+///
+/// 原先把 `easeOutCubic` / `easeOut` / `easeInSine` 和 150/160/200/220/260/280/300ms
+/// 散落在各个页面里，同一个 App 的手感被切成好几段。这里收成一套：
+/// 三档时长 + 两条曲线，所有转场/面板/按压都从这里取。
+class Anim {
+  const Anim._();
+
+  /// 标准出场/进场曲线
+  static const Curve curve = Curves.easeOutCubic;
+
+  /// 收回/离场曲线
+  static const Curve curveIn = Curves.easeInCubic;
+
+  /// 微交互（高亮、按压回弹）
+  static const Duration fast = Duration(milliseconds: 160);
+
+  /// 控件层淡入淡出
+  static const Duration base = Duration(milliseconds: 220);
+
+  /// 页面转场
+  static const Duration slow = Duration(milliseconds: 320);
+
+  /// 页面转场退场时长（比入场略快，符合"退出比进入干脆"的直觉）
+  static const Duration exit = Duration(milliseconds: 280);
+}

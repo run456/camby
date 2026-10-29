@@ -388,7 +388,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 18),
           const Center(
             child: Text(
-              'Camby v1.7.38 (78) · arm64 · 隐私政策 · 开源许可',
+              'Camby v1.7.40 (80) · arm64 · 隐私政策 · 开源许可',
               style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
             ),
           ),

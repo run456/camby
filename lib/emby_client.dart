@@ -375,22 +375,43 @@ class EmbyServer {
           ? 'ass'
           : (codec.contains('vtt') ? 'vtt' : 'srt');
 
-      // ---- v1.7.22：字幕地址多候选 ----
-      // 1) 服务器直接给的 DeliveryUrl / DeliveryUrl 绝对优先（它已经是最权威的）
-      // 2) 新路由：带 mediaSourceId + StartPositionTicks
-      // 3) 旧路由：只有 Videos/{id}/Subtitles/{idx}/Stream.ext
+      // ---- 字幕地址五级候选（v1.7.22 起草，v1.7.25 补齐） ----
+      // 各版本 Emby 的字幕提取路由不统一，而且 strm 片源经常只有其中一条能通，
+      // 所以这里一次性把所有能想到的路径按可靠性排序列出来，交给 Subtitles.load 逐个试。
+      //   1) DeliveryUrl —— 服务器自己给的，最权威
+      //   2) /Videos/{id}/{srcId}/Subtitles/{idx}/0/Stream.ext —— 标准路由（带 0 段）
+      //   3) 同上去掉 0 段 —— 少数 Emby 版本只认这条
+      //   4) /Videos/{id}/Subtitles/{idx}/Stream.ext —— 旧路由
+      //   5) /Items/{id}/File?Path=… —— 文件直取，strm 的保底路径
       final delivery = ((m['DeliveryUrl'] as String?) ??
               (m['SubtitleDeliveryUrl'] as String?) ??
               '')
           .trim();
-      final newRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
-          'Stream.$fmt?api_key=$_token&StartPositionTicks=0';
+      final subPath = ((m['Path'] as String?) ?? '').trim();
+      final stdRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+          '0/Stream.$fmt?api_key=$_token';
+      final noZeroRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+          'Stream.$fmt?api_key=$_token';
       final oldRoute = '$baseUrl/Videos/$id/Subtitles/$idx/'
           'Stream.$fmt?api_key=$_token';
+      final fileRoute = subPath.isEmpty
+          ? ''
+          : '$baseUrl/Items/$id/File'
+              '?Path=${Uri.encodeQueryComponent(subPath)}&api_key=$_token';
 
-      final primary = delivery.isNotEmpty
-          ? _absolutize(delivery)
-          : newRoute;
+      final ordered = <String>[
+        if (delivery.isNotEmpty) _absolutize(delivery),
+        stdRoute,
+        noZeroRoute,
+        oldRoute,
+        if (fileRoute.isNotEmpty) fileRoute,
+      ];
+      // 去重但保持优先级：Set 会打乱顺序，这里手工过滤
+      final seen = <String>{};
+      final uniq = <String>[
+        for (final u in ordered)
+          if (u.isNotEmpty && seen.add(u)) u,
+      ];
       subtitles.add(
         SubtitleTrackInfo(
           index: idx,
@@ -400,11 +421,9 @@ class EmbyServer {
           codec: codec,
           isDefault: m['IsDefault'] as bool? ?? false,
           isForced: m['IsForced'] as bool? ?? false,
-          url: primary,
-          altUrls: <String>[
-            if (delivery.isEmpty) oldRoute else newRoute,
-            if (delivery.isEmpty) newRoute else oldRoute,
-          ],
+          url: uniq.first,
+          altUrls: uniq.skip(1).toList(growable: false),
+          sourcePath: subPath,
         ),
       );
     }
@@ -825,7 +844,30 @@ class EmbyServer {
 
   /// 下载原始字节（外挂字幕 / 图片等）。与 _getJson 同款鉴权头 + 忽略自签证书，
   /// 让字幕叠加层等非 video_player 通道的下载，与视频一样能过 LAN 证书与头鉴权。
+  /// 字幕响应的体积上限（v1.7.28）。
+  ///
+  /// 8MB 对任何文本字幕都绰绰有余（一集 45 分钟的对白 SRT 通常 50–80KB），
+  /// 而 `/Items/{id}/File` 这类端点在 strm 片源上偶尔会**直接返回视频本体**，
+  /// 几 GB 一次性读进内存就是 OOM 闪退。这里把上限当硬闸门。
+  static const int kMaxSubtitleBytes = 8 * 1024 * 1024;
+
+  /// 最近一次字幕下载的诊断信息，供播放页提示「字幕：xx（失败原因）」
+  String subtitleDiag = '';
+
   Future<List<int>?> fetchBytes(String url) async {
+    subtitleDiag = '';
+    var r = await _fetchBytesOnce(url);
+    if (r == null) {
+      // 偶发失败（连接被复用到已关闭的 socket、服务器瞬时 5xx）
+      // 在 600ms 后重试一次 —— 对应「字幕有时加载不出来，重开 App 才好」
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      r = await _fetchBytesOnce(url);
+      if (r != null) subtitleDiag = '';
+    }
+    return r;
+  }
+
+  Future<List<int>?> _fetchBytesOnce(String url) async {
     if (_token == null) return null;
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10)
@@ -840,16 +882,77 @@ class EmbyServer {
       );
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       final res = await req.close().timeout(const Duration(seconds: 15));
-      if (res.statusCode != 200) return null;
-      return await res
-          .fold<List<int>>(<int>[], (a, b) => a..addAll(b))
-          .timeout(const Duration(seconds: 15));
-    } catch (_) {
+      if (res.statusCode != 200) {
+        subtitleDiag = 'HTTP ${res.statusCode}';
+        return null;
+      }
+
+      // ① 先看声明长度，超限一个字节都不收
+      final declared = res.contentLength;
+      if (declared > kMaxSubtitleBytes) {
+        subtitleDiag = '响应 ${_mb(declared)} 超过上限，判定不是字幕';
+        return null;
+      }
+
+      // ② 流式读取，边读边查上限
+      final buf = <int>[];
+      var over = false;
+      await for (final chunk in res.timeout(const Duration(seconds: 15))) {
+        buf.addAll(chunk);
+        if (buf.length > kMaxSubtitleBytes) {
+          over = true;
+          break;
+        }
+      }
+      if (over) {
+        subtitleDiag = '响应超过 ${_mb(kMaxSubtitleBytes)} 上限，判定不是字幕';
+        return null;
+      }
+
+      // ③ 视频魔数嗅探：MKV 的 EBML 头 / MP4 的 ftyp box
+      final magic = _videoMagic(buf);
+      if (magic != null) {
+        subtitleDiag = '服务器返回的是 $magic 视频本体，不是字幕';
+        return null;
+      }
+      return buf;
+    } catch (e) {
+      subtitleDiag = '下载失败：$e';
       return null;
     } finally {
       client.close(force: true);
     }
   }
+
+  static String _mb(int bytes) =>
+      '${(bytes / (1024 * 1024)).toStringAsFixed(1)}MB';
+
+  /// 返回命中的视频格式名，不是视频则返回 null
+  static String? _videoMagic(List<int> b) {
+    if (b.length >= 4 &&
+        b[0] == 0x1A &&
+        b[1] == 0x45 &&
+        b[2] == 0xDF &&
+        b[3] == 0xA3) {
+      return 'MKV/WebM';
+    }
+    // MP4/MOV：offset 4 起是 "ftyp"
+    if (b.length >= 8 &&
+        b[4] == 0x66 && // f
+        b[5] == 0x74 && // t
+        b[6] == 0x79 && // y
+        b[7] == 0x70) {
+      return 'MP4';
+    }
+    // AVI: "RIFF" + "AVI "
+    if (b.length >= 12 &&
+        b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
+        b[8] == 0x41 && b[9] == 0x56 && b[10] == 0x49) {
+      return 'AVI';
+    }
+    return null;
+  }
+
 
   /// 下载文本（字幕叠加层用），自动处理 UTF-8 / GBK 容错
   Future<String?> fetchText(String url) async {

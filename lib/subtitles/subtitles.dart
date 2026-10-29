@@ -36,6 +36,11 @@ class Subtitles {
     Future<List<int>?> Function(String)? fetcher,
     String? fallbackUrl,
     List<String> altUrls = const <String>[],
+    /// 取「注入通道最近一次失败原因」的回调（v1.7.28）。
+    ///
+    /// 体积超限 / 服务器返回视频本体这类判定发生在 [fetcher] 内部，
+    /// 不把原因取出来，UI 只能显示笼统的「下载失败」，用户没法自查。
+    String Function()? diagOf,
   }) async {
     lastDiag = '';
     final urls = <String>[
@@ -54,7 +59,12 @@ class Subtitles {
     for (final u in urls) {
       var bytes = await _fetchBytes(u, fetcher);
       if (bytes == null) {
-        if (lastDiag.isEmpty) lastDiag = '下载失败';
+        final reason = diagOf?.call() ?? '';
+        if (reason.isNotEmpty) {
+          lastDiag = reason;
+        } else if (lastDiag.isEmpty) {
+          lastDiag = '下载失败';
+        }
         continue;
       }
       var raw = _decode(bytes);
@@ -105,9 +115,21 @@ class Subtitles {
         lastDiag = 'HTTP ${res.statusCode}';
         return null;
       }
-      return await res
-          .fold<List<int>>(<int>[], (a, b) => a..addAll(b))
-          .timeout(const Duration(seconds: 15));
+      // 与 EmbyServer.fetchBytes 同款上限：兜底通道也可能撞上视频本体
+      const cap = 8 * 1024 * 1024;
+      if (res.contentLength > cap) {
+        lastDiag = '响应过大，判定不是字幕';
+        return null;
+      }
+      final buf = <int>[];
+      await for (final chunk in res.timeout(const Duration(seconds: 15))) {
+        buf.addAll(chunk);
+        if (buf.length > cap) {
+          lastDiag = '响应过大，判定不是字幕';
+          return null;
+        }
+      }
+      return buf;
     } catch (_) {
       lastDiag = '请求异常';
       return null;

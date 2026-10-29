@@ -46,33 +46,32 @@ class SubtitleStyle {
     double? stroke,
     double? offset,
     Color? color,
-  }) =>
-      SubtitleStyle(
-        size: size ?? this.size,
-        pos: pos ?? this.pos,
-        opa: opa ?? this.opa,
-        stroke: stroke ?? this.stroke,
-        offset: offset ?? this.offset,
-        color: color ?? this.color,
-      );
+  }) => SubtitleStyle(
+    size: size ?? this.size,
+    pos: pos ?? this.pos,
+    opa: opa ?? this.opa,
+    stroke: stroke ?? this.stroke,
+    offset: offset ?? this.offset,
+    color: color ?? this.color,
+  );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'size': size,
-        'pos': pos,
-        'opa': opa,
-        'stroke': stroke,
-        'offset': offset,
-        'color': color.toARGB32(),
-      };
+    'size': size,
+    'pos': pos,
+    'opa': opa,
+    'stroke': stroke,
+    'offset': offset,
+    'color': color.toARGB32(),
+  };
 
   factory SubtitleStyle.fromJson(Map<String, dynamic> j) => SubtitleStyle(
-        size: (j['size'] as num?)?.toDouble() ?? 17,
-        pos: (j['pos'] as num?)?.toDouble() ?? 0.12,
-        opa: (j['opa'] as num?)?.toDouble() ?? 1.0,
-        stroke: (j['stroke'] as num?)?.toDouble() ?? 1.8,
-        offset: (j['offset'] as num?)?.toDouble() ?? 0.0,
-        color: Color((j['color'] as num?)?.toInt() ?? 0xFFFFFFFF),
-      );
+    size: (j['size'] as num?)?.toDouble() ?? 17,
+    pos: (j['pos'] as num?)?.toDouble() ?? 0.12,
+    opa: (j['opa'] as num?)?.toDouble() ?? 1.0,
+    stroke: (j['stroke'] as num?)?.toDouble() ?? 1.8,
+    offset: (j['offset'] as num?)?.toDouble() ?? 0.0,
+    color: Color((j['color'] as num?)?.toInt() ?? 0xFFFFFFFF),
+  );
 
   /// 字号基准（dp）：libmpv 的 `sub-scale = 1.0` 按这个字号对齐，
   /// 保证 Exo 叠加层与 MPV 原生渲染的观感一致。
@@ -80,28 +79,26 @@ class SubtitleStyle {
 
   /// 叠加层文字的最终样式（播放页直接拿去给 Text 用）
   TextStyle get textStyle => TextStyle(
-        fontSize: size,
-        height: 1.32,
-        fontWeight: FontWeight.w600,
-        color: color.withAlpha((255 * opa.clamp(0.0, 1.0)).round()),
-        shadows: stroke <= 0
-            ? const <Shadow>[
-                Shadow(color: Color(0xCC000000), blurRadius: 8),
-              ]
-            : <Shadow>[
-                for (final o in const [
-                  Offset(1, 1),
-                  Offset(-1, 1),
-                  Offset(1, -1),
-                  Offset(-1, -1),
-                ])
-                  Shadow(
-                    color: const Color(0xE6000000),
-                    blurRadius: stroke,
-                    offset: o,
-                  ),
-              ],
-      );
+    fontSize: size,
+    height: 1.32,
+    fontWeight: FontWeight.w600,
+    color: color.withAlpha((255 * opa.clamp(0.0, 1.0)).round()),
+    shadows: stroke <= 0
+        ? const <Shadow>[Shadow(color: Color(0xCC000000), blurRadius: 8)]
+        : <Shadow>[
+            for (final o in const [
+              Offset(1, 1),
+              Offset(-1, 1),
+              Offset(1, -1),
+              Offset(-1, -1),
+            ])
+              Shadow(
+                color: const Color(0xE6000000),
+                blurRadius: stroke,
+                offset: o,
+              ),
+          ],
+  );
 
   /// 距底部的实际位置比例（标准位置 + 微调）
   double get bottomRatio => (pos + offset).clamp(0.0, 0.6);
@@ -121,7 +118,8 @@ abstract final class SubtitleStyleStore {
   static Future<SubtitleStyle> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final hasAny = prefs.containsKey(kSize) ||
+      final hasAny =
+          prefs.containsKey(kSize) ||
           prefs.containsKey(kPos) ||
           prefs.containsKey(kColor);
       if (!hasAny) return const SubtitleStyle();
@@ -219,119 +217,129 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xF2141A28),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: Colors.white.withOpacity(0.25),
+    final h = MediaQuery.sizeOf(context).height;
+    // v1.7.32：从底部抽屉改为居中玻璃面板，与播放信息/变速/字幕选择统一
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 470, maxHeight: h * 0.88),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: const Color(0xF2141A28),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 40,
+                offset: const Offset(0, 18),
               ),
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(18, 12, 18, 6),
-              child: Row(
-                children: [
-                  Text(
-                    '字幕样式',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // 实时预览
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  gradient: LinearGradient(
-                    colors: [
-                      Colors.white.withOpacity(0.5),
-                      AppColors.bg.withOpacity(0.35),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(18, 12, 18, 6),
+                  child: Row(
+                    children: [
+                      Text(
+                        '字幕样式',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                child: SizedBox(
-                  height: 84,
-                  child: Center(
-                    child: Text(
-                      '字幕预览 Subtitle Preview',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      style: _style.textStyle,
+                // 实时预览
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 6,
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withOpacity(0.5),
+                          AppColors.bg.withOpacity(0.35),
+                        ],
+                      ),
+                    ),
+                    child: SizedBox(
+                      height: 84,
+                      child: Center(
+                        child: Text(
+                          '字幕预览 Subtitle Preview',
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          style: _style.textStyle,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                _colorRow(),
+                _slider(
+                  label: '字号',
+                  value: _style.size,
+                  min: 12,
+                  max: 30,
+                  step: 1,
+                  display: '${_style.size.round()}',
+                  onLive: (v) => _emit(_style.copyWith(size: v)),
+                  onCommit: (v) => _commit(_style.copyWith(size: v)),
+                ),
+                _slider(
+                  label: '位置',
+                  value: _style.pos,
+                  min: 0.04,
+                  max: 0.45,
+                  step: 0.01,
+                  display: '${(_style.pos * 100).round()}%',
+                  onLive: (v) => _emit(_style.copyWith(pos: v)),
+                  onCommit: (v) => _commit(_style.copyWith(pos: v)),
+                ),
+                _slider(
+                  label: '偏移',
+                  value: _style.offset,
+                  min: -0.2,
+                  max: 0.2,
+                  step: 0.01,
+                  display: _style.offset.toStringAsFixed(2),
+                  onLive: (v) => _emit(_style.copyWith(offset: v)),
+                  onCommit: (v) => _commit(_style.copyWith(offset: v)),
+                ),
+                _slider(
+                  label: '不透明度',
+                  value: _style.opa,
+                  min: 0.3,
+                  max: 1.0,
+                  step: 0.05,
+                  display: '${(_style.opa * 100).round()}%',
+                  onLive: (v) => _emit(_style.copyWith(opa: v)),
+                  onCommit: (v) => _commit(_style.copyWith(opa: v)),
+                ),
+                _slider(
+                  label: '描边',
+                  value: _style.stroke,
+                  min: 0,
+                  max: 4,
+                  step: 0.2,
+                  display: _style.stroke.toStringAsFixed(1),
+                  onLive: (v) => _emit(_style.copyWith(stroke: v)),
+                  onCommit: (v) => _commit(_style.copyWith(stroke: v)),
+                ),
+                const SizedBox(height: 12),
+              ],
             ),
-            _colorRow(),
-            _slider(
-              label: '字号',
-              value: _style.size,
-              min: 12,
-              max: 30,
-              step: 1,
-              display: '${_style.size.round()}',
-              onLive: (v) => _emit(_style.copyWith(size: v)),
-              onCommit: (v) => _commit(_style.copyWith(size: v)),
-            ),
-            _slider(
-              label: '位置',
-              value: _style.pos,
-              min: 0.04,
-              max: 0.45,
-              step: 0.01,
-              display: '${(_style.pos * 100).round()}%',
-              onLive: (v) => _emit(_style.copyWith(pos: v)),
-              onCommit: (v) => _commit(_style.copyWith(pos: v)),
-            ),
-            _slider(
-              label: '偏移',
-              value: _style.offset,
-              min: -0.2,
-              max: 0.2,
-              step: 0.01,
-              display: _style.offset.toStringAsFixed(2),
-              onLive: (v) => _emit(_style.copyWith(offset: v)),
-              onCommit: (v) => _commit(_style.copyWith(offset: v)),
-            ),
-            _slider(
-              label: '不透明度',
-              value: _style.opa,
-              min: 0.3,
-              max: 1.0,
-              step: 0.05,
-              display: '${(_style.opa * 100).round()}%',
-              onLive: (v) => _emit(_style.copyWith(opa: v)),
-              onCommit: (v) => _commit(_style.copyWith(opa: v)),
-            ),
-            _slider(
-              label: '描边',
-              value: _style.stroke,
-              min: 0,
-              max: 4,
-              step: 0.2,
-              display: _style.stroke.toStringAsFixed(1),
-              onLive: (v) => _emit(_style.copyWith(stroke: v)),
-              onCommit: (v) => _commit(_style.copyWith(stroke: v)),
-            ),
-            const SizedBox(height: 12),
-          ],
+          ),
         ),
       ),
     );
@@ -384,10 +392,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               padding: const EdgeInsets.only(left: 12),
               child: Text(
                 label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF9FB0CC),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF9FB0CC)),
               ),
             ),
           ),
@@ -397,13 +402,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
             color: Colors.white,
             icon: const Icon(Icons.remove_rounded),
             onPressed: value > min
-                ? () => _nudge(
-                      value,
-                      -step,
-                      min,
-                      max,
-                      (v) => _copyBy(label, v),
-                    )
+                ? () => _nudge(value, -step, min, max, (v) => _copyBy(label, v))
                 : null,
           ),
           Expanded(
@@ -414,8 +413,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                 thumbColor: Colors.white,
                 overlayColor: AppColors.accent.withOpacity(0.2),
                 trackHeight: 3,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 8),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
               ),
               child: Slider(
                 value: value.clamp(min, max),
@@ -433,13 +431,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
             color: Colors.white,
             icon: const Icon(Icons.add_rounded),
             onPressed: value < max
-                ? () => _nudge(
-                      value,
-                      step,
-                      min,
-                      max,
-                      (v) => _copyBy(label, v),
-                    )
+                ? () => _nudge(value, step, min, max, (v) => _copyBy(label, v))
                 : null,
           ),
           SizedBox(

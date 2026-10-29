@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
+import '../routes.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
@@ -250,7 +251,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
   void _openFolder(String? id, String title) {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      CambyRoutes.fade(
         builder: (_) => FolderPage(
           state: widget.state,
           folderId: id,
@@ -434,7 +435,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
   void _openPerson(CastMember p) {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      CambyRoutes.fade(
         builder: (_) => PersonPage(
           person: p,
           state: widget.state,

@@ -11,6 +11,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../player/playback.dart';
 import '../subtitles/subtitles.dart';
+import '../routes.dart';
 import '../theme.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
@@ -85,7 +86,23 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   double _playbackSpeed = 1.0;
   PlaybackFit _fit = PlaybackFit.fit;
-  String _bufText = '';
+
+  // ---- 高频刷新解耦（v1.7.38）----
+  // 以前 _ticker 每 300ms 就 setState 一次，整页（含一堆 Glass 毛玻璃控件）
+  // 跟着重建，拖进度、切倍速时肉眼可见掉帧。现在三个高频量各自走
+  // ValueNotifier，只有订阅它们的那一小块子树重建。
+  final ValueNotifier<double> _posNv = ValueNotifier<double>(0);
+  final ValueNotifier<String> _bufNv = ValueNotifier<String>('');
+  final ValueNotifier<String> _cueNv = ValueNotifier<String>('');
+  // 字幕样式变更信号：拖动滑杆时只递增它，让叠加层重画，
+  // 不再 setState 整页（v1.7.28 的卡顿根因）
+  final ValueNotifier<int> _styleRev = ValueNotifier<int>(0);
+
+  String get _bufText => _bufNv.value;
+  set _bufText(String v) {
+    if (_bufNv.value != v) _bufNv.value = v;
+  }
+
   Timer? _bufTimer;
   // Exo 没有字节速率接口：用「缓冲时长增速 × 平均码率」估算下载速度
   double _lastBufSec = 0;
@@ -96,10 +113,13 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // ---- 1.7.38 新增：字幕样式 / 码率 / 硬解 / 播放上报 ----
   /// 叠加字幕的显示样式（持久化，见 SubtitleStyleStore）
   SubtitleStyle _subStyle = const SubtitleStyle();
+
   /// 最大码率（bps）。null = 原片直连；有值时服务端按该码率转码。
   int? _maxBitrate;
+
   /// 当前是否硬件解码（由播放页直接热切换，不再回设置页）
   bool _hw = true;
+
   /// 进度上报节流
   Timer? _reportTimer;
   DateTime? _lastReportAt;
@@ -110,7 +130,13 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // 字幕 / 分集 / 画面信息
   SubtitleTrackInfo? _subtitle;
   List<SubtitleCue> _cues = const [];
-  String _cueText = '';
+
+  /// 当前应显示的字幕文本（v1.7.38 改由 ValueNotifier 驱动，见 [_cueNv]）
+  String get _cueText => _cueNv.value;
+  set _cueText(String v) {
+    if (_cueNv.value != v) _cueNv.value = v;
+  }
+
   List<MediaItem> _episodes = const [];
   int _episodeIndex = -1;
 
@@ -140,8 +166,13 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _resetHideTimer();
     _ticker = Timer.periodic(const Duration(milliseconds: 300), (_) {
       if (!mounted) return;
+      // 演示模式没有真实内核，进度靠这里推进（原来写在 build 里）
+      if (_demo && _demoPlaying && !_scrubbing && !_seeking) {
+        _demoPosition = math.min(_demoPosition + 0.3, _totalSeconds);
+        if (_demoPosition >= _totalSeconds) _demoPosition = 0;
+      }
       _tickCue();
-      setState(() {});
+      _syncPos();
     });
     _bufTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -251,23 +282,19 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Future<void> _showSubtitleStyle() async {
     _hideTimer?.cancel();
     final base = _subStyle;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => AnimatedPadding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        duration: const Duration(milliseconds: 180),
-        child: SubtitleStyleSheet(
+    await Navigator.of(context).push<void>(
+      _GlassPanelRoute<void>(
+        builder: (ctx) => SubtitleStyleSheet(
           style: base,
           onChanged: (next, commit) {
             if (!mounted) return;
-            setState(() => _subStyle = next);
-            // 面板里拖一下就要立刻反映到画面：
+            // 拖动中只更新样式（叠加层会跟着重建），不 setState 整页
+            _subStyle = next;
+            _styleRev.value++;
             // Exo 走叠加层（读 _subStyle 重建即可），MPV 需要下发原生属性
-            unawaited(_player?.applySubtitleStyle(next) ?? Future<void>.value());
+            unawaited(
+              _player?.applySubtitleStyle(next) ?? Future<void>.value(),
+            );
           },
         ),
       ),
@@ -303,6 +330,12 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           .toList(),
     );
     if (!mounted) return;
+    // 点暗层/手势返回关闭 → null，等同于「不改」。
+    // 以前直接往下走会把 null 当成「不限码率」，关个面板就把码率重置了。
+    if (picked == null) {
+      _resetHideTimer();
+      return;
+    }
     await _applyBitrate(picked == -1 ? null : picked);
   }
 
@@ -324,7 +357,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       if (srv != null) {
         ok = await _start(
           _engine,
-          srv.streamUrl(widget.item.id, direct: bitrate == null, maxBitrate: bitrate),
+          srv.streamUrl(
+            widget.item.id,
+            direct: bitrate == null,
+            maxBitrate: bitrate,
+          ),
         );
       }
       if (!ok) ok = await _start(_engine, url);
@@ -401,8 +438,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 节流后的进度上报入口：10s 定时器、暂停 / 播放切换都走这里
   Future<void> _reportProgress() async {
     final now = DateTime.now();
-    if (_lastReportAt != null &&
-        now.difference(_lastReportAt!).inSeconds < 5) {
+    if (_lastReportAt != null && now.difference(_lastReportAt!).inSeconds < 5) {
       return;
     }
     await _reportProgressNow();
@@ -414,10 +450,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     if (srv == null || _demo) return;
     _lastReportAt = DateTime.now();
     unawaited(
-      srv.reportProgress(
-        widget.item.id,
-        (_positionSeconds * 10000000).round(),
-      ),
+      srv.reportProgress(widget.item.id, (_positionSeconds * 10000000).round()),
     );
   }
 
@@ -429,30 +462,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     required List<(String, VoidCallback, bool)> options,
   }) {
     _hideTimer?.cancel();
-    return showModalBottomSheet<T>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _GlassPanel(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    return Navigator.of(context).push<T>(
+      _GlassPanelRoute<T>(
+        builder: (ctx) => _Sheet(
+          title: title,
+          subtitle: subtitle,
           children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: Colors.white.withOpacity(0.25),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
-              child: _InfoHeader(title: title, subtitle: subtitle),
-            ),
-            ...options.map(
-              (e) => _SheetRow(label: e.$1, selected: e.$3, onTap: e.$2),
-            ),
-            const SizedBox(height: 12),
+            for (final e in options)
+              _SheetRow(label: e.$1, selected: e.$3, onTap: e.$2),
           ],
         ),
       ),
@@ -518,7 +535,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   void _goEpisode(int delta) {
     final next = _episodes[_episodeIndex + delta];
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
+      CambyRoutes.fade(
         builder: (_) => PlayerPage(
           item: next,
           state: widget.state,
@@ -634,12 +651,22 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _reportTimer = null;
     unawaited(_reportProgressNow());
     _player?.dispose();
+    _posNv.dispose();
+    _bufNv.dispose();
+    _cueNv.dispose();
+    _styleRev.dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
 
   bool get _demo => _fallback || _player == null || !_player!.ready;
+
+  /// 把当前应显示的进度推给 [_posNv]（拖动中取预览位置，避免回弹）
+  void _syncPos() {
+    final p = (_scrubbing || _seeking) ? _scrubPos : _positionSeconds;
+    if ((_posNv.value - p).abs() > 0.01) _posNv.value = p;
+  }
 
   double get _totalSeconds {
     final d = _player?.durationSeconds ?? 0;
@@ -766,15 +793,16 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _scrubStartPos = _positionSeconds;
     _scrubPos = start.clamp(0.0, _totalSeconds);
     _armScrubWatch();
+    _syncPos();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
-    setState(() {});
   }
 
   void _updateScrub(double v) {
     _scrubPos = v.clamp(0.0, _totalSeconds);
     _previewSeek(_scrubPos);
     _armScrubWatch();
-    if (mounted) setState(() {});
+    // 拖动中也要推给进度条，否则手指在动、条不动
+    _syncPos();
   }
 
   Future<void> _endScrub() async {
@@ -786,7 +814,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final target = _scrubPos.clamp(0.0, _totalSeconds);
     _scrubbing = false;
     _scrubWatch?.cancel();
-    if (mounted) setState(() {});
+    _syncPos();
     await _commitSeek(target);
     _resetHideTimer();
   }
@@ -954,21 +982,22 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 倍速选择弹层：底栏「倍速」胶囊点开后选档，替代右侧竖排调节杆
   Future<void> _pickSpeed() async {
     const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
-    final picked = await showModalBottomSheet<double>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _Sheet(
-        title: '播放速度',
-        children: speeds.map((s) {
-          final label = s.toStringAsFixed(2)
-              .replaceAll(RegExp(r'0+$'), '')
-              .replaceAll(RegExp(r'\.$'), '');
-          return _SheetRow(
-            label: '$label×',
-            selected: _playbackSpeed == s,
-            onTap: () => Navigator.pop(ctx, s),
-          );
-        }).toList(),
+    final picked = await Navigator.of(context).push<double>(
+      _GlassPanelRoute<double>(
+        builder: (ctx) => _Sheet(
+          title: '播放速度',
+          children: speeds.map((s) {
+            final label = s
+                .toStringAsFixed(2)
+                .replaceAll(RegExp(r'0+$'), '')
+                .replaceAll(RegExp(r'\.$'), '');
+            return _SheetRow(
+              label: '$label×',
+              selected: _playbackSpeed == s,
+              onTap: () => Navigator.pop(ctx, s),
+            );
+          }).toList(),
+        ),
       ),
     );
     if (picked != null) await _setSpeed(picked);
@@ -1008,26 +1037,28 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       showToast(context, '该影片没有可用的外挂字幕');
       return;
     }
-    final picked = await showModalBottomSheet<_SubPick>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _Sheet(
-        title: '选择字幕',
-        children: [
-          _SheetRow(
-            label: '关闭字幕',
-            selected: _subtitle == null,
-            onTap: () => Navigator.pop(ctx, const _SubPick(null)),
-          ),
-          ...tracks.map(
-            (t) => _SheetRow(
-              label: t.menuLabel,
-              hint: t.displayTitle.isEmpty ? _shortSubUrl(t.url) : t.displayTitle,
-              selected: _subtitle?.url == t.url,
-              onTap: () => Navigator.pop(ctx, _SubPick(t)),
+    final picked = await Navigator.of(context).push<_SubPick>(
+      _GlassPanelRoute<_SubPick>(
+        builder: (ctx) => _Sheet(
+          title: '选择字幕',
+          children: [
+            _SheetRow(
+              label: '关闭字幕',
+              selected: _subtitle == null,
+              onTap: () => Navigator.pop(ctx, const _SubPick(null)),
             ),
-          ),
-        ],
+            ...tracks.map(
+              (t) => _SheetRow(
+                label: t.menuLabel,
+                hint: t.displayTitle.isEmpty
+                    ? _shortSubUrl(t.url)
+                    : t.displayTitle,
+                selected: _subtitle?.url == t.url,
+                onTap: () => Navigator.pop(ctx, _SubPick(t)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
     // 点弹窗外部关闭 → picked 为 null：什么都不做。
@@ -1098,6 +1129,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       altUrls: texts.length > 1 ? texts.sublist(1) : const <String>[],
       fetcher: _subFetcher,
       fallbackUrl: track.url,
+      diagOf: () => widget.state.server?.subtitleDiag ?? '',
     );
     if (!mounted || _subtitle?.url != track.url) return const [];
     setState(() {
@@ -1126,6 +1158,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       altUrls: texts.length > 1 ? texts.sublist(1) : const <String>[],
       fetcher: _subFetcher,
       fallbackUrl: track.url,
+      diagOf: () => widget.state.server?.subtitleDiag ?? '',
     );
     if (!mounted || _subtitle?.url != track.url) return;
     setState(() => _cues = cues);
@@ -1134,54 +1167,57 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   void _showInfo() {
     final item = widget.item;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _Sheet(
-        title: '播放信息',
-        children: [
-          _InfoRow(k: '片名', v: item.name),
-          _InfoRow(k: '内核', v: _engine.label),
-          _InfoRow(
-            k: '画质',
-            v: item.resolutionKnown
-                ? '${item.videoHeight}p · ${item.videoCodec}'
-                : '未知 · ${item.videoCodec}',
-          ),
-          _InfoRow(k: '音频', v: '${item.audioCodec} · ${item.audioChannels}ch'),
-          _InfoRow(k: '封装', v: item.container),
-          _InfoRow(k: '字幕', v: _subInfoText()),
-          _InfoRow(k: '倍速', v: _speedLabel),
-          _InfoRow(k: '码率', v: _bitrateText()),
-          _InfoRow(
-            k: '进度',
-            v:
-                '${_fmt(_positionSeconds)} / ${_fmt(_totalSeconds)}'
-                '${_player?.durationSeconds != null && _player!.durationSeconds > 0 ? '' : '（时长未知，用片长兜底）'}',
-          ),
-          _InfoRow(k: '最近跳转', v: _seekDiag),
-          _InfoRow(
-            k: '内核状态',
-            v:
-                '${_player?.ready == true ? '已就绪' : '未就绪'}'
-                '${_player?.lastSeekOk == true ? '' : ' · ${_player?.lastSeekError ?? ''}'}',
-          ),
-          _SheetRow(
-            label: '码率上限（当前 ${_bitrateShort()}）',
-            hint: '调低可适配外网',
-            onTap: () {
-              Navigator.pop(ctx);
-              unawaited(_changeBitrate());
-            },
-          ),
-          _SheetRow(
-            label: '切换内核（当前 ${_engine.short}）',
-            onTap: () {
-              Navigator.pop(ctx);
-              _switchEngine();
-            },
-          ),
-        ],
+    Navigator.of(context).push<void>(
+      _GlassPanelRoute<void>(
+        builder: (ctx) => _Sheet(
+          title: '播放信息',
+          children: [
+            _InfoRow(k: '片名', v: item.name),
+            _InfoRow(k: '内核', v: _engine.label),
+            _InfoRow(
+              k: '画质',
+              v: item.resolutionKnown
+                  ? '${item.videoHeight}p · ${item.videoCodec}'
+                  : '未知 · ${item.videoCodec}',
+            ),
+            _InfoRow(
+              k: '音频',
+              v: '${item.audioCodec} · ${item.audioChannels}ch',
+            ),
+            _InfoRow(k: '封装', v: item.container),
+            _InfoRow(k: '字幕', v: _subInfoText()),
+            _InfoRow(k: '倍速', v: _speedLabel),
+            _InfoRow(k: '码率', v: _bitrateText()),
+            _InfoRow(
+              k: '进度',
+              v:
+                  '${_fmt(_positionSeconds)} / ${_fmt(_totalSeconds)}'
+                  '${_player?.durationSeconds != null && _player!.durationSeconds > 0 ? '' : '（时长未知，用片长兜底）'}',
+            ),
+            _InfoRow(k: '最近跳转', v: _seekDiag),
+            _InfoRow(
+              k: '内核状态',
+              v:
+                  '${_player?.ready == true ? '已就绪' : '未就绪'}'
+                  '${_player?.lastSeekOk == true ? '' : ' · ${_player?.lastSeekError ?? ''}'}',
+            ),
+            _SheetRow(
+              label: '码率上限（当前 ${_bitrateShort()}）',
+              hint: '调低可适配外网',
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(_changeBitrate());
+              },
+            ),
+            _SheetRow(
+              label: '切换内核（当前 ${_engine.short}）',
+              onTap: () {
+                Navigator.pop(ctx);
+                _switchEngine();
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1189,14 +1225,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // ---------------- 构建 ----------------
   @override
   Widget build(BuildContext context) {
-    if (_demo && _demoPlaying && !_scrubbing && !_seeking) {
-      _demoPosition = math.min(_demoPosition + 0.3, _totalSeconds);
-      if (_demoPosition >= _totalSeconds) _demoPosition = 0;
-    }
     final item = widget.item;
     final total = _totalSeconds;
-    // 拖动中、以及松手后等待跳转确认期间，都显示预览位置，杜绝回弹
-    final pos = (_scrubbing || _seeking) ? _scrubPos : _positionSeconds;
     // 系统返回手势/返回键也走统一退出序列（黑幕遮旋转）
     return PopScope(
       canPop: false,
@@ -1415,28 +1445,36 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 ),
 
               // 外挂字幕叠加层（Exo 内核 / MPV 未接管时）：
-              // 位置随控制层显隐让位，避免压住进度条
-              if (_cueText.isNotEmpty)
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  // 位置随控制层显隐让位（避免压住进度条）；控制层可见时再按
-                  // 用户自定义的「位置 + 偏移」定位，遵循 _subStyle 的设置
-                  bottom: _controlsVisible
-                      ? 128
-                      : (MediaQuery.of(context).size.height *
+              // 只订阅 _cueNv，字幕换行不会连带重建整页
+              ListenableBuilder(
+                listenable: Listenable.merge(<Listenable>[_cueNv, _styleRev]),
+                builder: (context, _) {
+                  final cue = _cueText;
+                  if (cue.isEmpty) return const SizedBox.shrink();
+                  return Positioned(
+                    left: 24,
+                    right: 24,
+                    // v1.7.28：位置完全固定，不随控制层显隐跳动
+                    // （代价是控件弹出时进度条可能短暂压住字幕，这是"固定"的必然结果）
+                    bottom:
+                        (MediaQuery.of(context).size.height *
                                 _subStyle.bottomRatio)
-                            .clamp(24.0, MediaQuery.of(context).size.height / 2),
-                  child: IgnorePointer(
-                    child: Text(
-                      _cueText,
-                      textAlign: TextAlign.center,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: _subStyle.textStyle,
+                            .clamp(
+                              12.0,
+                              MediaQuery.of(context).size.height / 2,
+                            ),
+                    child: IgnorePointer(
+                      child: Text(
+                        cue,
+                        textAlign: TextAlign.center,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: _subStyle.textStyle,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
+              ),
 
               // 控制层
               IgnorePointer(
@@ -1467,7 +1505,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                       _topBar(context, item),
                       // 拖动进度时隐藏中央按钮，把画面让给大时间提示
                       if (!_scrubbing) _centerControls(),
-                      _bottomBar(context, pos, total),
+                      _bottomBar(context, total),
                     ],
                   ),
                 ),
@@ -1680,7 +1718,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _bottomBar(BuildContext context, double pos, double total) {
+  Widget _bottomBar(BuildContext context, double total) {
     return Positioned(
       left: 16,
       right: 16,
@@ -1690,84 +1728,99 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _ProgressBar(
-              value: pos,
-              total: total,
-              pressed: _barPressed,
-              onDown: (v) {
-                _barPressed = true;
-                _beginScrub(v);
-              },
-              onUpdate: _updateScrub,
-              onUp: (v) {
-                _barPressed = false;
-                _updateScrub(v);
-                unawaited(_endScrub());
-              },
+            // 进度条只订阅位置
+            ValueListenableBuilder<double>(
+              valueListenable: _posNv,
+              builder: (_, pos, __) => _ProgressBar(
+                value: pos,
+                total: total,
+                pressed: _barPressed,
+                onDown: (v) {
+                  _barPressed = true;
+                  _beginScrub(v);
+                },
+                onUpdate: _updateScrub,
+                onUp: (v) {
+                  _barPressed = false;
+                  _updateScrub(v);
+                  unawaited(_endScrub());
+                },
+              ),
             ),
-            const SizedBox(height: 2),
-            // 时间单独一行：不再和两个胶囊挤在一行（挤爆会画出溢出条纹）
+            const SizedBox(height: 8),
+            // 单行：左边当前时间 → 中间胶囊（弹性）→ 右边缓冲速率 + 总时长
+            // v1.7.33/1.7.40：时长与缓冲固定贴最右，不再和按钮挤在一行里
             Row(
               children: [
-                Text(
-                  _fmt(pos),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFC6D5EF),
+                ValueListenableBuilder<double>(
+                  valueListenable: _posNv,
+                  builder: (_, pos, __) => Text(
+                    _fmt(pos),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFC6D5EF),
+                    ),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        // 字幕：点选字幕，长按进入字幕样式面板
+                        GestureDetector(
+                          onLongPress: _showSubtitleStyle,
+                          child: _Chip(
+                            label: _subtitle == null
+                                ? '字幕'
+                                : '字幕 · ${_subtitle!.languageLabel}',
+                            icon: Icons.subtitles_outlined,
+                            onTap: _pickSubtitle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _Chip(
+                          label: _fit == PlaybackFit.fill ? '满屏' : '自适配',
+                          icon: Icons.aspect_ratio_rounded,
+                          onTap: _toggleFit,
+                        ),
+                        const SizedBox(width: 8),
+                        _SpeedChip(label: _speedLabel, onTap: _pickSpeed),
+                        const SizedBox(width: 8),
+                        _Chip(
+                          label: _engine == PlaybackEngine.mpv
+                              ? (_hw ? '硬解' : '软解')
+                              : '硬解',
+                          icon: Icons.memory_rounded,
+                          onTap: () => unawaited(_toggleHardware()),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                // 缓冲速率常显（v1.7.40）：没数据时给占位，避免这一格忽隐忽现
+                ValueListenableBuilder<String>(
+                  valueListenable: _bufNv,
+                  builder: (_, buf, __) => Text(
+                    buf.isEmpty ? '-- MB/s' : buf,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF8B94A7),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Text(
                   _fmt(total),
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFFC6D5EF),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                // 字幕：点选字幕，长按进入字幕样式面板（字号/位置/颜色…）
-                GestureDetector(
-                  onLongPress: _showSubtitleStyle,
-                  child: _Chip(
-                    label: _subtitle == null
-                        ? '字幕'
-                        : '字幕 · ${_subtitle!.languageLabel}',
-                    icon: Icons.subtitles_outlined,
-                    onTap: _pickSubtitle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // 画面比例：自适配 / 满屏
-                _Chip(
-                  label: _fit == PlaybackFit.fill ? '满屏' : '自适配',
-                  icon: Icons.aspect_ratio_rounded,
-                  onTap: _toggleFit,
-                ),
-                const SizedBox(width: 8),
-                // 倍速：紧挨画面比例，非 1 倍速时高亮（_SpeedChip）
-                _SpeedChip(
-                  label: _speedLabel,
-                  onTap: _pickSpeed,
-                ),
-                const SizedBox(width: 10),
-                // 缓冲速度替代原来的标题（标题顶栏已有，重复且占位）
-                Expanded(
-                  child: Text(
-                    _bufText,
-                    maxLines: 1,
-                    textAlign: TextAlign.right,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF8B94A7),
-                    ),
                   ),
                 ),
               ],
@@ -1805,11 +1858,7 @@ class _GlassPlayBtn extends StatelessWidget {
       onTap: onTap,
       child: Transform.flip(
         flipX: flipX,
-        child: Icon(
-          icon,
-          size: 23,
-          color: AppColors.ink,
-        ),
+        child: Icon(icon, size: 23, color: AppColors.ink),
       ),
     );
   }
@@ -2006,52 +2055,74 @@ class _ProgressBarState extends State<_ProgressBar> {
 
 /// 通用玻璃面板容器：底部弹层的统一外观（与播放信息/码率面板共用）。
 /// 播放页一律关闭实时模糊（blurEnabled=false），避免每次唤出都把视频压停。
+/// 居中玻璃面板的容器（v1.7.32）
+///
+/// 原来是 `showModalBottomSheet` 的底部抽屉，四类弹层（变速/字幕/信息/样式）
+/// 全都从屏幕底边推上来，遮住进度条又不方便单手够。统一改成居中卡片：
+/// 固定最大宽度、最大高度留 12% 余量、内容超出时面板内部滚动。
 class _GlassPanel extends StatelessWidget {
   const _GlassPanel({required this.child});
+
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xF2141A28),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    final h = MediaQuery.sizeOf(context).height;
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 470, maxHeight: h * 0.88),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: const Color(0xF2141A28),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 40,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(child: child),
+        ),
       ),
-      child: SafeArea(top: false, child: child),
     );
   }
 }
 
-/// 面板标题行：主标题 + 可选副标题说明
-class _InfoHeader extends StatelessWidget {
-  const _InfoHeader({required this.title, this.subtitle});
-  final String title;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-          ),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF9FB0CC)),
-          ),
-        ],
-      ],
-    );
-  }
+/// 居中面板的路由：自带可点暗层、淡入缩放入场，退场走反向动画。
+///
+/// 为什么不用 `showGeneralDialog`：它底层的 `RawDialogRoute` 不接受返回手势，
+/// 系统侧滑返回时面板会「啪」地消失。`PageRouteBuilder` 是标准 `PageRoute`，
+/// 参与返回手势并驱动 [transitionsBuilder] 的反向播放。
+class _GlassPanelRoute<T> extends PageRouteBuilder<T> {
+  _GlassPanelRoute({required WidgetBuilder builder, super.settings})
+    : super(
+        opaque: false,
+        barrierDismissible: true,
+        barrierColor: const Color(0x99000000),
+        barrierLabel: '关闭面板',
+        transitionDuration: Anim.base,
+        reverseTransitionDuration: Anim.fast,
+        pageBuilder: (ctx, _, _) => builder(ctx),
+        transitionsBuilder: (ctx, animation, _, child) {
+          final curved = CurvedAnimation(
+            parent: animation,
+            curve: Anim.curve,
+            reverseCurve: Anim.curveIn,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      );
 }
 
 /// 倍速胶囊：非 1.0 倍速时高亮，避免和「字幕 / 画面比例」混淆
@@ -2114,50 +2185,66 @@ class _SubPick {
 }
 
 class _Sheet extends StatelessWidget {
-  const _Sheet({required this.title, required this.children});
+  const _Sheet({required this.title, required this.children, this.subtitle});
   final String title;
+  final String? subtitle;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xF2141A28),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                color: Colors.white.withOpacity(0.25),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
-              child: Row(
-                children: [
-                  Text(
+    return _GlassPanel(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
                     ),
                   ),
-                ],
+                ),
+                // 关闭：手势返回之外再给一个明确的出口
+                GestureDetector(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: Colors.white.withOpacity(0.55),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  subtitle!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF9FB0CC),
+                  ),
+                ),
               ),
             ),
-            ...children,
-            const SizedBox(height: 12),
-          ],
-        ),
+          Divider(height: 1, color: Colors.white.withOpacity(0.07)),
+          const SizedBox(height: 6),
+          ...children,
+          const SizedBox(height: 14),
+        ],
       ),
     );
   }

@@ -28,6 +28,13 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- v1.7.39：显式开启 Impeller。
+                 Impeller 在构建期预编译着色器，避免首次 Hero 转场 / 首次弹出
+                 毛玻璃面板时的着色器首编掉帧。默认值随版本变化，写死更稳。 -->
+            <meta-data
+              android:name="io.flutter.embedding.android.EnableImpeller"
+              android:value="true"
+              />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
