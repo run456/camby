@@ -92,6 +92,7 @@ class Glass extends StatelessWidget {
     this.height,
     this.gradient,
     this.onTap,
+    this.blurEnabled = true,
   });
 
   final Widget child;
@@ -106,6 +107,10 @@ class Glass extends StatelessWidget {
   final double? height;
   final Gradient? gradient;
   final VoidCallback? onTap;
+  /// 是否启用实时 BackdropFilter 模糊。播放页控件压在逐帧更新的视频之上，
+  /// 开启模糊时每一帧都要重采样，中低端 GPU 会被拖垮（表现为唤出控件时
+  /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。
+  final bool blurEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -135,10 +140,12 @@ class Glass extends StatelessWidget {
       child: child,
     );
 
-    content = BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-      child: content,
-    );
+    if (blurEnabled) {
+      content = BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+        child: content,
+      );
+    }
 
     content = ClipRRect(borderRadius: r, child: content);
 
@@ -208,12 +215,14 @@ class GlassIconButton extends StatelessWidget {
     this.size = 42,
     this.active = false,
     this.iconSize = 18,
+    this.blurEnabled = true,
   });
   final IconData icon;
   final VoidCallback? onTap;
   final double size;
   final double iconSize;
   final bool active;
+  final bool blurEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -224,6 +233,7 @@ class GlassIconButton extends StatelessWidget {
       radius: size / 2,
       blur: 18,
       tint: active ? 0.20 : 0.12,
+      blurEnabled: blurEnabled,
       onTap: onTap,
       child: Icon(
         icon,

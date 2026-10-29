@@ -899,6 +899,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                     ),
                     radius: 999,
                     blur: 16,
+                    blurEnabled: false,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -936,6 +937,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                     ),
                     radius: 16,
                     blur: 20,
+                    blurEnabled: false,
                     child: Text(
                       _doubleTip!,
                       style: const TextStyle(
@@ -962,6 +964,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                       ),
                       radius: 18,
                       blur: 20,
+                      blurEnabled: false,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1136,6 +1139,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                     child: GlassIconButton(
                       icon: Icons.lock_rounded,
                       size: 44,
+                      blurEnabled: false,
                       onTap: () => setState(() => _locked = false),
                     ),
                   ),
@@ -1173,6 +1177,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               GlassIconButton(
                 icon: Icons.arrow_back_ios_new_rounded,
                 iconSize: 15,
+                blurEnabled: false,
                 onTap: () => unawaited(_exitPlayer()),
               ),
               const SizedBox(width: 10),
@@ -1211,6 +1216,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 radius: 17,
                 blur: 18,
+                blurEnabled: false,
                 onTap: _switchEngine,
                 child: Center(
                   child: Text(
@@ -1227,12 +1233,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               GlassIconButton(
                 icon: Icons.lock_open_rounded,
                 iconSize: 15,
+                blurEnabled: false,
                 onTap: () => setState(() => _locked = true),
               ),
               const SizedBox(width: 8),
               GlassIconButton(
                 icon: Icons.info_outline_rounded,
                 iconSize: 15,
+                blurEnabled: false,
                 onTap: _showInfo,
               ),
             ],
@@ -1420,6 +1428,7 @@ class _GlassPlayBtn extends StatelessWidget {
       padding: EdgeInsets.zero,
       radius: 25,
       blur: 20,
+      blurEnabled: false,
       onTap: enabled ? onTap : null,
       child: Transform.flip(
         flipX: flipX,
@@ -1448,6 +1457,7 @@ class _Chip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10),
         radius: 15,
         blur: 16,
+        blurEnabled: false,
         onTap: onTap,
         child: Row(
           mainAxisSize: MainAxisSize.min,
