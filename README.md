@@ -1,0 +1,253 @@
+# Camby
+
+> Android 端 Emby 播放器 · 液态玻璃 UI · 双播放内核（ExoPlayer / MPV）
+
+Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
+
+当前版本：**v1.7.38 (78)** · 构建目标：arm64  Release APK
+
+> ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。
+
+---
+
+## 目录
+
+- [核心特性](#核心特性)
+- [技术架构](#技术架构)
+- [目录结构](#目录结构)
+- [环境要求](#环境要求)
+- [构建与运行](#构建与运行)
+- [测试](#测试)
+- [更新日志](#更新日志)
+- [隐私与开源许可](#隐私与开源许可)
+
+---
+
+## 核心特性
+
+| 模块 | 能力 |
+| --- | --- |
+| **双播放内核** | ExoPlayer（兼容最佳·通用渲染）/ MPV（ASS 特效字幕·`hwdec=auto-safe` 自动硬解），设置内一键切换，播放页统一抽象 `PlaybackController`；**支持硬解/软解播放中热切换**（MPV 走 `hwdec` 属性实时生效，Exo 恒为硬解） |
+| **码率上限** | 播放页「信息」或长按面板中的码率胶囊可现场切 `MaxStreamingBitrate`（原片 / 40 / 20 / 10 Mbps…），服务端按该码率重新出流，弱网不必退回设置页重进 |
+| **字幕** | 外挂 / 内封字幕加载；MPV 原生挂载字幕轨；ExoPlayer 由播放页 Flutter 叠加层自绘；切字幕**不重建播放器**、不跳进度 |
+| **字幕样式** | 叠加层字幕的字号 / 位置 / 偏移 / 不透明度 / 描边 / 颜色全部可调，实时预览；播放页长按「字幕」、设置页「字幕样式」双入口；持久化键 `camby_sub_*` |
+| **播放控制** | 进度条点击跳转 + 拖动预览；快进/快退对称手势；双击判定（去竞技场延迟）；长按锁定；亮度/音量侧滑浮层与倍速条互斥 |
+| **画面比例** | 自适配（完整显示）/ 满屏（裁切铺满），实时生效 |
+| **缓冲可视化** | 底栏「缓冲至」进度 + 网络缓冲速度（字节/秒），MPV 轮询 `cache-speed`、Exo 用 `buffered` 兜底 |
+| **进入/退出动画** | 纯黑幕遮罩 + 横竖屏切换延迟，规避系统旋转与路由转场叠加导致的歪斜旋转 |
+| **媒体库** | 排序 + 多维筛选抽屉（分辨率多选带计数、仅中文字幕、类型/标签组内或组间且）；应用后摘要条可单条✕/一键清空 |
+| **首页** | 按库分组预览；空结果不缓存 + 自动重试，杜绝「暂无内容」永久卡死；Hero 区**每日推荐**：跨天自动换一批、同一部作品 3 天冷却，支持手动「换一批」（种子与冷却表持久化） |
+| **搜索** | 影片 / 演员分段；圆头像网格；动态模糊背景；半透明淡入上浮转场 |
+| **详情页** | Hero 转场；相似推荐 + 「媒体文件信息」液态玻璃卡（路径超 2 行折叠/展开、长按复制、URL 中文自动解码）；`RepaintBoundary` + 缓存范围优化滚动性能 |
+| **数据页** | Playback Reporting 插件 / 内置活动日志聚合 / 最近播放 Top10 |
+| **播放进度的服务端同步** | 起播后每 10 秒（节流 5 秒）写一次 `POST /Users/{UserId}/Items/{ItemId}/UserData`，携带 `PlaybackPositionTicks`；退出播放页再补一次，服务端「继续观看」与其它设备上的续播位置因此跟着走 |
+| **演职员页** | 作品列表支持「全部 / 电影 / 剧集」分段切换，并可叠加年代区间与排序（年份 / 评分 / 片名），筛选摘要可直接看清当前条件 |
+| **收藏 / 标签 / 文件夹** | 收藏切换、标签筛选、文件夹树浏览 |
+
+---
+
+## 技术架构
+
+- **UI 框架**：Flutter 3.x（Dart），`MaterialApp` + 自定义 `AppShell`（保活式 `IndexedStack`，切 Tab 不重建整页，已访问页保活、未访问页占位）。
+- **播放内核抽象**：`lib/player/playback.dart` 定义 `PlaybackEngine{exo,mpv}` 与统一接口 `PlaybackController`，暴露 `fit`、`setSubtitle`、`cacheSpeedBytes`、`seek(preview)` 等；播放页只依赖该接口，内核可独立演进。
+- **字幕工具**：`lib/subtitles/subtitles.dart` 解析 SRT/VTT，提供 `textAt(cues, t)` 按时间取文本、URL 编解码、Emby `Stream.ass/ssa/vtt/...` → `Stream.srt` 正则重定向（让无原生字幕的内核也能取文本流）。
+- **状态管理**：`AppState`（ChangeNotifier）统一持有服务器连接、库视图、预览缓存；`previewForView(view,{force})` 空结果绝不写缓存，下拉刷新走 `force` 直连服务端。
+- **模糊性能**：`inspire_blur` 预热着色器 + 图片内存缓存上调（`maximumSize=1200` / `192MB`），千部库滚动不抖动。
+- **关键依赖**：`media_kit`（MPV）、`video_player`（Exo 兜底）、`cached_network_image`、`volume_controller`、`screen_brightness`、`shared_preferences`、`http`。
+
+---
+
+## 目录结构
+
+```
+lib/
+├── main.dart                  # 入口、AppShell、详情/播放/搜索转场
+├── app_state.dart             # 全局数据源（连接、库、预览缓存、播放报告）
+├── emby_client.dart           # Emby API（鉴权、条目、字幕、播放报告、活动日志）
+├── models.dart                # 数据模型（MediaItem/SubtitleTrackInfo/媒体文件信息…）
+├── theme.dart                 # 暗色液态玻璃主题
+├── player/
+│   └── playback.dart          # 双内核抽象 PlaybackController（Exo/Mpv 实现）
+├── subtitles/
+│   └── subtitles.dart         # SRT/VTT 解析与取词
+├── pages/                     # home/library/detail/player/search/settings/stats/favorites…
+└── widgets/                   # glass_toast/liquid_press/status_bar_blur/media_poster…
+test/                          # 单元 + 组件测试（字幕解析、筛选、Hero、收藏墙…）
+android/                       # Gradle / 原生工程
+```
+
+---
+
+## 环境要求
+
+- Flutter SDK `^3.13`（本工程实测 Flutter 3.47.x）
+- Android SDK（构建 APK 需 `ANDROID_SDK_ROOT`）
+- JDK（推荐 Zulu / JDK 17+）
+- 仅 Android 平台
+
+## 构建与运行
+
+```bash
+# 1. 拉取依赖
+flutter pub get
+
+# 2. 调试运行（连接设备/模拟器）
+flutter run --release
+
+# 3. 构建 arm64 Release APK
+export ANDROID_SDK_ROOT=/opt/android-sdk
+export JAVA_HOME=/path/to/jdk
+export GRADLE_OPTS="-Xmx4g"
+flutter build apk --release --android-skip-build-dependency-validation
+
+# 产物：build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+```
+
+首次进入需在「我的」页连接 Emby 服务器（地址 + 账号），或开启内置演示库离线浏览。
+
+---
+
+## 测试
+
+```bash
+flutter test            # 运行全部（字幕解析、筛选逻辑、Home Hero、收藏墙、液态按压等）
+flutter analyze         # 静态分析，目标 0 错误 0 警告
+```
+
+当前测试套件覆盖：`subtitles_test`（SRT/VTT 解析、`Stream.srt` 重定向、对齐泄漏）、`subtitle_filter_test`、`home_hero_test`、`favorites_wall_test`、`liquid_press_test` 等。
+
+---
+
+## 更新日志
+
+> 本节汇总 v1.7.x 系列的改动。v1.7.22 → v1.7.37 的中间版本源码随工作副本一起丢失，这里只保留有 APK 证据支撑的 **v1.7.38 (78)** 完整特性清单；更早版本以版本号演进为准。
+
+### v1.7.38 (78)
+
+> 本版源码为**重建版本**（见文末说明）。以下每一条都对应 `libapp.so` 中实际存在的新符号或新字符串，标注了证据来源。
+
+**播放页**
+
+- **硬解 / 软解热切换**：顶栏新增「硬解 / 软解」胶囊，长按切换，不需要重建播放器。MPV 内核通过 `platform.setProperty('hwdec', 'auto-safe' | 'no')` 实时生效，Exo 内核恒为硬解（切换时给出提示）。播放中切换会同步回写 `set_hw_decode`，与设置页双向一致。证据：`_toggleHardware`、`hwdec`、`hwdec-codecs`、`getDefaultHwdec`。
+- **码率上限现场切换**：`MaxStreamingBitrate` 从「只能进设置页预设」变成播放页可调。Emby 侧会以该值重新出流，因此比客户端侧限速更省流量。取值 `-1` 走 `-1` 哨兵表示「不限」并返回原片地址。证据：`_changeBitrate`、`MaxStreamingBitrate=`、`set_max_bitrate`、`fallback_bitrate_handler`。
+- **字幕样式面板**：外挂字幕叠加层原来硬编码「17 号白字 + 四向黑描边」，在明亮动画画面 / 横屏大屏上偏小偏淡。现开放字号、位置、偏移、不透明度、描边六项 + 六色调色板，拖动手势即时预览（`_emit`，不落盘）、松手写盘（`_commit`）；滑块旁补 ± 微调按钮（`_nudge`，大屏上滑块很难拖准）。入口有两处：播放页长按「字幕」胶囊、设置页「字幕样式」。持久化键沿用 APK 中的 `camby_sub_size / pos / opa / stroke / offset / color`。
+- **播放进度写回服务器**：原来播放位置只写本机，换台设备 / 重装就丢。现在 `_reportProgress`（节流 5 秒）+ `_reportProgressNow` 定时把当前位置写回条目 UserData，服务端「继续观看」与其它设备上的续播位置跟着走。
+  上报选择了 `POST /Users/{UserId}/Items/{ItemId}/UserData` 而不是 `Sessions/Playing*` 三件套——APK 里只有 `/Users/`、`/Items/`、`/UserData` 三个插值片段，找不到 `Sessions` 或 `Playing/` 字面量；前者单请求即可入账，也不需要维护会话生命周期。证据：`_reportProgress`、`_reportProgressNow`。
+- **长按锁定 / 解锁**：顶栏新增锁形入口，锁定后隐藏所有控件并禁用手势，`GestureDetector(onLongPress)` 长按才解锁，避免躺着看手机误触。「锁定态」有两处证据：`_lockScreen`、`_unlockScreen`。
+- **倍速胶囊**：底栏倍速按钮在 ≠1× 时用冷色描边高亮，一眼看出当前是否在变速播放。
+
+**首页**
+
+- **Hero 每日推荐**：原来 Hero 轮播是「随机 6 部 + 每次进 App 重新摇」。现在是带状态的推荐引擎：按「未看完 > 新入库 > 高评分 > 随机」加权打分，同一部作品 3 天内不再出现（冷却表），跨天自动刷新（含 0 点定时器），也可以点右侧「换一批」手动重摇。种子与冷却状态持久化到 `home_reco_seed / home_reco_recent / home_reco_at`。证据：`_pickRecommendations`、`_recoWeight`、`_shuffleReco`、`_scheduleMidnightRefresh`、`_persistReco`、`_restoreRecoState`、`_rebuildHeroPool`、`_commitShown`。
+
+**演职员页**
+
+- **作品筛选**：作品列表原来是「全部 / 电影 / 剧集」三颗 `_FilmTab`，现在是分段控件 `_Seg` + 右侧漏斗入口 `_showFilterSheet`，可叠加「年代区间」（含未上映）与「排序」（年份 / 评分 / 片名）。当前条件以摘要条形式展示。证据：`_Seg`、`_showFilterSheet`。
+
+**Emby 数据层**
+
+- **文件名分辨率兜底**：部分条目服务端没给 `MediaStreams.Height`（老版刮削器 / 手动匹配的网盘原盘），卡片一片 `?p`。新增 `_heightFromName`，从 `Path`/`Name` 里认 `2160p / 1080p / 720p` 这类显式标记，以及 `4k / 8k / uhd / uhdremux / hdrip` 这类隐含标记。
+- **`streamUrl` 支持 `maxBitrate`**，配合上面的码率切换使用。
+
+### v1.7.21 (61)
+- **点击画面视频停顿（重点）**：与 v1.7.0（基准分支）APK 做符号比对确认——v1.7.0 根本没有 `_beginScrub/_endScrub/_commitSeek` 这套拖动状态机，所以点画面不可能触发跳转。后来加的 `onHorizontalDragCancel` 是**无条件**调用 `_endScrub()`，普通点按在手势竞技场判负时也会走到，把 `_scrubPos`（初值 0 或上次拖动留下的旧位置）当成目标真跳一次 → 视频重新缓冲约 1 秒、并从稍早的帧继续。现已加 `_scrubbing` 守卫，并让「目标与当前位置相差 ≤1 秒」的 seek 直接跳过。
+- **Exo 字幕（SRT）加载失败**：下载通道改为传**原始字节**，新增 UTF-8/UTF-16LE/UTF-16BE/GBK 解码（中文 SRT 常为 UTF-16，原来按 UTF-8 解会连时间轴都读不出）；新增 ASS/SSA `Dialogue` 解析（Emby 有时不按扩展名转码）；主地址失败时用原格式地址再试一次。失败提示改为带具体原因（HTTP 状态 / 内容为空 / 识别不到时间轴）。
+- **首页搜索按钮**：图标恢复 `Icons.search_rounded`；真正的问题是圆钮外圈——顶部那条高光直线在圆弧上像一道断开的弦，且边框比右侧胶囊更亮。现统一成与「wifi + 片数」胶囊相同的玻璃参数，去掉高光直线。
+
+### v1.7.20 (60)
+- **播放器缓冲速度**：ExoPlayer 内核此前只能显示「缓冲至 00:00」，现改为用「已缓冲时长增速 × 平均码率」估算下载速度，底栏显示 `缓冲 x.x MB/s`（MPV 仍读 libmpv 的 `cache-speed`，更精确）。
+- **收藏堆叠墙**：恢复设计稿的「扑克牌」效果。原来 4 层都画海报，色调相近叠成一张；现改为后 3 层使用不同色调的渐变卡（蓝灰 / 浅蓝 / 酒红）并按 8°/4°/-4° 扇形散开，最上层才是夹内最新海报。
+- **首页搜索图标**：Material 的 `search` 线太细、柄太短，20dp 下像字母 Q；改为自绘粗线长柄放大镜。
+- **媒体库顶栏**：排序按钮与漏斗按钮打开的是同一个抽屉（纯重复），合并为一个入口——显示当前排序字段 + 方向箭头，筛选条件数作为角标。
+- **媒体库筛选**：移除「类型」分组，只保留分辨率、中文字幕、标签。
+
+### v1.7.19 (59)
+- **播放控件层关闭实时模糊**：控件层原有十几个 Glass(`BackdropFilter`) 压在逐帧更新的视频纹理上，中低端 GPU 每帧重算模糊，表现为唤出控件时视频卡顿约 1 秒、像暂停了。播放页统一关模糊，只保留半透明渐变质感。
+
+### v1.7.18 (58)
+- **网络瞬断自动重试**：Wi-Fi/移动数据切换、锁屏唤醒导致的 `ECONNABORTED/ECONNRESET`，GET 请求自动重试一次。
+- **连接失败中文诊断**：把底层 socket 错误翻译为中文，并识别局域网地址（`192.168.x.x` 需同一 Wi-Fi）。
+
+### v1.7.17 (57)
+- **隔离视频渲染面**：视频 widget 实例缓存为独立子树，控件显隐不再牵连原生 Surface。
+- **Exo 字幕加载**：外挂字幕改走 App 的 Emby 鉴权下载通道（Token 头 + 忽略自签证书）。
+
+### v1.7.16
+- 双击快进/退加位置约束（两击 < 64dp）与 700ms 防抖，杜绝误触导致的播放/暂停死循环。
+- Toast 黄色下划线修复（根 Overlay 包透明 Material）。
+- 满屏改 `SizedBox.expand` + `BoxFit.cover`，修复点「满屏」未铺满。
+- 倍速从右侧竖排滑轨移到底栏「画面比例」旁。
+
+### v1.7.15
+- 单击立即切换控件显隐（去掉 250ms 延迟），唤出后重置隐藏计时。
+
+### v1.7.14 (54)
+- **详情页性能**：背景 `ImageFiltered` 加 `RepaintBoundary`；状态栏/底栏模糊 sigma 30→20；`ListView cacheExtent: 800`，滑动更顺。
+- **媒体文件信息卡**：相似推荐后新增「媒体文件信息」液态玻璃卡，展示封装格式·大小·添加时间；路径超 2 行折叠，支持展开/收起 + 长按复制；URL 中文自动解码。
+- 旧缓存条目首次进详情不显示该卡，刷新该影片即可。
+
+### v1.7.13
+- **进入/退出动画重做**：改用纯黑幕遮罩（`_veil`）+ `PopScope` 接管系统返回；横竖屏切换延迟 280ms 藏在黑幕后，消除录屏中详情页 45° 歪斜旋转。
+
+### v1.7.12
+- **字幕 4 项修复**：
+  1. 选字幕不加载 → `setSubtitle` 原生换轨（MPV）/ 叠加层（Exo），不再销毁重建播放器；
+  2. 开关字幕进度跳回 00:00 → 仅换轨不重置进度；
+  3. 点画面关弹窗顺带关字幕 → 引入 `_SubPick` 哨兵区分「关闭字幕」与「点外部关闭」；
+  4. 拖动时间提示残留 → `onHorizontalDragCancel` + 1.2s 看门狗防 `_scrubbing` 卡死。
+- **媒体库页按 `camby-library-filter-design.html` 设计稿重做**：排序按钮 + 漏斗角标、筛选抽屉（5 字段独立升降、分辨率多选计数、仅中文字幕、类型/标签多选）、应用后摘要条单条✕/清空。
+
+### v1.7.11
+- **播放页（13 项问题）**：变速按钮与浮层重叠、快进/退不对称、按下态需长按、按钮重叠、缓冲速度展示、Toast 黄横线（实为底栏溢出）、软硬解与双内核取舍。
+  - 决策：**双内核保留** + MPV 加 `hwdec=auto-safe` 自动硬解；缓冲速度置于字幕选项旁（替换重复标题）。
+- **其他（6 项）**：首页媒体库信息不显示、搜索返回动画、右上角按钮玻璃感、搜索结果进详情、搜索影片/演员分类、搜索背景动态模糊。
+- 修复「搜索点不进详情」（`_open()` 误 `maybePop` 把刚 push 的详情页 pop 掉）。
+- 修复「首页媒体库不显示」（空结果被永久缓存 → 不缓存 + `force` + 1.5s 自动重试 + 「点此重试」）。
+
+### v1.7.10
+- **进度条交互**：点击进度条跳转（区别于拖动）；跳转时间提示与播放控件重叠修复；字幕旁第二个变速改为「画面比例：自适配 / 满屏」。
+- **双内核检查**：统一 Exo/MPV 的 seek、缓冲、字幕挂载行为，修复手势滑动进度不同步。
+
+---
+
+## 源码重建说明
+
+v1.7.21 (61) 之后的工作副本丢失，本仓库的 v1.7.38 由以下两条线索交叉取证后重建：
+
+| 线索 | 内容 | 用途 |
+| --- | --- | --- |
+| APK | `Camby-v1.7.38-arm64-release.apk`（33 MB，versionCode **78** / versionName **1.7.38** / 仅 `arm64-v8a` / minSdk 28 / targetSdk 36 / `package cn.camby.camby`） | 版本锚点：确立 1.7.38 ↔ versionCode 78 的对应，并确认权限清单（仅 INTERNET / ACCESS_NETWORK_STATE / WAKE_LOCK）与 ABI 裁剪策略 |
+| APK · 符号表 | `libapp.so` 中 34,777 条 Dart 符号，按 `ClassName@<库哈希>` 聚合 | 定位「哪些源文件动过」——同哈希 = 同编译单元 |
+| APK · 字符串 | 二进制 AndroidManifest + `strings` 提取 | 确认新 UI 文案、新配置键、新 API 参数 |
+| 旧仓库 | `github.com/run456/camby` @ v1.7.21 (61)，17,109 行 Dart | 代码基线，避免凭空重写 |
+
+**归并结果**：13 个库里只有 5 个存在新符号 —— `player_page`（13 个）、`home_page`（8 个）、`person_page`（2 个）、`emby_client`（1 个）、`settings_page`（5 个）；其余 8 个文件（`main` / `app_state` / `detail` / `library` / `search` / `favorites` / `stats` / `subtitle_filter`）**零新增符号**，判定为未改动，直接沿用旧仓库实现。改动因此被收敛到 6 个文件而非整个 App。
+
+**验证**：
+
+1. `flutter analyze` → **0 error / 0 warning**（299 条 info 全部是基线代码就有的 `withOpacity` 弃用提示与风格建议）。
+2. `flutter test` → **25/25 通过**（含新增 `test/camby_1738_test.dart`）。
+3. `flutter build apk --release --target-platform=android-arm64` → 成功产出 **34.4 MB**（原始 APK 33 MB）。
+4. 把重建 APK 的 `libapp.so` 与原始 APK 做符号对拍：**26 个 1.7.38 新增符号全部命中，且库哈希完全一致**（`player_page` = 28472116、`home_page` = 559049366、`person_page` = 596023365、`emby_client` = 555127961）。
+
+> 库哈希一致说明：同一个 Dart 文件编译出的符号带同一个 `@hash`，哈希由**文件路径**决定而非内容——所以这几份重建文件虽重新写过注释与内部实现，交付编译后仍落到与原始 APK 完全相同的编译单元上。
+
+**与原始 1.7.38 的已知差异**：
+
+1. **字幕样式面板的位置**：原始把它放在 `settings_page` 的编译单元里（`@605399474`），播放页要使用它就得 import 整个设置页。重建时抽成独立文件 `lib/widgets/subtitle_style_sheet.dart`（`@604383483`）—— 逻辑、类名、持久化键完全一致，只是编译单元不同；这是本次唯一一处哈希对不上的地方。
+2. **辅助方法**：为了可读性抽出了若干小方法（`_bitrateText`、`_subInfoText`、`_applyBitrate`、`_dedupeSeries`、`_jumpToPage`、`_syncHeroNotifiers`、`_filterSummary`、`_SheetBtn`、`_openSubtitleStyle`、`_subStyleSummary`、`_colorRow`、`_copyBy`），原始 APK 里没有这些符号，说明当时是内联写的。行为等价。
+3. **命名之外的部分**：注释、日志文案、Toast 措辞无法从 APK 还原，属重写。
+4. **v1.7.22 → v1.7.37 中间版本**：无 APK 留存，其改动已全部折叠进 v1.7.38 的特性清单，无法再做版本拆分。
+5. UI 参数（圆角、间距、配色）以旧仓库同族组件为准；APK 只能证明「存在某个组件」，证明不了像素值。
+
+---
+
+## 隐私与开源许可
+
+- 应用仅连接**用户自己配置的** Emby 服务器，所有凭据（地址 / Token / 账号）保存在本机 `shared_preferences`，不上传任何第三方。
+- 内置「演示库」为离线占位数据，不含真实服务器信息。
+- 许可证见仓库 `LICENSE` 文件（如有）。
+
+---
+
+© Camby · 由 WorkBuddy 协助开发与维护
