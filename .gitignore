@@ -50,12 +50,8 @@ app.*.map.json
 # Golden test transient failure diffs (keep test/goldens/ as reference)
 /test/failures/
 
-# Android / 构建产物（重建时补齐）
+# Android / 构建产物（由 Flutter 工具链生成）
 /android/.gradle
 /android/local.properties
-/android/gradlew
-/android/gradlew.bat
-/android/gradle/wrapper/gradle-wrapper.jar
-/android/app/src/main/java/io/flutter/plugins
 .flutter-plugins
 .flutter-plugins-dependencies
