@@ -330,7 +330,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 18),
           const Center(
             child: Text(
-              'Camby v1.7.17 (57) · arm64 · 隐私政策 · 开源许可',
+              'Camby v1.7.18 (58) · arm64 · 隐私政策 · 开源许可',
               style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
             ),
           ),
@@ -706,6 +706,44 @@ class _ServerSheetState extends State<_ServerSheet> {
     return h.trim();
   }
 
+  /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。
+  /// 最常见原因：手机在移动数据下访问 192.168.x.x 这类内网地址，路由不可达，
+  /// 系统表现为 ECONNABORTED("Software caused connection abort") 而非超时。
+  String _friendlyConnectError(String host, String? raw) {
+    final m = raw ?? '';
+    final low = m.toLowerCase();
+    String reason;
+    if (low.contains('connection abort') || low.contains('software caused')) {
+      reason = '连接被系统中断';
+    } else if (low.contains('connection refused')) {
+      reason = '服务器拒绝连接（端口不对或服务未启动）';
+    } else if (low.contains('timeout') || low.contains('timed out')) {
+      reason = '连接超时';
+    } else if (low.contains('unreachable')) {
+      reason = '网络不可达';
+    } else if (low.contains('cleartext')) {
+      reason = '系统禁止明文 HTTP';
+    } else {
+      reason = m;
+    }
+    // 私网 IPv4：10.x / 192.168.x / 172.16-31.x
+    final ip = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
+        .firstMatch(host);
+    var isPrivate = false;
+    if (ip != null) {
+      final a = int.parse(ip.group(1)!);
+      final b = int.parse(ip.group(2)!);
+      isPrivate = a == 10 ||
+          (a == 192 && b == 168) ||
+          (a == 172 && b >= 16 && b <= 31);
+    }
+    final hint = isPrivate
+        ? '\n\n$host 是局域网地址：请确认手机已连接到与服务器相同的 Wi-Fi'
+            '（当前可能在用移动数据），或改用公网地址/内网穿透。'
+        : '';
+    return '连接失败：$reason$hint';
+  }
+
   Future<void> _submit() async {
     final host = _cleanHost(_host.text);
     final user = _user.text.trim();
@@ -737,7 +775,7 @@ class _ServerSheetState extends State<_ServerSheet> {
       _resultOk = ok;
       _result = ok
           ? '连接成功，已载入 ${widget.state.items.length} 个条目'
-          : '配置已保存，但连接失败：${widget.state.error ?? '未知错误'}';
+          : _friendlyConnectError(host, widget.state.error);
     });
     if (ok) {
       await Future<void>.delayed(const Duration(milliseconds: 600));

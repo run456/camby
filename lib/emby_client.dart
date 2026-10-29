@@ -630,6 +630,22 @@ class EmbyServer {
     return '$baseUrl/Items/$personId/Images/Primary?maxWidth=200&api_key=$_token$t';
   }
 
+  /// 是否为可自动重试的网络瞬断。
+  /// Android 上 Wi-Fi/移动数据切换、锁屏唤醒、服务器重启瞬间，dart:io 常抛
+  /// ECONNABORTED("Software caused connection abort") / ECONNRESET，
+  /// GET 幂等，稍候重试一次通常即可恢复，不必直接把错误甩给用户。
+  bool _isTransientNetworkError(Object e) {
+    if (e is SocketException || e is HttpException) {
+      final m = e.toString().toLowerCase();
+      return m.contains('connection abort') ||
+          m.contains('connection reset') ||
+          m.contains('connection closed') ||
+          m.contains('broken pipe') ||
+          m.contains('network is unreachable');
+    }
+    return false;
+  }
+
   Future<Map<String, dynamic>> _getJson(
     String path, {
     Map<String, String>? query,
@@ -637,25 +653,34 @@ class EmbyServer {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
     final qp = <String, String>{...?query, 'X-Emby-Token': _token!};
     final uri = Uri.parse(path).replace(queryParameters: qp);
-    // 连接超时：避免某个库的请求挂起把首页其它行的加载一起堵住
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10)
-      ..badCertificateCallback = (_, __, ___) => true;
-    try {
-      final req = await client.getUrl(uri);
-      req.headers.set('X-Emby-Token', _token!);
-      req.headers.set(
-        'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
-      );
-      final res = await req.close();
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode != 200) {
-        throw EmbyException('请求失败 (${res.statusCode})');
+    for (var attempt = 0; ; attempt++) {
+      // 连接超时：避免某个库的请求挂起把首页其它行的加载一起堵住
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 10)
+        ..badCertificateCallback = (_, __, ___) => true;
+      try {
+        final req = await client.getUrl(uri);
+        req.headers.set('X-Emby-Token', _token!);
+        req.headers.set(
+          'Authorization',
+          'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        );
+        final res = await req.close();
+        final body = await res.transform(utf8.decoder).join();
+        if (res.statusCode != 200) {
+          throw EmbyException('请求失败 (${res.statusCode})');
+        }
+        return jsonDecode(body) as Map<String, dynamic>;
+      } catch (e) {
+        // 网络瞬断自动重试一次（GET 幂等，安全）
+        if (attempt == 0 && _isTransientNetworkError(e)) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          continue;
+        }
+        rethrow;
+      } finally {
+        client.close();
       }
-      return jsonDecode(body) as Map<String, dynamic>;
-    } finally {
-      client.close();
     }
   }
 
@@ -916,22 +941,32 @@ class EmbyServer {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
     final qp = <String, String>{...?query, 'X-Emby-Token': _token!};
     final uri = Uri.parse(path).replace(queryParameters: qp);
-    final client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
-    try {
-      final req = await client.getUrl(uri);
-      req.headers.set('X-Emby-Token', _token!);
-      req.headers.set(
-        'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
-      );
-      final res = await req.close();
-      final body = await res.transform(utf8.decoder).join();
-      if (res.statusCode != 200) {
-        throw EmbyException('播放报告请求失败 (${res.statusCode})');
+    for (var attempt = 0; ; attempt++) {
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 10)
+        ..badCertificateCallback = (_, __, ___) => true;
+      try {
+        final req = await client.getUrl(uri);
+        req.headers.set('X-Emby-Token', _token!);
+        req.headers.set(
+          'Authorization',
+          'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        );
+        final res = await req.close();
+        final body = await res.transform(utf8.decoder).join();
+        if (res.statusCode != 200) {
+          throw EmbyException('播放报告请求失败 (${res.statusCode})');
+        }
+        return jsonDecode(body);
+      } catch (e) {
+        if (attempt == 0 && _isTransientNetworkError(e)) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          continue;
+        }
+        rethrow;
+      } finally {
+        client.close();
       }
-      return jsonDecode(body);
-    } finally {
-      client.close();
     }
   }
 
