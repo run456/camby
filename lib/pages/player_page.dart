@@ -1882,27 +1882,16 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                               MediaQuery.of(context).size.height / 2,
                             ),
                     child: IgnorePointer(
-                      // v1.7.59：背景块**贴文字宽度**居中（参考设计图）——
-                      // Positioned(left+right) 是紧约束，会把 Container
-                      // 撑满整行；外面套 Align 给 loose 约束后，块收缩到
-                      // 文字实际宽度。多行长字幕限宽 85% 自动换行。
+                      // v1.7.61：取消背景块，字幕回到纯文字（描边/阴影由
+                      // 样式面板的「描边」控制）。Align 保留，让文字居中
+                      // 且不被 Positioned 的紧约束撑满整行。
                       child: Align(
                         alignment: Alignment.bottomCenter,
-                        child: Container(
+                        child: ConstrainedBox(
+                          // 只保留限宽，长句自动换行、居中
                           constraints: BoxConstraints(
                             maxWidth:
                                 MediaQuery.of(context).size.width * 0.85,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withAlpha(
-                              (255 * 0.55 * _subStyle.opa.clamp(0.0, 1.0))
-                                  .round(),
-                            ),
-                            borderRadius: BorderRadius.circular(7),
                           ),
                           child: Text(
                             cue,

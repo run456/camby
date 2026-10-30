@@ -47,12 +47,28 @@ void main() {
     );
   });
 
-  test('叠加层渲染半透明背景块', () {
-    expect(code.contains('borderRadius: BorderRadius.circular(7)'), isTrue);
+  test('v1.7.61：叠加层不再画背景块，回到纯文字', () {
+    // 只取「外挂字幕叠加层 → 控制层」之间那一段
+    // （后面的控制层渐变遮罩也用 BoxDecoration，属正常）
+    // 先在**原文**上切片（锚点文字本身位于注释行，过滤后就找不到了），
+    // 再对该片段去掉注释行
+    var seg = File('lib/pages/player_page.dart')
+        .readAsStringSync()
+        .split('外挂字幕叠加层')
+        .last;
+    if (seg.contains('ignoring: !_controlsVisible')) {
+      seg = seg.split('ignoring: !_controlsVisible').first;
+    }
+    final overlay =
+        seg.split('\n').where((l) => !l.trim().startsWith('//')).join('\n');
     expect(
-      code.contains('255 * 0.55'),
-      isTrue,
-      reason: '背景块为 55% 不透明黑底，并跟随字幕不透明度',
+      overlay.contains('BoxDecoration'),
+      isFalse,
+      reason: '用户要求取消字幕后面的黑色背景块',
     );
+    expect(overlay.contains('255 * 0.55'), isFalse);
+    // 文字仍居中 + 限宽（长句自动换行，不顶出屏幕）
+    expect(overlay.contains('Alignment.bottomCenter'), isTrue);
+    expect(overlay.contains('ConstrainedBox'), isTrue);
   });
 }
