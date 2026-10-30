@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camby · 页面 UI 设计整合 · v1.7.56</title>
+<style>
+:root{
+  --bg0:#070a0f; --bg1:#0c1119; --bg2:#111826;
+  --glass:rgba(255,255,255,.055); --glass2:rgba(255,255,255,.035);
+  --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.18);
+  --fg:#e9eef6; --dim:#97a4b6; --faint:#69768a;
+  --cy:#5eead4; --vi:#a78bfa; --bl:#38bdf8; --pk:#f472b6; --gld:#fbbf24;
+  --r:14px; --mono:ui-monospace,"JetBrains Mono",Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:var(--sans);color:var(--fg);background:
+  radial-gradient(1000px 520px at 10% -6%,rgba(94,234,212,.10),transparent 60%),
+  radial-gradient(900px 600px at 100% 0%,rgba(167,139,250,.12),transparent 55%),
+  linear-gradient(180deg,var(--bg0),var(--bg1) 45%,var(--bg2));
+  background-attachment:fixed;min-height:100vh;display:flex;flex-direction:column}
+
+header.top{display:flex;align-items:center;gap:14px;padding:16px 26px;border-bottom:1px solid var(--line)}
+header.top .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--cy),var(--vi));display:grid;place-items:center;font-weight:800;color:#08121a;font-size:15px}
+header.top h1{font-size:16px;margin:0;font-weight:700}
+header.top .meta{color:var(--faint);font-size:12px;margin-left:4px}
+header.top .spacer{flex:1}
+header.top .badge{font-size:11px;padding:5px 11px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--dim)}
+
+.studio{flex:1;display:flex;gap:0;overflow:hidden}
+/* 左导航 */
+.nav{width:212px;flex:0 0 212px;border-right:1px solid var(--line);padding:18px 12px;overflow:auto}
+.nav .g{font-size:10.5px;letter-spacing:.16em;color:var(--faint);margin:14px 8px 8px}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;color:var(--dim);
+  padding:9px 11px;border-radius:11px;cursor:pointer;font-size:13.5px;font-family:var(--sans);transition:.16s}
+.nav button .n{width:22px;height:22px;border-radius:7px;background:var(--glass2);border:1px solid var(--line);display:grid;place-items:center;font-size:11px;color:var(--fg)}
+.nav button:hover{background:var(--glass);color:var(--fg)}
+.nav button.on{background:linear-gradient(90deg,rgba(94,234,212,.16),rgba(167,139,250,.05));color:#fff;border:1px solid var(--line2)}
+.nav button.on .n{background:linear-gradient(135deg,var(--cy),var(--vi));color:#08121a;border:0}
+
+/* 中部舞台 */
+.stage{flex:1;display:grid;place-items:center;padding:26px;overflow:auto;position:relative}
+.stage::before{content:"";position:absolute;inset:0;background:radial-gradient(700px 380px at 50% 0%,rgba(56,189,248,.06),transparent 70%)}
+.phone{position:relative;width:392px;height:824px;background:#05070b;border-radius:46px;padding:11px;
+  box-shadow:0 0 0 2px #1b2230,0 30px 80px rgba(0,0,0,.6),inset 0 0 0 6px #0c111a;z-index:1}
+.notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#05070b;border-radius:0 0 16px 16px;z-index:30;display:flex;align-items:flex-end;justify-content:center;gap:8px;padding-bottom:6px}
+.notch i{display:block;width:7px;height:7px;border-radius:50%;background:#1c2532}
+.notch i.cam{width:9px;height:9px;background:#16202e}
+.screen{position:absolute;inset:11px;border-radius:36px;overflow:hidden;background:linear-gradient(180deg,#0a0e15,#0b1018);display:none;flex-direction:column}
+.screen.on{display:flex}
+
+/* 通用 app 元素 */
+.apbar{display:flex;align-items:center;gap:10px;padding:38px 16px 10px;backdrop-filter:blur(10px)}
+.apbar .back{width:34px;height:34px;border-radius:11px;background:var(--glass);border:1px solid var(--line);display:grid;place-items:center;font-size:15px;color:var(--fg)}
+.apbar .ttl{font-size:16px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.apbar .seg{display:flex;gap:6px;background:var(--glass2);border:1px solid var(--line);border-radius:999px;padding:3px}
+.apbar .seg a{padding:5px 12px;border-radius:999px;font-size:12px;color:var(--dim);text-decoration:none}
+.apbar .seg a.on{background:linear-gradient(135deg,var(--cy),var(--vi));color:#08121a;font-weight:600}
+.scroll{flex:1;overflow:auto;padding:6px 14px 16px}
+.tabbar{display:flex;justify-content:space-around;padding:9px 6px 22px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.35));border-top:1px solid var(--line)}
+.tabbar .t{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--dim)}
+.tabbar .t.on{color:var(--cy)}
+.tabbar .t .ic{width:23px;height:23px;border-radius:8px;display:grid;place-items:center;font-size:14px}
+.tabbar .t.on .ic{background:linear-gradient(135deg,rgba(94,234,212,.22),rgba(167,139,250,.18));border:1px solid var(--line2)}
+
+/* 海报 */
+.pg{display:grid;gap:11px}
+.poster{position:relative;border-radius:12px;overflow:hidden;aspect-ratio:2/3;background:linear-gradient(150deg,#1b2740,#2a2140);border:1px solid var(--line);display:flex;align-items:flex-end;padding:8px}
+.poster .ph{position:absolute;inset:0;background:radial-gradient(120px 90px at 30% 20%,rgba(94,234,212,.28),transparent),radial-gradient(140px 100px at 80% 80%,rgba(167,139,250,.30),transparent)}
+.poster .nm{position:relative;font-size:11px;font-weight:600;line-height:1.25;text-shadow:0 1px 4px #000}
+.poster .bad{position:absolute;top:6px;left:6px;font-size:9px;padding:2px 6px;border-radius:6px;background:rgba(0,0,0,.5);color:var(--cy);border:1px solid var(--line)}
+.c3{grid-template-columns:repeat(3,1fr)}
+.c6{grid-template-columns:repeat(6,1fr);gap:7px}
+.c6 .poster{border-radius:8px}
+.c6 .poster .nm{font-size:8.5px}
+
+/* 玻璃圆钮 / 胶囊 */
+.gbtn{width:40px;height:40px;border-radius:13px;background:var(--glass);border:1px solid var(--line);display:grid;place-items:center;font-size:16px;backdrop-filter:blur(8px)}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--line);font-size:12.5px;color:var(--fg);backdrop-filter:blur(8px)}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--cy);box-shadow:0 0 8px var(--cy)}
+.pill.vi .dot{background:var(--vi);box-shadow:0 0 8px var(--vi)}
+
+/* 下拉刷新提示条 */
+.refresh{margin:4px 0 12px;font-size:12px;color:var(--cy);background:rgba(94,234,212,.08);border:1px solid rgba(94,234,212,.2);border-radius:10px;padding:8px 12px;display:flex;gap:7px;align-items:center}
+
+/* 筛选条 */
+.filterbar{display:flex;gap:8px;margin:6px 0 14px;overflow-x:auto}
+.filterbar .pill{white-space:nowrap}
+
+/* 收藏堆叠墙 */
+.wall{position:relative;height:330px;display:grid;place-items:center}
+.wall .card{position:absolute;width:172px;height:246px;border-radius:16px;background:linear-gradient(150deg,#22304d,#3a2b52);border:1px solid var(--line2);box-shadow:0 18px 40px rgba(0,0,0,.5);overflow:hidden;display:flex;align-items:flex-end;padding:12px}
+.wall .card .ph{position:absolute;inset:0;background:radial-gradient(120px 100px at 30% 25%,rgba(94,234,212,.3),transparent),radial-gradient(140px 120px at 80% 80%,rgba(244,114,182,.3),transparent)}
+.wall .card .nm{position:relative;font-size:13px;font-weight:700}
+.wall .c0{transform:translateY(-6px) rotate(0deg) scale(.86);z-index:3}
+.wall .c1{transform:translate(-118px,-26px) rotate(-7deg) scale(.86);opacity:.92;z-index:2}
+.wall .c2{transform:translate(118px,-26px) rotate(7deg) scale(.86);opacity:.92;z-index:1}
+
+/* 演员页 */
+.person-bg{position:absolute;inset:0;background:radial-gradient(220px 260px at 50% 8%,#2a3a5c,#1a1430);filter:blur(60px);opacity:.8}
+.avatar{width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,var(--vi),var(--bl));border:2px solid rgba(255,255,255,.5);display:grid;place-items:center;font-size:30px;color:#0a1120;font-weight:800;margin:0 auto}
+.tags{display:flex;gap:8px;justify-content:center;margin:14px 0}
+.tagchip{font-size:12px;padding:6px 14px;border-radius:999px;border:1px solid var(--line);color:rgba(255,255,255,.9);background:var(--glass2)}
+.tagchip.on{background:linear-gradient(135deg,var(--cy),var(--vi));color:#08121a;border:0;font-weight:600}
+
+/* 详情页 */
+.hero{position:relative;height:230px;border-radius:16px;overflow:hidden;background:linear-gradient(150deg,#1d2b46,#3b2350);display:flex;align-items:flex-end}
+.hero .ph{position:absolute;inset:0;background:radial-gradient(200px 160px at 30% 20%,rgba(94,234,212,.32),transparent),radial-gradient(220px 180px at 80% 90%,rgba(244,114,182,.3),transparent)}
+.hero .grad{position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,rgba(8,11,17,.92))}
+.hero .meta{position:relative;padding:14px}
+.heart{position:absolute;top:14px;right:14px;width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,var(--pk),#fb7185);display:grid;place-items:center;color:#fff;font-size:20px;box-shadow:0 0 0 1px rgba(255,255,255,.4),0 8px 20px rgba(244,114,182,.45);z-index:4}
+.heart.off{background:var(--glass);color:var(--fg);box-shadow:none;border:1px solid var(--line)}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{font-size:11px;padding:4px 9px;border-radius:8px;background:var(--glass2);border:1px solid var(--line);color:var(--dim)}
+.mediainfo{background:var(--glass);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;font-size:12px;color:var(--dim)}
+.mediainfo b{color:var(--fg)}
+.section-t{font-size:13px;font-weight:700;margin:16px 2px 9px;color:var(--fg)}
+
+/* 播放页 */
+.player{position:absolute;inset:0;background:#000;display:flex;flex-direction:column}
+.player .pgrad{position:absolute;inset:0;background:radial-gradient(400px 300px at 50% 45%,rgba(40,60,90,.55),transparent),linear-gradient(180deg,rgba(0,0,0,.55),transparent 22%,transparent 78%,rgba(0,0,0,.6))}
+.ptop{position:relative;z-index:3;display:flex;align-items:center;gap:10px;padding:44px 16px 10px}
+.ptop .cap{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid var(--line2);font-size:12.5px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px)}
+.ptop .cap .k{width:8px;height:8px;border-radius:50%;background:var(--vi);box-shadow:0 0 8px var(--vi)}
+.pcenter{flex:1;position:relative;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+.bigplay{width:74px;height:74px;border-radius:50%;background:rgba(255,255,255,.12);border:1px solid var(--line2);display:grid;place-items:center;font-size:30px;color:#fff;backdrop-filter:blur(6px)}
+.subs{position:absolute;bottom:120px;font-size:18px;color:#fff;text-shadow:0 2px 6px #000;background:rgba(0,0,0,.35);padding:2px 10px;border-radius:6px}
+.pbottom{position:relative;z-index:3;padding:10px 16px 30px}
+.pbottom .bar{height:4px;border-radius:3px;background:rgba(255,255,255,.2);overflow:hidden}
+.pbottom .bar i{display:block;height:100%;width:42%;background:linear-gradient(90deg,var(--cy),var(--vi))}
+.pbottom .row{display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:11.5px;color:#cdd}
+.pbottom .ctr{display:flex;gap:20px;justify-content:center;margin-top:8px;font-size:18px;color:#fff}
+.lock{position:absolute;top:44px;right:16px;z-index:5;width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.10);border:1px solid var(--line2);display:grid;place-items:center;font-size:17px;color:#fff}
+
+/* STRM 遮罩 */
+.strm{position:absolute;inset:0;background:rgba(3,5,9,.92);z-index:8;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center}
+.strm.on{display:flex}
+.strm .ring{width:46px;height:46px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:var(--cy);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.strm .tt{font-size:15px;font-weight:700}
+.strm .wt{font-size:12.5px;color:var(--dim)}
+.strm .acts{display:flex;flex-direction:column;gap:10px;width:230px}
+.btnx{padding:12px;border-radius:12px;font-size:13.5px;font-weight:600;border:1px solid var(--line2);background:var(--glass);color:#fff;cursor:pointer}
+.btnx.cy{background:linear-gradient(135deg,var(--cy),var(--vi));color:#08121a;border:0}
+.btnx.ghost{background:transparent;color:var(--dim)}
+.strm .tip{font-size:11px;color:var(--faint);line-height:1.5;max-width:250px}
+
+/* 设置页 */
+.setgrp{background:var(--glass);border:1px solid var(--line);border-radius:14px;margin:12px 0;overflow:hidden}
+.setrow{display:flex;align-items:center;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line)}
+.setrow:last-child{border-bottom:0}
+.setrow .lab{flex:1;font-size:13.5px}
+.setrow .val{font-size:12.5px;color:var(--dim)}
+.setrow input.val{background:var(--glass2);border:1px solid var(--line);border-radius:9px;color:var(--fg);padding:7px 10px;width:90px;text-align:center;font-family:var(--mono)}
+.setrow .seg2{display:flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.setrow .seg2 a{padding:7px 13px;font-size:12px;color:var(--dim);text-decoration:none;border-left:1px solid var(--line)}
+.setrow .seg2 a:first-child{border-left:0}
+.setrow .seg2 a.on{background:linear-gradient(135deg,var(--cy),var(--vi));color:#08121a;font-weight:600}
+.row-inline{display:flex;gap:10px;align-items:center}
+.row-inline .tt{flex:1;font-size:13.5px}
+
+/* 搜索页 */
+.searchbox{display:flex;align-items:center;gap:10px;background:var(--glass);border:1px solid var(--line);border-radius:13px;padding:11px 14px;margin:6px 0 14px}
+.searchbox input{flex:1;background:none;border:0;color:var(--fg);font-size:13.5px;outline:none;font-family:var(--sans)}
+
+/* 右侧标注面板 */
+.notes{width:320px;flex:0 0 320px;border-left:1px solid var(--line);padding:20px;overflow:auto}
+.notes h2{font-size:14px;margin:0 0 4px;font-weight:700}
+.notes .pg-meta{font-size:11.5px;color:var(--faint);margin-bottom:14px}
+.taglist{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.kw{font-size:10.5px;padding:3px 8px;border-radius:7px;background:var(--glass2);border:1px solid var(--line);color:var(--dim)}
+.kw.cy{color:var(--cy);border-color:rgba(94,234,212,.25)}
+.kw.vi{color:var(--vi);border-color:rgba(167,139,250,.25)}
+.kw.pk{color:var(--pk);border-color:rgba(244,114,182,.25)}
+.notes ul{margin:8px 0;padding-left:16px}
+.notes li{font-size:12.5px;color:var(--dim);line-height:1.7;margin:4px 0}
+.notes li b{color:var(--fg)}
+.notes .box{background:var(--glass);border:1px solid var(--line);border-left:3px solid var(--gld);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--dim);margin-top:12px;line-height:1.6}
+.notes .box.q{border-left-color:var(--cy)}
+
+.sticky-note{position:absolute;top:14px;right:14px;z-index:20;display:flex;flex-direction:column;gap:5px;align-items:flex-end;pointer-events:none}
+.sticky-note .c{font-size:9.5px;padding:3px 8px;border-radius:7px;background:rgba(8,12,18,.8);border:1px solid var(--line2);color:var(--cy);backdrop-filter:blur(4px)}
+
+@media(max-width:1080px){.notes{display:none}.nav{width:64px}.nav button span.t{display:none}.nav button{justify-content:center}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="logo">C</div>
+  <h1>Camby 页面 UI 设计整合</h1>
+  <span class="meta">v1.7.56 · 8 个核心页面 · 基于源码事实还原</span>
+  <div class="spacer"></div>
+  <span class="badge">液态玻璃 · 双内核 · 深色</span>
+</header>
+
+<div class="studio">
+  <!-- 导航 -->
+  <nav class="nav" id="nav">
+    <div class="g">浏览 / 发现</div>
+    <button data-s="home" class="on"><span class="n">01</span><span class="t">首页</span></button>
+    <button data-s="library"><span class="n">02</span><span class="t">媒体库</span></button>
+    <button data-s="fav"><span class="n">03</span><span class="t">收藏</span></button>
+    <button data-s="person"><span class="n">04</span><span class="t">演员</span></button>
+    <div class="g">内容 / 播放</div>
+    <button data-s="detail"><span class="n">05</span><span class="t">详情</span></button>
+    <button data-s="player"><span class="n">06</span><span class="t">播放</span></button>
+    <div class="g">系统</div>
+    <button data-s="settings"><span class="n">07</span><span class="t">设置</span></button>
+    <button data-s="search"><span class="n">08</span><span class="t">搜索</span></button>
+  </nav>
+
+  <!-- 舞台 -->
+  <div class="stage">
+    <div class="phone">
+      <div class="notch"><i class="cam"></i><i></i><i></i></div>
+
+      <!-- 01 首页 -->
+      <section class="screen on" id="home">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">推荐</div>
+          <div class="gbtn">⌕</div>
+        </div>
+        <div class="scroll">
+          <div class="refresh">⟳ 已同步 128 项</div>
+          <div class="pg c3">
+            <div class="poster"><div class="ph"></div><span class="bad">4K</span><span class="nm">沙丘：第二部</span></div>
+            <div class="poster"><div class="ph"></div><span class="bad">MPV</span><span class="nm">奥本海默</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">可怜的东西</span></div>
+            <div class="poster"><div class="ph"></div><span class="bad">杜比</span><span class="nm">坠落的审判</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">花月杀手</span></div>
+            <div class="poster"><div class="ph"></div><span class="bad">4K</span><span class="nm">利益区域</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">过往人生</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">原始星球</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">末路狂花</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="t on"><div class="ic">★</div>推荐</div>
+          <div class="t"><div class="ic">▦</div>媒体库</div>
+          <div class="t"><div class="ic">♥</div>收藏</div>
+          <div class="t"><div class="ic">⚙</div>我的</div>
+        </div>
+      </section>
+
+      <!-- 02 媒体库 -->
+      <section class="screen" id="library">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">媒体库</div>
+        </div>
+        <div class="scroll">
+          <div class="filterbar">
+            <span class="pill vi"><span class="dot"></span>全部 · 智能排序 ▾</span>
+            <span class="pill">电影</span>
+            <span class="pill">剧集</span>
+            <span class="pill">⚙ 筛选</span>
+          </div>
+          <div class="refresh">⟳ 下拉刷新以同步该媒体库</div>
+          <div class="pg c6">
+            <div class="poster"><div class="ph"></div><span class="nm">沙丘2</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">奥本</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">可怜</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">坠落</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">花月</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">利益</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">过往</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">原始</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">末路</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">银翼</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">2001</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">镜子</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="t"><div class="ic">★</div>推荐</div>
+          <div class="t on"><div class="ic">▦</div>媒体库</div>
+          <div class="t"><div class="ic">♥</div>收藏</div>
+          <div class="t"><div class="ic">⚙</div>我的</div>
+        </div>
+      </section>
+
+      <!-- 03 收藏 -->
+      <section class="screen" id="fav">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">我的收藏</div>
+        </div>
+        <div class="scroll">
+          <div class="filterbar">
+            <span class="pill"><span class="dot"></span>全部影片</span>
+            <span class="pill">⚙ 筛选</span>
+          </div>
+          <div class="section-t" style="margin-top:4px">收藏夹 · 堆叠墙</div>
+          <div class="wall">
+            <div class="card c2"><div class="ph"></div><span class="nm">末路狂花</span></div>
+            <div class="card c1"><div class="ph"></div><span class="nm">花月杀手</span></div>
+            <div class="card c0"><div class="ph"></div><span class="nm">沙丘：第二部</span></div>
+          </div>
+          <div class="section-t">最近收藏</div>
+          <div class="pg c3">
+            <div class="poster"><div class="ph"></div><span class="bad">4K</span><span class="nm">奥本海默</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">可怜的东西</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">坠落的审判</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="t"><div class="ic">★</div>推荐</div>
+          <div class="t"><div class="ic">▦</div>媒体库</div>
+          <div class="t on"><div class="ic">♥</div>收藏</div>
+          <div class="t"><div class="ic">⚙</div>我的</div>
+        </div>
+      </section>
+
+      <!-- 04 演员 -->
+      <section class="screen" id="person">
+        <div class="person-bg"></div>
+        <div class="apbar" style="background:transparent">
+          <div class="back">‹</div>
+          <div class="ttl">演员作品</div>
+          <div class="gbtn">⚙</div>
+        </div>
+        <div class="scroll" style="position:relative;z-index:2">
+          <div class="avatar">L</div>
+          <div class="section-t" style="text-align:center;margin:12px 0 2px">Lily Chase</div>
+          <div class="tags">
+            <span class="tagchip on">全部</span>
+            <span class="tagchip">电影</span>
+            <span class="tagchip">剧集</span>
+            <span class="tagchip">⚙ 筛选</span>
+          </div>
+          <div class="pg c3">
+            <div class="poster"><div class="ph"></div><span class="bad">主演</span><span class="nm">沙丘2</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">奥本海默</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">可怜的东西</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">坠落的审判</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">花月杀手</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">过往人生</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 05 详情 -->
+      <section class="screen" id="detail">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">影片详情</div>
+        </div>
+        <div class="scroll">
+          <div class="hero">
+            <div class="ph"></div><div class="grad"></div>
+            <div class="meta">
+              <div style="font-size:18px;font-weight:800">沙丘：第二部</div>
+              <div class="chiprow" style="margin:8px 0 0">
+                <span class="chip">2024</span><span class="chip">科幻</span><span class="chip">166 min</span><span class="chip">9.0</span>
+              </div>
+            </div>
+            <div class="heart" id="heart" onclick="this.classList.toggle('off')">♥</div>
+          </div>
+          <div class="chiprow">
+            <span class="pill"><span class="dot"></span>播放</span>
+            <span class="pill">▶ 从 12:30 继续</span>
+            <span class="pill">＋ 添加到</span>
+          </div>
+          <div class="section-t">剧情简介</div>
+          <p style="font-size:12.5px;color:var(--dim);line-height:1.7;margin:0">保罗·厄崔迪联合契妮及弗雷曼人，踏上复仇与救赎之路，在已知宇宙的暗流中对抗阴谋，抉择族群的命运。</p>
+          <div class="section-t">媒体信息</div>
+          <div class="mediainfo">
+            <div><b>编码</b> HEVC · <b>分辨率</b> 3840×2160 · <b>HDR</b> Dolby Vision</div>
+            <div><b>音频</b> TrueHD Atmos 7.1 · <b>码率</b> 62.4 Mbps</div>
+            <div><b>字幕</b> 简体中文（内封 ASS）</div>
+          </div>
+          <div class="section-t">主演</div>
+          <div class="pg c3">
+            <div class="poster"><div class="ph"></div><span class="nm">提莫西</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">赞达亚</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">丽贝卡</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="t"><div class="ic">★</div>推荐</div>
+          <div class="t"><div class="ic">▦</div>媒体库</div>
+          <div class="t"><div class="ic">♥</div>收藏</div>
+          <div class="t"><div class="ic">⚙</div>我的</div>
+        </div>
+      </section>
+
+      <!-- 06 播放 -->
+      <section class="screen" id="player">
+        <div class="player">
+          <div class="pgrad"></div>
+          <div class="ptop">
+            <div class="back">‹</div>
+            <div class="ttl" style="font-size:13px">沙丘：第二部</div>
+            <div class="cap" id="cap" onclick="toggleKernel()"><span class="k"></span><span id="kern">MPV</span></div>
+          </div>
+          <div class="pcenter">
+            <div class="bigplay">▶</div>
+            <div class="subs">沙漠中，香料即权力。</div>
+          </div>
+          <div class="lock">🔒</div>
+          <div class="pbottom">
+            <div class="bar"><i></i></div>
+            <div class="row"><span>00:12:30</span><span>02:46:10</span></div>
+            <div class="ctr"><span>⏮</span><span>⏸</span><span>⏭</span><span>🔊</span><span>CC</span></div>
+          </div>
+          <!-- STRM 遮罩 -->
+          <div class="strm on" id="strm">
+            <div class="ring"></div>
+            <div class="tt">正在获取媒体信息…</div>
+            <div class="wt">已等待 <span id="wt">9</span> 秒 · 当前内核 MPV</div>
+            <div class="acts">
+              <div class="btnx cy" onclick="document.getElementById('strm').classList.remove('on')">切换到 Exo 内核</div>
+              <div class="btnx ghost" onclick="document.getElementById('strm').classList.remove('on')">继续等待</div>
+            </div>
+            <div class="tip">若长时间黑屏，建议在 Emby 服务端安装 STRM 媒体信息插件（MediaInfoKeeper / StrmAssistant）预热。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 07 设置 -->
+      <section class="screen" id="settings">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">设置</div>
+        </div>
+        <div class="scroll">
+          <div class="section-t">服务器</div>
+          <div class="setgrp">
+            <div class="setrow">
+              <span class="lab">服务器地址</span>
+              <span class="val">http://192.168.1.20</span>
+            </div>
+            <div class="setrow">
+              <span class="lab">端口 · 协议</span>
+              <div class="row-inline">
+                <input class="val" value="8096">
+                <div class="seg2">
+                  <a class="on">http</a><a>https</a>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="section-t">播放器</div>
+          <div class="setgrp">
+            <div class="setrow">
+              <span class="lab">默认播放内核</span>
+              <div class="seg2">
+                <a>ExoPlayer</a><a class="on">MPV</a>
+              </div>
+            </div>
+            <div class="setrow">
+              <span class="lab">ASS 特效字幕</span>
+              <span class="val">开</span>
+            </div>
+            <div class="setrow">
+              <span class="lab">网络缓冲档位</span>
+              <span class="val">中</span>
+            </div>
+          </div>
+          <div class="section-t">外观</div>
+          <div class="setgrp">
+            <div class="setrow"><span class="lab">主题</span><span class="val">深色 · 液态玻璃</span></div>
+            <div class="setrow"><span class="lab">数据导出</span><span class="val">导出 ›</span></div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="t"><div class="ic">★</div>推荐</div>
+          <div class="t"><div class="ic">▦</div>媒体库</div>
+          <div class="t"><div class="ic">♥</div>收藏</div>
+          <div class="t on"><div class="ic">⚙</div>我的</div>
+        </div>
+      </section>
+
+      <!-- 08 搜索 -->
+      <section class="screen" id="search">
+        <div class="apbar">
+          <div class="back">‹</div>
+          <div class="ttl">搜索</div>
+        </div>
+        <div class="scroll">
+          <div class="searchbox">⌕ <input placeholder="片名 / 演员 / 标签…"></div>
+          <div class="pg c3">
+            <div class="poster"><div class="ph"></div><span class="bad">4K</span><span class="nm">沙丘：第二部</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">沙丘</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">沙丘预言</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">银翼杀手</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">降临</span></div>
+            <div class="poster"><div class="ph"></div><span class="nm">星际穿越</span></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- 标注面板 -->
+  <aside class="notes" id="notes">
+    <h2>首页 · Home</h2>
+    <div class="pg-meta">版本 v1.7.50 对齐 · 路由 /home</div>
+    <div class="taglist"><span class="kw cy">3 列网格</span><span class="kw vi">下拉刷新</span><span class="kw">液态玻璃圆钮</span></div>
+    <ul>
+      <li><b>顶部栏</b>：返回 ‹ + 标题「推荐」+ 右侧 <b>液态玻璃圆钮</b> ⌕（<code>_GlassCircleBtn</code>）</li>
+      <li><b>Tab 栏</b>：推荐 / 媒体库 / 收藏 / 我的，选中态为<b>圆形玻璃片</b>（<code>_Pill</code> 磨砂）</li>
+      <li><b>刷新反馈</b>：下拉刷新成功后 toast「<b>已同步 N 项</b>」（源码 <code>showToast('已同步 $n 项')</code>）</li>
+      <li><b>网格</b>：<code>crossAxisCount: 3</code>，海报 2:3，铺满屏宽（平板未做多列，见 DESIGN 平板分析）</li>
+      <li><b>推荐算法</b>：<code>RecoEngine.activeSeed</code> 动态种子，v1.7.41 复核修复</li>
+    </ul>
+    <div class="box q">设计意图：首页是「发现」入口，强调液态玻璃质感与下拉同步的明确反馈；平板端建议后续多列化（3→5 列）。</div>
+  </aside>
+</div>
+
+<script>
+const NOTES = {
+  home:`<h2>首页 · Home</h2><div class="pg-meta">版本 v1.7.50 对齐 · 路由 /home</div>
+    <div class="taglist"><span class="kw cy">3 列网格</span><span class="kw vi">下拉刷新</span><span class="kw">液态玻璃圆钮</span></div>
+    <ul><li><b>顶部栏</b>：返回 ‹ + 标题「推荐」+ 右侧液态玻璃圆钮 ⌕（<code>_GlassCircleBtn</code>）</li>
+    <li><b>Tab 栏</b>：推荐/媒体库/收藏/我的，选中态为圆形玻璃片（<code>_Pill</code> 磨砂）</li>
+    <li><b>刷新反馈</b>：下拉刷新成功 toast「<b>已同步 N 项</b>」</li>
+    <li><b>网格</b>：<code>crossAxisCount:3</code>，海报 2:3 铺满屏宽</li>
+    <li><b>推荐</b>：<code>RecoEngine.activeSeed</code> 动态种子（v1.7.41 复核）</li></ul>
+    <div class="box q">设计意图：发现入口，强调液态玻璃质感与下拉同步反馈；平板建议多列化。</div>`,
+  library:`<h2>媒体库 · Library</h2><div class="pg-meta">版本 v1.7.53 下拉刷新 · 路由 /library</div>
+    <div class="taglist"><span class="kw cy">6 列(宽屏)</span><span class="kw vi">MediaFilter 控件</span><span class="kw">下拉刷新</span></div>
+    <ul><li><b>筛选条</b>：顶部 <code>MediaFilterButton</code>（与演员页/收藏页同款），含排序 + 类型 + 筛选入口</li>
+    <li><b>网格</b>：<code>crossAxisCount: wide ? 6 : 3</code>，宽屏（≥840dp）6 列，密度高</li>
+    <li><b>刷新</b>：包裹 <code>RefreshIndicator</code>，下拉同步该媒体库；v1.7.53 移除独立刷新按钮，统一交互</li>
+    <li><b>海报</b>：2:3，宽屏缩小圆角(8px) 提升信息密度</li></ul>
+    <div class="box q">设计意图：媒体库是密度优先的浏览页，6 列在平板上体验最佳，是少数已做宽屏优化的页面。</div>`,
+  fav:`<h2>收藏 · Favorites</h2><div class="pg-meta">版本 v1.7.50/51 堆叠墙 · 路由 /favorites</div>
+    <div class="taglist"><span class="kw pk">堆叠墙</span><span class="kw cy">clip:false</span><span class="kw vi">同款筛选</span></div>
+    <ul><li><b>堆叠墙</b>：三张海报，统一缩至 <b>scale 0.86</b> 居中；前卡微倾，<b>后卡 ±7° 向两侧、向上探出</b></li>
+    <li><b>裁剪修复</b>：<code>LiquidPress(clip: false)</code> —— 否则后卡探出部分被 ClipRRect 裁掉（v1.7.51 修复）</li>
+    <li><b>筛选</b>：顶部「全部影片」用 <b>演员页同款</b> 筛选控件（v1.7.54 统一）</li>
+    <li><b>底部</b>：继续展示「最近收藏」3 列网格</li></ul>
+    <div class="box">关键参数：scale=0.86，后卡 rotate ±7°、translateY -26px、translateX ±118px，z 层级 3→1。</div>`,
+  person:`<h2>演员 · Person</h2><div class="pg-meta">版本 v1.7.50 模糊/磨砂 · 路由 /person</div>
+    <div class="taglist"><span class="kw vi">背景模糊60</span><span class="kw cy">标签白0.9</span><span class="kw">液态玻璃</span></div>
+    <ul><li><b>背景</b>：头像 <code>ImageFilter.blur(60,60)</code> 整页模糊 + 渐变</li>
+    <li><b>标签</b>：全部/电影/剧集，<b>未选中白色 0.90 透明度</b>（v1.7.52 修复可读性）</li>
+    <li><b>筛选</b>：排序与筛选抽屉与<b>媒体库完全同一套</b>版式（<code>MediaFilter</code>）</li>
+    <li><b>作品网格</b>：<code>SliverGrid</code> 懒加载，3 列</li>
+      <li><b>按钮</b>：顶部 ⚙ 等用液态玻璃（<code>BackdropFilter</code> 真磨砂）</li></ul>
+    <div class="box q">设计意图：突出人物主体，模糊背景营造影院感；筛选与媒体库一致降低认知成本。</div>`,
+  detail:`<h2>详情 · Detail</h2><div class="pg-meta">版本 v1.7.50 媒体信息后置 · 路由 /detail</div>
+    <div class="taglist"><span class="kw pk">收藏心形</span><span class="kw cy">wide 分栏</span><span class="kw">媒体信息后置</span></div>
+    <ul><li><b>封面</b>：全幅压标题，底部渐变压暗</li>
+    <li><b>收藏钮</b>：第三枚为心形，<b>已收藏</b>点亮为<b>粉红渐变实心 + 描边</b>；点击打开收藏夹弹窗（v1.7.50）</li>
+    <li><b>结构</b>：封面 → 元信息 → 播放 → <b>剧情简介 → 媒体信息卡</b> → 主演 → 相似（媒体信息移到剧情后，v1.7.50）</li>
+    <li><b>宽屏</b>：<code>width>=840</code> 进入海报+信息左右分栏</li>
+      <li><b>监听</b>：全局状态变化（进度/收藏）实时刷新按钮文案</li></ul>
+    <div class="box">媒体信息卡含编码/分辨率/HDR/音频/码率/字幕，半透明玻璃卡片。</div>`,
+  player:`<h2>播放 · Player</h2><div class="pg-meta">版本 v1.7.55/56 弹窗合并·内核切换 · 路由 /player</div>
+    <div class="taglist"><span class="kw vi">MPV/Exo 胶囊</span><span class="kw cy">STRM 遮罩</span><span class="kw">锁定对位</span></div>
+    <ul><li><b>顶栏胶囊</b>：显示当前内核（MPV/ExoPlayer），点击 <code>_toggleEngine</code> 切换并 toast「正在切换 / 已切换到 X 内核」</li>
+    <li><b>锁定钮</b>：与未锁定态同一位置对齐（<code>Align(centerRight)</code>，v1.7.54）</li>
+    <li><b>STRM 遮罩</b>：单一 <code>StrmBootOverlay</code>（v1.7.55 合并）；显示「已等待 N 秒 · 当前内核」，<b>8 秒</b>后露「切换到 Exo 内核」，<b>25 秒</b>提示插件</li>
+    <li><b>横屏</b>：视频铺满，体验最佳</li></ul>
+    <div class="box q">点击右上 MPV 胶囊试试内核切换；点击「切换到 Exo 内核」关闭遮罩看效果（演示态）。</div>`,
+  settings:`<h2>设置 · Settings</h2><div class="pg-meta">版本 v1.7.50 清理项·端口协议对齐 · 路由 /settings</div>
+    <div class="taglist"><span class="kw cy">端口-协议对齐</span><span class="kw vi">MPV 显示</span><span class="kw">清理冗余</span></div>
+    <ul><li><b>端口·协议</b>：<code>Row + Expanded</code> 使端口输入框与 http/https 选择<b>对齐</b>（v1.7.52）</li>
+    <li><b>默认内核</b>：0=Exo / 1=MPV，选 MPV 时播放页顶栏正确显示 MPV（修复恒显 Exo，v1.7.50）</li>
+    <li><b>清理</b>：移除 App/播放器用不到的设置项（关联代码同步清除，v1.7.50）</li>
+    <li><b>缓冲档位 / ASS 特效</b>：真实接通播放器（v1.7.42）</li></ul>
+    <div class="box">分组卡片式布局，每组多行 setrow，标签左、值/控件右。</div>`,
+  search:`<h2>搜索 · Search</h2><div class="pg-meta">版本 v1.7.49 起 · 路由 /search</div>
+    <div class="taglist"><span class="kw cy">3 列结果</span><span class="kw">实时匹配</span></div>
+    <ul><li><b>搜索框</b>：液态玻璃输入条，支持片名/演员/标签</li>
+    <li><b>结果网格</b>：3 列铺满屏宽（与首页一致，未做宽屏多列）</li>
+    <li><b>回车/输入</b>：实时过滤媒体库与收藏</li></ul>
+    <div class="box q">建议与首页/收藏一起做平板多列化，并考虑搜索结果的分组（电影/剧集/演员）。</div>`
+};
+
+function show(s){
+  document.querySelectorAll('.screen').forEach(e=>e.classList.remove('on'));
+  document.getElementById(s).classList.add('on');
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  document.getElementById('notes').innerHTML = NOTES[s];
+}
+document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>show(b.dataset.s));
+
+let kernel='MPV';
+function toggleKernel(){
+  kernel = kernel==='MPV' ? 'ExoPlayer' : 'MPV';
+  document.getElementById('kern').textContent = kernel;
+  document.getElementById('cap').querySelector('.k').style.background = kernel==='MPV' ? 'var(--vi)' : 'var(--cy)';
+  document.getElementById('cap').querySelector('.k').style.boxShadow = '0 0 8px '+(kernel==='MPV'?'var(--vi)':'var(--cy)');
+}
+// STRM 遮罩倒计时演示
+let w=9; setInterval(()=>{ if(document.getElementById('strm').classList.contains('on')){ w++; document.getElementById('wt').textContent=w; } },1000);
+</script>
+</body>
+</html>

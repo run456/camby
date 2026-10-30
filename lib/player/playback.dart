@@ -335,18 +335,24 @@ class MpvController implements PlaybackController {
     }
   }
 
-  /// 把 [SubtitleStyle] 翻译成 libmpv 原生字幕属性（v1.7.22 修复项）。
+  /// 把 [SubtitleStyle] 翻译成 libmpv 原生字幕属性（v1.7.22 修复项，
+  /// v1.7.57 重写：透明度烤进颜色 alpha + 写后回读校验 + 旧属性名回退）。
   ///
   /// 设计稿要求的映射关系：
   ///   大小      → `sub-scale`        （1.0 = libmpv 默认字号）
   ///   垂直位置  → `sub-pos`          （0–100，**值越大越靠下**，与 App 的
   ///                                   bottomRatio 语义相反，需换算）
   ///   时间偏移  → `sub-delay`        （秒，正值 = 字幕延后）
-  ///   颜色      → `sub-color`
+  ///   颜色      → `sub-color`        （不透明度烤进 #AARRGGBB 的 alpha）
   ///   描边色    → `sub-border-color`
-  ///   不透明度  → `sub-opacity`
   ///
-  /// 任意一项失败都不影响其余项，也不打断播放（服务器/内核版本差异都可能拒绝）。
+  /// v1.7.57 实测两个事实（此前「面板调了没反应」的根因）：
+  /// 1. mpv **没有** `sub-opacity` 属性（0.36/0.37 均报 option not found），
+  ///    而旧实现把不透明度下发到它上面；media_kit 的 setProperty 走
+  ///    mpv_set_property_string 且**吞掉错误码、从不抛异常**，导致失败被
+  ///    try/catch 静默掩盖。现在不透明度直接合成进颜色的 alpha 通道。
+  /// 2. `sub-border-size` 是较新 mpv 的名字（旧版叫 `sub-outline-size`），
+  ///    Android 捆绑库版本不定 → 先写新名并回读校验，读不到再写旧名。
   @override
   Future<void> applySubtitleStyle(SubtitleStyle style) async {
     final platform = _player.platform;
@@ -359,29 +365,50 @@ class MpvController implements PlaybackController {
     /// sub-scale：以 [SubtitleStyle.baseSize] 为 1.0 基准
     final subScale = (style.size / SubtitleStyle.baseSize).clamp(0.3, 3.0);
 
-    /// 描边宽度 → libmpv 的边框粗细（0 时连同边框色一起关掉）。
+    /// 描边宽度（0 时连同边框色一起关掉）。
     final borderSize = style.stroke <= 0 ? 0.0 : style.stroke;
 
-    final pairs = <String, String>{
-      'sub-scale': subScale.toStringAsFixed(3),
-      'sub-pos': subPos.toStringAsFixed(2),
-      'sub-color': _mpvColor(style.color),
-      // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
-      'sub-border-color': '#000000',
-      'sub-opacity': style.opa.clamp(0.0, 1.0).toStringAsFixed(2),
-      'sub-border-size': borderSize.toStringAsFixed(2),
-      // 关键：ASS 字幕默认由 libass 按文件自带样式渲染，App 里的字号 /
-      // 颜色 / 描边全被忽略（这就是「面板调了没反应」的根因）。force 让
-      // libass 采用上面的样式覆盖，但保留 ASS 的定位信息。
-      'sub-ass-override': 'force',
-    };
-    for (final e in pairs.entries) {
+    /// 不透明度 → 颜色 alpha（0–255，FF = 不透明）
+    final alpha = (style.opa.clamp(0.0, 1.0) * 255).round();
+    final textColor = _mpvColorWithAlpha(style.color, alpha);
+    final borderColor = _mpvColorWithAlpha(const Color(0xFF000000), alpha);
+
+    Future<void> set(String name, String value) async {
       try {
-        await platform.setProperty(e.key, e.value);
-      } catch (_) {
-        // 老版本 libmpv 可能没有某个属性，跳过即可
-      }
+        await platform.setProperty(name, value);
+      } catch (_) {}
     }
+
+    /// 写入后回读校验；读不到（属性不存在 / 旧命名）则回退旧属性名。
+    /// media_kit 的 setProperty 对无效属性不报错，只能靠回读发现。
+    Future<void> setWithFallback(
+      String name,
+      String legacyName,
+      String value,
+    ) async {
+      await set(name, value);
+      var ok = false;
+      try {
+        final cur = await platform.getProperty(name);
+        ok = cur.isNotEmpty;
+      } catch (_) {}
+      if (!ok) await set(legacyName, value);
+    }
+
+    await set('sub-scale', subScale.toStringAsFixed(3));
+    await set('sub-pos', subPos.toStringAsFixed(2));
+    await set('sub-color', textColor);
+    // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
+    await setWithFallback('sub-border-color', 'sub-outline-color', borderColor);
+    await setWithFallback(
+      'sub-border-size',
+      'sub-outline-size',
+      borderSize.toStringAsFixed(2),
+    );
+    // 关键：ASS 字幕默认由 libass 按文件自带样式渲染，App 里的字号 /
+    // 颜色 / 描边全被忽略。force 让 libass 采用上面的样式覆盖，但保留
+    // ASS 的定位信息。
+    await set('sub-ass-override', 'force');
   }
 
   /// 运行时开关 ASS 特效渲染（v1.7.47）。
@@ -406,11 +433,14 @@ class MpvController implements PlaybackController {
     }
   }
 
-  /// Flutter [Color] → libmpv 的 `#RRGGBB` 串（libmpv 不吃 alpha，透明度
-  /// 走独立的 sub-opacity）
-  static String _mpvColor(Color c) {
-    final v = c.toARGB32() & 0xFFFFFF;
-    return '#${v.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  /// Flutter [Color] + 0–255 alpha → libmpv 颜色串 `#AARRGGBB`。
+  ///
+  /// mpv 没有独立的 `sub-opacity` 属性（v1.7.57 实测），不透明度只能
+  /// 合成进颜色的 alpha 通道（00 = 全透明，FF = 不透明）。
+  static String _mpvColorWithAlpha(Color c, int alpha) {
+    final a = alpha.clamp(0, 255);
+    final v = (a << 24) | (c.toARGB32() & 0xFFFFFF);
+    return '#${v.toRadixString(16).padLeft(8, '0').toUpperCase()}';
   }
 
   @override

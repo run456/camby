@@ -820,3 +820,33 @@ Future<void> _boot() async {
 - `flutter test`：**152 / 152**（`test/strm_overlay_single_test.dart` 新增 3 条守卫：胶囊不得直接传 `_switchEngine`、三条互切文案齐备、`_toggleEngine` 用 `unawaited` 交出 Future）
 
 **交付**：`camby-1.7.56-release-arm64.apk`（`cn.camby.camby` / 96 / 1.7.56 / 33M / sha256 `8629d72aa91435c2024c5aea041966ef406e098cf01f020c087b0a2e3593ab46`）。
+
+---
+
+## 23. v1.7.57 (97) MPV 模式字幕样式面板不生效
+
+### 根因（本机 mpv 0.37 + APK 内 libmpv.so 双重实证）
+
+| # | 事实 | 影响 |
+|---|---|---|
+| 1 | mpv **没有** `sub-opacity` 属性（0.36 / 0.37 运行时均报 `option not found`）；mpv 也没有独立的字幕不透明度选项，透明度只能合成进颜色的 alpha 通道 | 「不透明度」滑杆下发到不存在的属性 → 永远无效 |
+| 2 | media_kit 的 `NativePlayer.setProperty` 走 `mpv_set_property_string` 且**吞掉返回的错误码、从不抛异常** | 无效属性名失败被 `try/catch` 静默掩盖，设备上毫无痕迹 |
+| 3 | `sub-border-size` 是较新 mpv 的命名（旧版为 `sub-outline-size`），Android 捆绑 libmpv（media_kit_libs 1.3.8，mpv v0.36.0-549 dirty）版本不定 | 描边粗细在部分库上落空 |
+
+半透明背景是字幕文件自带的 ASS 样式（mpv 对 SRT 默认只渲染白字+细描边、无背景块，本机渲染对比确认），不受影响。
+
+### 处理（`lib/player/playback.dart` `applySubtitleStyle` 重写）
+
+- 不透明度 → `_mpvColorWithAlpha()` 合成 `#AARRGGBB`（文字色与描边色都带 alpha），彻底不再下发 `sub-opacity`
+- 描边属性带旧名回退：先写 `sub-border-size` / `sub-border-color`，回读（`getProperty`）为空再写 `sub-outline-size` / `sub-outline-color`
+- `sub-scale` / `sub-pos` / `sub-ass-override=force` 语义保持不变
+- 新增守卫 `test/mpv_sub_style_test.dart`：不得出现 `sub-opacity`、必须用 8 位 alpha 颜色串、必须带 `sub-outline-*` 旧名回退
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **153 / 153** |
+
+**交付**：`camby-1.7.57-release-arm64.apk`（`cn.camby.camby` / 97 / 1.7.57 / 33M / sha256 `d722180bb7f06f8890fc84a7c55ebae4cfad7d50c4d366026883c84e6f7e0a53`）。
