@@ -114,6 +114,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 叠加字幕的显示样式（持久化，见 SubtitleStyleStore）
   SubtitleStyle _subStyle = const SubtitleStyle();
 
+  /// 设置页「记录观看历史」开关：关掉后既不上报，也不进「继续观看」
+  bool _recordHistory = true;
+
   /// 最大码率（bps）。null = 原片直连；有值时服务端按该码率转码。
   int? _maxBitrate;
 
@@ -161,6 +164,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // 兜底：即使视频迟迟打不开（演示/失败），黑幕也要按时揭开
     _revealTimer = Timer(const Duration(milliseconds: 900), _reveal);
     unawaited(_loadSubStyle());
+    _loadRecordHistory();
     _open();
     _loadEpisodes();
     _resetHideTimer();
@@ -269,6 +273,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // ---------------- 字幕样式 / 码率 / 硬解 / 上报 ----------------
 
   /// 读取持久化的字幕样式（首次进入为默认值）
+  Future<void> _loadRecordHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getBool('set_record_history') ?? true;
+      if (mounted) _recordHistory = v;
+    } catch (_) {}
+  }
+
   Future<void> _loadSubStyle() async {
     final s = await SubtitleStyleStore.load();
     if (!mounted) return;
@@ -445,13 +457,25 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   /// 立即上报当前进度（Emby 的 Ticks：100ns 为一个单位）
+  ///
+  /// 两件事一起做：① 服务端写 PlaybackPositionTicks；② 本地 AppState 同步
+  /// 进度 —— 少了 ② 的话，退出播放页回首页，「继续观看」要等下次拉库才更新。
   Future<void> _reportProgressNow() async {
+    if (_demo || !_recordHistory) return;
+    final pos = _positionSeconds;
+    final total = _totalSeconds;
+    if (total > 0) {
+      widget.state.updateProgress(
+        widget.item.id,
+        seconds: pos,
+        total: total,
+        played: pos >= total * 0.95,
+      );
+    }
     final srv = widget.state.server;
-    if (srv == null || _demo) return;
+    if (srv == null) return;
     _lastReportAt = DateTime.now();
-    unawaited(
-      srv.reportProgress(widget.item.id, (_positionSeconds * 10000000).round()),
-    );
+    unawaited(srv.reportProgress(widget.item.id, (pos * 10000000).round()));
   }
 
   /// 通用玻璃面板：码率 / 倍速 / 字幕等单选列表共用一套外观。
@@ -1030,6 +1054,27 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   String _bitrateShort() =>
       _maxBitrate == null ? '原片' : '${(_maxBitrate! ~/ 1000000)} Mbps';
 
+  /// 文件大小：0 表示服务端没给（strm 常见），显示「未知」而不是 0 B
+  String _fmtSize(int bytes) {
+    if (bytes <= 0) return '未知';
+    const kb = 1024.0;
+    if (bytes < kb) return '$bytes B';
+    if (bytes < kb * kb) return '${(bytes / kb).toStringAsFixed(0)} KB';
+    if (bytes < kb * kb * kb) {
+      return '${(bytes / kb / kb).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / kb / kb / kb).toStringAsFixed(2)} GB';
+  }
+
+  /// 入库时间：只有日期，避免信息面板被长串时间戳撑开
+  String _fmtDate(int? ms) {
+    if (ms == null || ms <= 0) return '未知';
+    final d = DateTime.fromMillisecondsSinceEpoch(ms);
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$m-$day';
+  }
+
   // ---------------- 字幕 / 信息 弹层 ----------------
   Future<void> _pickSubtitle() async {
     final tracks = widget.item.subtitles;
@@ -1185,6 +1230,8 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               v: '${item.audioCodec} · ${item.audioChannels}ch',
             ),
             _InfoRow(k: '封装', v: item.container),
+            _InfoRow(k: '大小', v: _fmtSize(item.fileSizeBytes)),
+            _InfoRow(k: '入库', v: _fmtDate(item.dateCreatedMs)),
             _InfoRow(k: '字幕', v: _subInfoText()),
             _InfoRow(k: '倍速', v: _speedLabel),
             _InfoRow(k: '码率', v: _bitrateText()),

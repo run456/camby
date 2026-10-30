@@ -519,7 +519,14 @@ class MediaItem {
     videoCodec.toUpperCase() == 'H265' ? 'HEVC' : videoCodec.toUpperCase(),
   ];
 
-  MediaItem copyWith({bool? userFavorite, double? resumeProgress}) {
+  MediaItem copyWith({
+    bool? userFavorite,
+    double? resumeProgress,
+    double? resumeSeconds,
+    bool? userPlayed,
+    int? lastPlayedAt,
+    int? userPlayCount,
+  }) {
     return MediaItem(
       id: id,
       name: name,
@@ -543,6 +550,7 @@ class MediaItem {
       isHdr: isHdr,
       hasDolbyVision: hasDolbyVision,
       resumeProgress: resumeProgress ?? this.resumeProgress,
+      resumeSeconds: resumeSeconds ?? this.resumeSeconds,
       episodeTitle: episodeTitle,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
@@ -555,10 +563,10 @@ class MediaItem {
       resolutionKnown: resolutionKnown,
       reason: reason,
       addedDaysAgo: addedDaysAgo,
-      userPlayCount: userPlayCount,
-      userPlayed: userPlayed,
+      userPlayCount: userPlayCount ?? this.userPlayCount,
+      userPlayed: userPlayed ?? this.userPlayed,
       userFavorite: userFavorite ?? this.userFavorite,
-      lastPlayedAt: lastPlayedAt,
+      lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       filePath: filePath,
       fileSizeBytes: fileSizeBytes,
       dateCreatedMs: dateCreatedMs,

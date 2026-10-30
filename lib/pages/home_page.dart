@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -10,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import '../reco.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
@@ -58,16 +58,14 @@ class _HomePageState extends State<HomePage> {
   late final ValueNotifier<MediaItem> _bgHeroVN;
   Timer? _bgTimer;
 
-  // ---------------- 每日推荐引擎（1.7.38 新增）----------------
-  /// 一轮推荐的条目数（= 顶部 PageView 的页数）
-  static const int _recoCount = 6;
-  /// 推过的条目要「冷静」几天才会再出现在推荐里，避免天天同一批片子
-  static const int _recoCooldownDays = 3;
+  // ---------------- 每日推荐引擎 ----------------
+  /// 「最近已推」保留条数：手动换批要整批全新，就要排除足够多的旧片
+  static const int _recoRecentLimit = RecoEngine.recentLimit;
   /// 上次推送的时间戳（毫秒）
   int? _recoAt;
-  /// 最近推过 {id: 时间戳}（用于冷却与去重）
+  /// 最近推过 {id: 时间戳}（用于去重，避免换一批又换回来）
   final Map<String, int> _recoRecent = <String, int>{};
-  /// 洗牌随机种子：同一天内结果稳定，跨天重新洗
+  /// 手动偏移量：点一次「换一批」+1，重启后还原
   int _recoSeed = 0;
   Timer? _recoTimer;
 
@@ -180,7 +178,7 @@ class _HomePageState extends State<HomePage> {
         'home_reco_recent',
         jsonEncode(
           _recoRecent.entries
-              .take(120)
+              .take(_recoRecentLimit)
               .map((e) => <String, dynamic>{'id': e.key, 'at': e.value})
               .toList(),
         ),
@@ -188,69 +186,14 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {}
   }
 
-  /// 单条目的推荐权重：评分高、4K、近期加入的更容易上首页；
-  /// 已经看过 95% 以上的权重减半（避免「继续观看」和推荐重复打架）。
-  double _recoWeight(MediaItem i) {
-    final p = i.resumeProgress ?? 0;
-    var w = i.rating / 10.0; // 0~1
-    w += i.isTrue4K ? 0.3 : 0;
-    w += (i.addedDaysAgo < 30 ? 0.5 : (i.addedDaysAgo < 180 ? 0.2 : 0));
-    w += (i.genres.isNotEmpty ? 0.05 : 0);
-    if (p >= 0.95) w *= 0.35;
-    if (i.userFavorite) w += 0.25;
-    return w;
-  }
-
-  /// 挑一轮推荐：加权 + 带种子的随机，冷却期内的不再入选。
-  /// 数量不够时允许放宽冷却限制，保证首页永远有内容。
+  /// 挑一轮推荐：全库加权 + 排除已看完/最近已推 + 类型多样性。
+  /// 具体规则见 [RecoEngine]，这里只负责把当前种子与已推历史喂进去。
   List<MediaItem> _pickRecommendations(List<MediaItem> source) {
-    if (source.isEmpty) return const <MediaItem>[];
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final cooling = _recoCooldownDays * 24 * 3600 * 1000;
-    bool inCooldown(MediaItem i) {
-      final at = _recoRecent[i.id];
-      return at != null && now - at < cooling;
-    }
-
-    List<MediaItem> pool(List<MediaItem> src) =>
-        src.where((i) => !inCooldown(i)).toList();
-    var candidates = pool(source);
-    if (candidates.length < _recoCount) candidates = source.toList();
-
-    final rnd = math.Random(_recoSeed);
-    final scored = candidates.map((i) {
-      // 随机扰动保证同一批高分片每天排序不同，但同一天内种子固定 → 稳定
-      final jitter = rnd.nextDouble() * 0.45;
-      return MapEntry<MediaItem, double>(i, _recoWeight(i) + jitter);
-    }).toList();
-    scored.sort((a, b) => b.value.compareTo(a.value));
-    final picked = scored.take(_recoCount).map((e) => e.key).toList();
-    // 「每日推荐」要有多样性：同一系列只留一部
-    return _dedupeSeries(picked, source);
-  }
-
-  /// 同一系列（Season/Show）在推荐里只保留一部，多出来的位置用后续候补填
-  List<MediaItem> _dedupeSeries(List<MediaItem> picked, List<MediaItem> all) {
-    final seen = <String>{};
-    final out = <MediaItem>[];
-    for (final i in picked) {
-      final key = i.seriesId ?? i.id;
-      if (seen.contains(key)) continue;
-      seen.add(key);
-      out.add(i);
-    }
-    if (out.length < _recoCount) {
-      final shown = out.map((e) => e.id).toSet();
-      for (final i in all) {
-        if (out.length >= _recoCount) break;
-        if (shown.contains(i.id)) continue;
-        final key = i.seriesId ?? i.id;
-        if (seen.contains(key)) continue;
-        seen.add(key);
-        out.add(i);
-      }
-    }
-    return out;
+    return RecoEngine.pick(
+      source,
+      recent: _recoRecent,
+      seed: RecoEngine.activeSeed(DateTime.now(), _recoSeed),
+    );
   }
 
   /// 重建 Hero 池（PageView 的页）——推荐结果的落地
@@ -271,40 +214,34 @@ class _HomePageState extends State<HomePage> {
     _bgHeroVN.value = _hero;
   }
 
-  /// 换一批：换种子 → 重挑 → 记录本轮已推（冷却过后才会再次入选）
+  /// 换一批：种子 +1 → 重挑 → 把「被换下来的那 6 部」记入已推历史。
+  /// 关键顺序：先记旧批再挑新批，这样新批本身不在排除集里 ——
+  /// 同一天重启 App 用同一 seed 重算，能还原出完全相同的这一批，
+  /// 不会变成「每次冷启动都换一批」。
   Future<void> _shuffleReco() async {
-    final now = DateTime.now();
-    _recoSeed = now.millisecondsSinceEpoch % 2147483647;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final old = List<MediaItem>.of(_heroPool);
+    _recoSeed = (_recoSeed + 1) % 100000;
     final source =
         widget.state.items.isEmpty ? demoLibrary : widget.state.items;
     if (!mounted) return;
     setState(() => _rebuildHeroPool(source));
     _syncHeroNotifiers();
-    // 上一轮没被翻到的条目保留原时间戳，这里只更新本轮的
-    for (final i in _heroPool) {
-      _recoRecent[i.id] = now.millisecondsSinceEpoch;
+    for (final i in old) {
+      _recoRecent[i.id] = now;
+    }
+    // 只保留最近 30 条，防止本地存储无限增长
+    if (_recoRecent.length > _recoRecentLimit) {
+      final sorted = _recoRecent.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      _recoRecent
+        ..clear()
+        ..addEntries(sorted.take(_recoRecentLimit));
     }
     await _persistReco();
     if (!mounted) return;
     _jumpToPage(0);
     _precacheAdjacent();
-  }
-
-  /// 记录当前这一屏被看到过的条目（翻页时调用）
-  void _commitShown() {
-    if (_heroPool.isEmpty) return;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final i = _heroIndex % _heroPool.length;
-    _recoRecent[_heroPool[i].id] = now;
-    // 冷却表只保留最近 120 条，避免 SharedPreferences 无限增长
-    if (_recoRecent.length > 120) {
-      final sorted = _recoRecent.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value));
-      _recoRecent
-        ..clear()
-        ..addEntries(sorted.take(120));
-    }
-    unawaited(_persistReco());
   }
 
   /// 跨天自动换一批：定时器只设到下一个本地零点
@@ -440,8 +377,6 @@ class _HomePageState extends State<HomePage> {
       if (mounted) _bgHeroVN.value = item;
     });
     _precacheAdjacent();
-    // 记录「这一条今天已经被翻到」，冷却期内不再进推荐
-    _commitShown();
   }
 
   @override

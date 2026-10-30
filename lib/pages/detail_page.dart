@@ -78,7 +78,29 @@ class _DetailPageState extends State<DetailPage> {
       final on = o > 24;
       if (_blurOn.value != on) _blurOn.value = on;
     });
+    // 播放页退出后会回写进度 / 收藏到全局状态，这里跟着刷新按钮文案
+    widget.state.addListener(_onStateChanged);
     _loadExtras();
+  }
+
+  /// 全局条目变了（播放进度、收藏、字幕轨）→ 同步到本页
+  void _onStateChanged() {
+    if (!mounted) return;
+    MediaItem? fresh;
+    for (final e in widget.state.items) {
+      if (e.id == _item.id) {
+        fresh = e;
+        break;
+      }
+    }
+    if (fresh == null) return;
+    final changed = fresh.resumeProgress != _item.resumeProgress ||
+        fresh.resumeSeconds != _item.resumeSeconds ||
+        fresh.userFavorite != _item.userFavorite ||
+        fresh.userPlayed != _item.userPlayed ||
+        fresh.subtitles.length != _item.subtitles.length;
+    if (!changed) return;
+    setState(() => _item = fresh!);
   }
 
   @override
@@ -275,6 +297,7 @@ class _DetailPageState extends State<DetailPage> {
 
   @override
   void dispose() {
+    widget.state.removeListener(_onStateChanged);
     _offsetVN.dispose();
     _blurOn.dispose();
     _scroll.dispose();

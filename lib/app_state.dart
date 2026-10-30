@@ -144,7 +144,9 @@ class AppState extends ChangeNotifier {
               e.resumeProgress! > 0.01 &&
               e.resumeProgress! < 0.99,
         )
-        .toList();
+        // 刚看过的排最前：Emby 原生「继续观看」同样是 LastPlayedDate 倒序
+        .toList()
+      ..sort((a, b) => (b.lastPlayedAt ?? 0).compareTo(a.lastPlayedAt ?? 0));
     _continueCache = list;
     return list;
   }
@@ -163,6 +165,37 @@ class AppState extends ChangeNotifier {
       if (e.id != item.id) return e;
       hit = true;
       return item;
+    }).toList();
+    if (!hit) return;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// 播放中 / 退出时把进度写回本地列表。
+  ///
+  /// 只改内存 + 重建派生缓存，不发请求：服务端的 `PlaybackPositionTicks`
+  /// 由播放页单独上报，两边取同一个播放头位置，避免本地与服务端打架。
+  /// 进度只增不减（用 max），防止退出瞬间拿到 0 把已看进度清掉。
+  void updateProgress(
+    String itemId, {
+    required double seconds,
+    required double total,
+    bool played = false,
+  }) {
+    if (total <= 0) return;
+    final ratio = (seconds / total).clamp(0.0, 1.0);
+    var hit = false;
+    _items = _items.map((e) {
+      if (e.id != itemId) return e;
+      hit = true;
+      final prev = e.resumeProgress ?? 0;
+      final next = ratio > prev ? ratio : prev;
+      return e.copyWith(
+        resumeProgress: next,
+        resumeSeconds: seconds > 0 ? seconds : e.resumeSeconds,
+        userPlayed: played || next >= 0.95,
+        lastPlayedAt: DateTime.now().millisecondsSinceEpoch,
+      );
     }).toList();
     if (!hit) return;
     _invalidateDerived();
