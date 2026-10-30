@@ -89,6 +89,26 @@ class _PersonPageState extends State<PersonPage> {
   }
 
   /// 当前附加筛选的简短摘要（显示在筛选按钮上）
+  /// 抽屉里「共 N 部」：按草稿年代档位实时算，不依赖已应用的筛选
+  int _countFor(List<MediaItem> all, int decade) {
+    final now = DateTime.now().year;
+    final byTab = switch (_tab) {
+      1 => all.where((e) => e.isMovie),
+      2 => all.where((e) => e.isSeries),
+      _ => all.where((_) => true),
+    };
+    return byTab.where((e) {
+      final y = e.year;
+      if (y <= 0) return true;
+      return switch (decade) {
+        1 => now - y <= 3,
+        2 => now - y <= 10,
+        3 => now - y > 10,
+        _ => true,
+      };
+    }).length;
+  }
+
   String _filterSummary() {
     final d = switch (_decade) {
       1 => '近3年',
@@ -210,8 +230,19 @@ class _PersonPageState extends State<PersonPage> {
                     onChanged: (i) => setSheet(() => s = i),
                   ),
                 ),
+                // 计数行：与媒体页筛选抽屉一致，实时反映「草稿态」会得到多少部
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+                  child: Text(
+                    '共 ${_countFor(_films ?? const [], d)} 部 · 已选 ${d == 0 ? '不限' : decades[d]}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF9FB0CC),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
                   child: Row(
                     children: [
                       Expanded(

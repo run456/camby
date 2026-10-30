@@ -205,6 +205,7 @@ void main() {
       );
     });
   });
+  _tasteTests();
 }
 
 /// 固定返回值的 Random，用来消掉权重里的抖动，只比较确定性部分
@@ -220,4 +221,61 @@ class _FixedRandom implements Random {
 
   @override
   bool nextBool() => v >= 0.5;
+}
+
+// ---------------------------------------------------------------------------
+// v1.7.41 追加：设置页「推荐」分栏的口味开关
+// ---------------------------------------------------------------------------
+void _tasteTests() {
+  MediaItem mk(String id, {bool played = false, double rating = 7.0}) =>
+      MediaItem(
+        id: id,
+        name: id,
+        overview: '',
+        colors: const [Color(0xFF101820), Color(0xFF203040)],
+        type: MediaType.movie,
+        rating: rating,
+        genres: const ['剧情'],
+        userPlayed: played,
+      );
+
+  group('推荐口味开关', () {
+    test('关掉「排除已看完」后已看完的也能进推荐', () {
+      final src = [
+        for (var i = 0; i < 20; i++) mk('d$i', played: true, rating: 9.9),
+        for (var i = 0; i < 6; i++) mk('u$i', rating: 3.0),
+      ];
+      final got = RecoEngine.pick(
+        src,
+        recent: const {},
+        seed: 1,
+        excludeFinished: false,
+      );
+      expect(got.any((e) => e.userPlayed), isTrue);
+      expect(got.length, 6);
+    });
+
+    test('关掉时仍默认排除时已看完一个不进', () {
+      final src = [
+        for (var i = 0; i < 20; i++) mk('d$i', played: true, rating: 9.9),
+        for (var i = 0; i < 20; i++) mk('u$i', rating: 5.0),
+      ];
+      final got = RecoEngine.pick(src, recent: const {}, seed: 1);
+      expect(got.any((e) => e.userPlayed), isFalse);
+    });
+
+    test('关掉「优先没看过」后同分同条件下权重靠评分决定', () {
+      final a = RecoEngine.weight(
+        mk('a', played: true, rating: 8.0),
+        _FixedRandom(0.5),
+        preferFresh: false,
+      );
+      final b = RecoEngine.weight(
+        mk('b', played: false, rating: 8.0),
+        _FixedRandom(0.5),
+        preferFresh: false,
+      );
+      expect(a, b, reason: '关掉后看没看过不再加分');
+    });
+  });
 }

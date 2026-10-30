@@ -67,6 +67,10 @@ class _HomePageState extends State<HomePage> {
   final Map<String, int> _recoRecent = <String, int>{};
   /// 手动偏移量：点一次「换一批」+1，重启后还原
   int _recoSeed = 0;
+
+  /// 设置页「推荐」分栏的口味开关（默认与 1.7.30 定稿一致）
+  bool _preferFresh = true;
+  bool _excludeDone = true;
   Timer? _recoTimer;
 
   @override
@@ -125,6 +129,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _restoreRecoState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      _preferFresh = prefs.getBool('set_reco_fresh') ?? true;
+      _excludeDone = prefs.getBool('set_reco_exclude_done') ?? true;
       final at = prefs.getInt('home_reco_at');
       final seed = prefs.getInt('home_reco_seed') ?? 0;
       final raw = prefs.getString('home_reco_recent');
@@ -193,6 +199,8 @@ class _HomePageState extends State<HomePage> {
       source,
       recent: _recoRecent,
       seed: RecoEngine.activeSeed(DateTime.now(), _recoSeed),
+      preferFresh: _preferFresh,
+      excludeFinished: _excludeDone,
     );
   }
 
@@ -760,7 +768,8 @@ class _HomePageState extends State<HomePage> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 3,
+                                // v1.7.29 优化1：字距 3→1，解决「CAMBY」字母拉太开
+                                letterSpacing: 1,
                                 color: Colors.white,
                                 shadows: [
                                   Shadow(
@@ -770,7 +779,7 @@ class _HomePageState extends State<HomePage> {
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 3),
+                            const SizedBox(height: 1),
                             Text(
                               _sourceInfo(state),
                               maxLines: 1,

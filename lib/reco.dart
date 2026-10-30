@@ -40,11 +40,15 @@ class RecoEngine {
       i.userPlayed || (i.resumeProgress ?? 0) >= 0.9;
 
   /// 单条目的推荐权重（量纲对齐 0~3 分）
-  static double weight(MediaItem i, math.Random rnd) {
+  static double weight(
+    MediaItem i,
+    math.Random rnd, {
+    bool preferFresh = true,
+  }) {
     // 无评分的老片按 5 分中性处理，避免 0/10 让它永远垫底
     final rating = i.rating > 0 ? i.rating : 5.0;
     var w = rating / 10.0 * 3.0;
-    if (!isFinished(i)) w += 2.0;
+    if (preferFresh && !isFinished(i)) w += 2.0;
     if (i.addedDaysAgo < 30) w += 1.5;
     if (i.isTrue4K || i.isHdr || i.hasDolbyVision) w += 0.5;
     if (i.userFavorite) w += 0.5;
@@ -61,6 +65,8 @@ class RecoEngine {
     required Map<String, int> recent,
     required int seed,
     int take = count,
+    bool preferFresh = true,
+    bool excludeFinished = true,
   }) {
     if (source.isEmpty) return const <MediaItem>[];
 
@@ -69,7 +75,9 @@ class RecoEngine {
     final excluded =
         recentSorted.take(recentLimit).map((e) => e.key).toSet();
 
-    final unplayed = source.where((i) => !isFinished(i)).toList();
+    final unplayed = excludeFinished
+        ? source.where((i) => !isFinished(i)).toList()
+        : source.toList();
     final fresh = unplayed.where((i) => !excluded.contains(i.id)).toList();
 
     List<MediaItem> pool;
@@ -83,7 +91,12 @@ class RecoEngine {
 
     final rnd = math.Random(seed);
     final scored = pool
-        .map((i) => MapEntry<MediaItem, double>(i, weight(i, rnd)))
+        .map(
+          (i) => MapEntry<MediaItem, double>(
+            i,
+            weight(i, rnd, preferFresh: preferFresh),
+          ),
+        )
         .toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 

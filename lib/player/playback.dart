@@ -223,10 +223,16 @@ class ExoController implements PlaybackController {
 
 /// MPV / libmpv（media_kit）
 class MpvController implements PlaybackController {
-  MpvController({bool hardwareDecode = true}) : _hwdec = hardwareDecode {
+  MpvController({bool hardwareDecode = true, int cacheMb = 512})
+      : _hwdec = hardwareDecode,
+        _cacheMb = cacheMb {
     _player = Player();
     _vc = VideoController(_player);
   }
+
+  /// 网络缓冲上限（MB），对应 libmpv 的 `demuxer-max-bytes`。
+  /// 设置页「缓存大小」四个档位就是改这个值：越大越抗卡顿，常驻内存越多。
+  final int _cacheMb;
 
   late final Player _player;
   late final VideoController _vc;
@@ -370,6 +376,13 @@ class MpvController implements PlaybackController {
         if (_hwdec) {
           await platform.setProperty('vd-lavc-threads', '0');
         }
+        // 设置页「缓存大小」：必须显式给 back-buffer，否则 libmpv 默认
+        // forward 只有 64MiB，调大 demuxer-max-bytes 也会被后续缓冲卡住
+        final mb = _cacheMb.clamp(64, 8192);
+        final bytes = mb * 1024 * 1024;
+        await platform.setProperty('demuxer-max-bytes', '$bytes');
+        await platform.setProperty('demuxer-max-back-bytes', '$bytes');
+        await platform.setProperty('cache-secs', '${(mb / 8).clamp(10, 600)}');
       }
     } catch (_) {}
     await _player.open(Media(url), play: true);

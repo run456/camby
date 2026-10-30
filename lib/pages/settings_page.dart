@@ -30,6 +30,8 @@ class _SettingsPageState extends State<SettingsPage> {
   static const _bitrates = ['自动', '40 Mbps', '20 Mbps', '10 Mbps'];
   static const _caches = ['512 MB', '1 GB', '2 GB', '4 GB'];
   static const _subLangs = ['简体中文', '繁體中文', 'English', '关闭'];
+  /// 每日推荐分栏的说明文案（刷新规则写死在代码里，这里只做告知）
+  static const _recoRefreshDesc = '每天 00:00 自动换一批，也可点首页 ↻ 手动换';
 
   Map<String, dynamic> _s = {};
 
@@ -52,18 +54,10 @@ class _SettingsPageState extends State<SettingsPage> {
         'auto_next': prefs.getBool('set_auto_next') ?? true,
         'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
-        'sub_lang': prefs.getInt('set_sub_lang') ?? 0,
-        'ass_subtitle': prefs.getBool('set_ass_subtitle') ?? true,
-        'online_subtitle': prefs.getBool('set_online_subtitle') ?? true,
-        'danmaku': prefs.getBool('set_danmaku') ?? true,
-        'danmaku_anti': prefs.getBool('set_danmaku_anti') ?? true,
-        'danmaku_opacity': prefs.getDouble('set_danmaku_opacity') ?? 0.35,
-        'monet': prefs.getBool('set_monet') ?? true,
-        'glass_strength': prefs.getDouble('set_glass_strength') ?? 0.7,
-        'theme_idx': prefs.getInt('set_theme_idx') ?? 0,
         'record_history': prefs.getBool('set_record_history') ?? true,
-        'pip': prefs.getBool('set_pip') ?? true,
-        'bubble': prefs.getBool('set_bubble') ?? false,
+        // 「推荐」分栏：只保留真正会改变推荐结果的两项
+        'reco_fresh': prefs.getBool('set_reco_fresh') ?? true,
+        'reco_exclude_done': prefs.getBool('set_reco_exclude_done') ?? true,
       };
       _subStyle = subStyle;
     });
@@ -281,6 +275,36 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: _Value(
                   '调整',
                   onTap: () => unawaited(_openSubtitleStyle()),
+                ),
+                last: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _Group(
+            children: [
+              _RowItem(
+                title: '每日推荐',
+                desc: _recoRefreshDesc,
+                trailing: _Value(
+                  '00:00',
+                  onTap: () => _toast(_recoRefreshDesc),
+                ),
+              ),
+              _RowItem(
+                title: '优先没看过的',
+                desc: '未观看的影片权重更高',
+                trailing: _Toggle(
+                  value: _s['reco_fresh'],
+                  onChanged: (v) => _set('reco_fresh', v),
+                ),
+              ),
+              _RowItem(
+                title: '排除已看完',
+                desc: '关掉后已看过的片也可能被推荐',
+                trailing: _Toggle(
+                  value: _s['reco_exclude_done'],
+                  onChanged: (v) => _set('reco_exclude_done', v),
                 ),
                 last: true,
               ),

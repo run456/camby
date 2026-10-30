@@ -43,6 +43,8 @@ class PlayerPage extends StatefulWidget {
 
 class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   PlaybackController? _player;
+  /// 起播内核。设置页「默认播放内核」0=Exo / 1=MPV —— 之前在 initState 里
+  /// 硬写 exo，导致设置项形同虚设（v1.7.29 bug1 的同类问题，本次一并根治）
   PlaybackEngine _engine = PlaybackEngine.exo;
   bool _initializing = true;
   bool _fallback = false;
@@ -120,6 +122,21 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 最大码率（bps）。null = 原片直连；有值时服务端按该码率转码。
   int? _maxBitrate;
 
+  /// 设置页最大码率档位的映射（0=自动，其余为上限 bps）
+  static const List<int?> _bitrates = [null, 40000000, 20000000, 10000000];
+
+  /// 设置页缓存档位 → MPV `demuxer-max-bytes`（字节）。档位越高越抗卡顿，内存占用越大。
+  static const List<int> _cacheSizes = [512, 1024, 2048, 4096];
+
+  /// MPV 网络缓冲上限（MB），在 `_start` 里传给内核
+  int _cacheBytes = 512;
+
+  /// 设置页「自动连播下一集」：播完跳到本剧第下一集（没有则不动）
+  bool _autoNext = true;
+
+  /// 本集已经触发过自动续播，防止 ticker 反复跳
+  bool _autoNextFired = false;
+
   /// 当前是否硬件解码（由播放页直接热切换，不再回设置页）
   bool _hw = true;
 
@@ -165,6 +182,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _revealTimer = Timer(const Duration(milliseconds: 900), _reveal);
     unawaited(_loadSubStyle());
     _loadRecordHistory();
+    _applySavedPreferences();
     _open();
     _loadEpisodes();
     _resetHideTimer();
@@ -177,6 +195,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       }
       _tickCue();
       _syncPos();
+      _checkAutoNext();
     });
     _bufTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -273,6 +292,21 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // ---------------- 字幕样式 / 码率 / 硬解 / 上报 ----------------
 
   /// 读取持久化的字幕样式（首次进入为默认值）
+  /// 读取设置页里对播放器有实际作用的项：内核、码率上限、MPV 缓存档位。
+  /// 全部在 `_open()` 之前完成，避免开了没效果。
+  Future<void> _applySavedPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final eng = prefs.getInt('set_play_engine') ?? 0;
+      final br = prefs.getInt('set_max_bitrate') ?? 0;
+      final cache = prefs.getInt('set_cache_size') ?? 0;
+      _engine = eng == 1 ? PlaybackEngine.mpv : PlaybackEngine.exo;
+      _maxBitrate = _bitrates[br.clamp(0, _bitrates.length - 1)];
+      _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
+      _autoNext = prefs.getBool('set_auto_next') ?? true;
+    } catch (_) {}
+  }
+
   Future<void> _loadRecordHistory() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -551,11 +585,23 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
   }
 
-  /// 切上一集 / 下一集。
+  /// 自动连播：设置页开关打开时，本集播到 95% 以上自动跳下一集。
   ///
-  /// v1.7.22 移除中央按钮后暂时没有 UI 入口（分集列表在详情页），方法先留着，
-  /// 等做「连播到底自动下一集」时复用。
-  // ignore: unused_element
+  /// 三个前置条件缺一不可，避免误跳：① 开关打开；② 有分集列表且不是最后一集；
+  /// ③ 时长已知（时长未知的 strm 流无法判断「播完」）。
+  void _checkAutoNext() {
+    if (!_autoNext || _autoNextFired) return;
+    if (_episodes.isEmpty) return;
+    if (_episodeIndex < 0 || _episodeIndex >= _episodes.length - 1) return;
+    final total = _player?.durationSeconds ?? 0;
+    if (total <= 0) return;
+    if (_positionSeconds < total * 0.95) return;
+    _autoNextFired = true;
+    unawaited(_reportProgressNow());
+    _goEpisode(1);
+  }
+
+  /// 切上一集 / 下一集（自动连播的落地实现）
   void _goEpisode(int delta) {
     final next = _episodes[_episodeIndex + delta];
     Navigator.of(context).pushReplacement(
@@ -594,6 +640,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         final prefs = await SharedPreferences.getInstance();
         p = MpvController(
           hardwareDecode: prefs.getBool('set_hw_decode') ?? true,
+          cacheMb: _cacheBytes,
         );
       }
       p.fit = _fit;
