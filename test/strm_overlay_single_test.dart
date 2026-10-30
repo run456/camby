@@ -87,8 +87,10 @@ void main() {
         reason: '无条件 _autoFellBack = false 会让手动切 Exo 之后又被回退',
       );
       expect(
-        RegExp(r'^\s*_autoFellBack = false;\s*$', multiLine: true)
-            .hasMatch(body),
+        RegExp(
+          r'^\s*_autoFellBack = false;\s*$',
+          multiLine: true,
+        ).hasMatch(body),
         isFalse,
       );
     });
@@ -105,7 +107,10 @@ void main() {
 
   group('加载弹窗期间的控制层', () {
     test('等待中隐藏播放控件（否则会盖住弹窗的按钮）', () {
-      final top = _slice(player, 'Widget _topBar(BuildContext context, MediaItem item) {');
+      final top = _slice(
+        player,
+        'Widget _topBar(BuildContext context, MediaItem item) {',
+      );
       expect(top.contains('_bootOverlayVisible'), isTrue);
     });
 
@@ -117,6 +122,8 @@ void main() {
       expect(BootWatchPolicy.autoFallbackSecs, 10.0);
     });
   });
+
+  group('顶栏内核胶囊', _engineToggleGuards);
 }
 
 /// 从 [from] 起截到下一个顶层 `\n  }` 为止（粗略但足够做结构守卫）
@@ -126,4 +133,42 @@ String _slice(String src, String from) {
   final rest = src.substring(i);
   final end = rest.indexOf('\n  }\n');
   return end < 0 ? rest : rest.substring(0, end);
+}
+
+/// v1.7.56：顶栏 MPV 胶囊的点击必须走显式无参回调
+///
+/// `Glass(onTap:)` / `LiquidPress(onTap:)` 收的都是 `VoidCallback?`，而
+/// `_switchEngine({bool silent})` 是带可选命名参数的 async 方法 —— Dart 允许
+/// 把它直接赋给无参回调，于是**编译通过、点击也调了，但返回的 Future 被静默
+/// 丢弃**，`silent` 的语义也一起丢了。这条守卫防止有人再写回去。
+void _engineToggleGuards() {
+  late String player;
+  setUpAll(() {
+    player = File('lib/pages/player_page.dart').readAsStringSync();
+  });
+
+  test('顶栏胶囊用显式无参回调，不直接传 _switchEngine', () {
+    // 只看「非注释行」：注释里提到旧写法属于说明，不该被守卫误伤
+    final code = player
+        .split('\n')
+        .where((l) => !l.trimLeft().startsWith('//'))
+        .join('\n');
+    expect(
+      RegExp(r'onTap:\s*_switchEngine\b').hasMatch(code),
+      isFalse,
+      reason: '直接把带参 async 方法赋给 VoidCallback 会静默丢弃 Future',
+    );
+    expect(player.contains('onTap: _toggleEngine'), isTrue);
+  });
+
+  test('互切两个方向都有 toast（正在切换 / 已切换 / 失败）', () {
+    expect(player.contains('正在切换到'), isTrue);
+    expect(player.contains('已切换到'), isTrue);
+    expect(player.contains('失败，请检查片源'), isTrue);
+  });
+
+  test('_toggleEngine 把 Future 显式交出去（unawaited）', () {
+    final body = _slice(player, 'void _toggleEngine() {');
+    expect(body.contains('unawaited(_switchEngine('), isTrue);
+  });
 }

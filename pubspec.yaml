@@ -1,7 +1,7 @@
 name: camby
 description: "Camby · Android 端 Emby 播放器（Yamby 的能力 + EplayerX 的页面 + 数据总结）"
 publish_to: 'none'
-version: 1.7.55+95
+version: 1.7.56+96
 
 environment:
   sdk: ^3.13.0

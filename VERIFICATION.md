@@ -804,3 +804,19 @@ Future<void> _boot() async {
 | `flutter test` | **149 / 149**（新增 `test/strm_overlay_single_test.dart` 10 条结构守卫：旧弹窗已删、main 不再推载荷弹窗、只渲染一套、切 Exo 非取反、自动回退走 `_switchTo`、切 Exo 后不复位回退标记） |
 
 **交付**：`camby-1.7.55-release-arm64.apk`（`cn.camby.camby` / 95 / 1.7.55 / 33M / sha256 `f3d2ec8dc1e9a6491f7c877910eb9c21d07a145ca27b04f2be575ec28f9cad14`）。
+
+---
+
+## 22. v1.7.56 (96) 播放中顶栏内核胶囊切换失效 + 互切提示
+
+| # | 需求 | 根因 | 处理 |
+|---|---|---|---|
+| 1 | 播放时点顶栏 MPV 胶囊切换 ExoPlayer 无效 | `Glass(onTap:)` 收 `VoidCallback?`，而原代码写的是 `onTap: _switchEngine` —— `_switchEngine` 是 `Future<void> Function({bool silent})`。Dart 允许把带可选命名参数的函数赋给无参回调，**编译通过、点击也调了，但返回的 Future 被静默丢弃**，`silent` 语义一并丢失；`_switchTo` 内部又用 `if (!silent) showToast(...)` 兜底，异常路径没有可见反馈，表现为「点了没反应」 | 新增 `_toggleEngine()`（显式无参、`unawaited` 交 Future），胶囊改为 `onTap: _toggleEngine` |
+| 2 | MPV ↔ Exo 互切要有 toast | 原来只有成功时一句写死的「已切换至 X」，且只在 `!silent` 时出现，而胶囊路径的 silent 语义并不可靠 | 统一在 `_switchEngine` 里发三条：切换前「正在切换到 X 内核…」（换内核要重建播放器，1–3 秒无反馈像点空了）、成功后「已切换到 X 内核」、失败「切换到 X 失败，请检查片源或稍后重试」；`_switchTo` 改为**失败必提示**（不管 silent），成功提示由调用方按需给，避免弹窗路径与胶囊路径各说一半 |
+
+### 验证
+
+- `flutter analyze`：0 error / 0 warning
+- `flutter test`：**152 / 152**（`test/strm_overlay_single_test.dart` 新增 3 条守卫：胶囊不得直接传 `_switchEngine`、三条互切文案齐备、`_toggleEngine` 用 `unawaited` 交出 Future）
+
+**交付**：`camby-1.7.56-release-arm64.apk`（`cn.camby.camby` / 96 / 1.7.56 / 33M / sha256 `8629d72aa91435c2024c5aea041966ef406e098cf01f020c087b0a2e3593ab46`）。

@@ -370,8 +370,15 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       return;
     }
     _autoFellBack = true;
+    // 失败提示由 _switchTo 统一给出（它知道 ok 与否），这里只补成功那条
     await _switchTo(PlaybackEngine.exo, silent: true);
-    if (mounted) showToast(context, '已切换到 Exo 内核');
+    if (mounted && _engine == PlaybackEngine.exo) {
+      showToast(
+        context,
+        '已切换到 Exo 内核',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    }
   }
 
   /// 每 500ms 检查一次首帧：
@@ -857,11 +864,40 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
   }
 
+  /// 顶栏胶囊点击：在 MPV / Exo 之间来回切（v1.7.56 修）
+  ///
+  /// 之前这里写的是 `onTap: _switchEngine` —— 顶栏胶囊的 onTap 是
+  /// `VoidCallback?`，而 `_switchEngine` 的签名是
+  /// `Future<void> Function({bool silent})`。Dart 允许把「带可选命名参数的
+  /// 函数」赋给无参回调，于是编译通过、点击也确实会调，但**返回值被静默丢弃**：
+  /// 切换过程中的异常、以及 `silent` 的语义全部失控，表现出来就是
+  /// 「点了没反应」。现在改成显式无参回调，并把 Future 显式交出去。
+  void _toggleEngine() {
+    unawaited(_switchEngine(silent: false));
+  }
+
   Future<void> _switchEngine({bool silent = false}) async {
     final target = _engine == PlaybackEngine.exo
         ? PlaybackEngine.mpv
         : PlaybackEngine.exo;
-    await _switchTo(target, silent: silent);
+    if (!mounted) return;
+    // 先给一条「正在切换」的即时反馈：换内核要重建播放器，冷启动可能 1–3 秒，
+    // 期间画面还是旧内核的帧，没有提示用户会以为点空了
+    if (!silent) {
+      showToast(
+        context,
+        '正在切换到 ${target.label} 内核…',
+        icon: Icons.swap_horiz_rounded,
+      );
+    }
+    await _switchTo(target, silent: true);
+    if (mounted && !silent) {
+      showToast(
+        context,
+        '已切换到 ${target.label} 内核',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    }
   }
 
   /// 切到指定内核（保留进度与播放/暂停状态），切换期间保持加载弹窗可见
@@ -897,7 +933,15 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
     if (!mounted) return;
     setState(() => _initializing = false);
-    if (!silent) showToast(context, '已切换至 ${target.label}');
+    // 切换失败（地址不通 / 内核建不起来）必须明说，否则用户只会看到
+    // 「提示了正在切换，然后顶栏内核没变」，比不提示更让人困惑
+    if (!ok) {
+      showToast(
+        context,
+        '切换到 ${target.label} 失败，请检查片源或稍后重试',
+        icon: Icons.error_outline_rounded,
+      );
+    }
     _resetHideTimer();
     // 新内核重新计时。注意不要复位 _autoFellBack：两个方向的意义不同 ——
     //  · 用户/自动已经退到 Exo → 不该再自动回退（回退只对 MPV 生效）
@@ -1916,7 +1960,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 radius: 17,
                 blur: 18,
                 blurEnabled: false,
-                onTap: _switchEngine,
+                // 显式无参回调：直接传 _switchEngine 会把 Future 静默丢掉
+                onTap: _toggleEngine,
                 child: Center(
                   child: Text(
                     _engine.short,
