@@ -8,6 +8,7 @@ import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
+import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
 
 /// 演职员详情页（对齐影片详情的观感）：
@@ -93,80 +94,38 @@ class _PersonPageState extends State<PersonPage> {
         : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
-  static const _decadeNames = ['不限', '近 3 年', '近 10 年', '更早'];
-  static const _sortNames = ['发行日期', '评分', '标题'];
+  /// 先按「全部 / 电影 / 剧集」tab 过滤（排序与年代在公共函数里做）
+  Iterable<MediaItem> _byTab(List<MediaItem> all) => switch (_tab) {
+    1 => all.where((e) => e.isMovie),
+    2 => all.where((e) => e.isSeries),
+    _ => all.where((_) => true),
+  };
 
   /// 抽屉里「共 N 部」：按草稿年代档位实时算，不依赖已应用的筛选
-  int _countFor(List<MediaItem> all, int decade) {
-    final now = DateTime.now().year;
-    final byTab = switch (_tab) {
-      1 => all.where((e) => e.isMovie),
-      2 => all.where((e) => e.isSeries),
-      _ => all.where((_) => true),
-    };
-    return byTab.where((e) {
-      final y = e.year;
-      if (y <= 0) return true;
-      return switch (decade) {
-        1 => now - y <= 3,
-        2 => now - y <= 10,
-        3 => now - y > 10,
-        _ => true,
-      };
-    }).length;
-  }
+  int _countFor(List<MediaItem> all, int decade) =>
+      countForDecade(_byTab(all), decade);
 
   /// 当前筛选的简短摘要（显示在筛选按钮上）
-  String _filterSummary() {
-    final parts = <String>[
-      if (_decade != 0) _decadeNames[_decade],
-      '${_sortNames[_sortKey]}${_desc ? '↓' : '↑'}',
-    ];
-    return parts.isEmpty ? '筛选' : parts.join('·');
-  }
+  String _filterSummary() => mediaFilterSummary(_sortKey, _desc, _decade);
 
   String get _overview => (_info?['Overview'] as String?) ?? '';
 
-  List<MediaItem> get _filtered {
-    final all = _films ?? [];
-    final now = DateTime.now().year;
-    final byTab = switch (_tab) {
-      1 => all.where((e) => e.isMovie).toList(),
-      2 => all.where((e) => e.isSeries).toList(),
-      _ => List<MediaItem>.of(all),
-    };
-    final byDecade = byTab.where((e) {
-      final y = e.year;
-      if (y <= 0) return true; // 没有年份信息不过滤
-      return switch (_decade) {
-        1 => now - y <= 3,
-        2 => now - y <= 10,
-        3 => now - y > 10,
-        _ => true,
-      };
-    }).toList();
-    int cmp(MediaItem a, MediaItem b) => switch (_sortKey) {
-      1 => a.rating.compareTo(b.rating),
-      2 => a.name.compareTo(b.name),
-      _ => a.year.compareTo(b.year),
-    };
-    byDecade.sort(_desc ? (a, b) => cmp(b, a) : cmp);
-    return byDecade;
-  }
+  List<MediaItem> get _filtered => applyMediaFilter(
+    _byTab(_films ?? const []),
+    sortKey: _sortKey,
+    desc: _desc,
+    decade: _decade,
+  );
 
   /// 排序与筛选抽屉：与媒体库同一套版式（排序字段行 × 升/降 + 条件chips
   /// + 底部 重置 / 应用筛选）。
   Future<void> _showFilterSheet() async {
-    final result = await showModalBottomSheet<(int, bool, int)>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => _PersonFilterSheet(
-        sortKey: _sortKey,
-        desc: _desc,
-        decade: _decade,
-        total: _countFor(_films ?? const [], _decade),
-      ),
+    final result = await showMediaFilterSheet(
+      context,
+      sortKey: _sortKey,
+      desc: _desc,
+      decade: _decade,
+      total: _countFor(_films ?? const [], _decade),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -524,348 +483,6 @@ class _RoundBtn extends StatelessWidget {
 }
 
 /// 演员作品「排序与筛选」抽屉：版式与媒体库筛选一致。
-/// 草稿态在内部编辑，点「应用筛选」才提交，返回 (sortKey, desc, decade)。
-class _PersonFilterSheet extends StatefulWidget {
-  const _PersonFilterSheet({
-    required this.sortKey,
-    required this.desc,
-    required this.decade,
-    required this.total,
-  });
-
-  final int sortKey;
-  final bool desc;
-  final int decade;
-  final int total;
-
-  @override
-  State<_PersonFilterSheet> createState() => _PersonFilterSheetState();
-}
-
-class _PersonFilterSheetState extends State<_PersonFilterSheet> {
-  static const _sortNames = ['发行日期', '评分', '标题'];
-  static const _decadeNames = ['不限', '近 3 年', '近 10 年', '更早'];
-
-  late int _sortKey;
-  late bool _desc;
-  late int _decade;
-
-  @override
-  void initState() {
-    super.initState();
-    _sortKey = widget.sortKey;
-    _desc = widget.desc;
-    _decade = widget.decade;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
-      ),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF171C27), Color(0xFF10141D)],
-        ),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border(top: BorderSide(color: Colors.white12)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 9),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(2),
-                color: Colors.white.withOpacity(0.22),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              child: Row(
-                children: [
-                  const Text(
-                    '排序与筛选',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '共 ${widget.total} 项 · 已选 ${_decade == 0 ? 0 : 1} 个条件',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
-                shrinkWrap: true,
-                children: [
-                  _sectionTitle('排序方式', '点字段切换，右侧选升 / 降'),
-                  ...List.generate(_sortNames.length, (i) {
-                    final on = _sortKey == i;
-                    return _SortRow(
-                      name: _sortNames[i],
-                      active: on,
-                      desc: _desc,
-                      onSelect: () => setState(() => _sortKey = i),
-                      onDir: (v) => setState(() {
-                        _desc = v;
-                        _sortKey = i;
-                      }),
-                    );
-                  }),
-                  _sectionTitle('年代', '单选'),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    children: [
-                      for (var i = 0; i < _decadeNames.length; i++)
-                        _chip(
-                          _decadeNames[i],
-                          on: _decade == i,
-                          onTap: () => setState(() => _decade = i),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                ],
-              ),
-            ),
-            // 底部操作栏：重置 + 应用筛选
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-              child: Row(
-                children: [
-                  LiquidPress(
-                    onTap: () => setState(() {
-                      _decade = 0;
-                      _sortKey = 0;
-                      _desc = true;
-                    }),
-                    radius: 14,
-                    child: Container(
-                      height: 44,
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.22),
-                        ),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          '重置',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: LiquidPress(
-                      onTap: () =>
-                          Navigator.pop(context, (_sortKey, _desc, _decade)),
-                      radius: 14,
-                      child: Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x592F7FE8),
-                              blurRadius: 18,
-                              offset: Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '应用筛选',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String title, String? hint) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 14, bottom: 8),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-              color: AppColors.muted,
-            ),
-          ),
-          const Spacer(),
-          if (hint != null)
-            Text(
-              hint,
-              style: TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.muted.withOpacity(0.7),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String label, {required bool on, required VoidCallback onTap}) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 15,
-      scale: 0.95,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
-          border: Border.all(
-            color: on
-                ? const Color(0x874F8CFF)
-                : Colors.white.withOpacity(0.10),
-          ),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 排序字段行：字段名 + 升/降分段（与媒体库同款）
-class _SortRow extends StatelessWidget {
-  const _SortRow({
-    required this.name,
-    required this.active,
-    required this.desc,
-    required this.onSelect,
-    required this.onDir,
-  });
-
-  final String name;
-  final bool active;
-  final bool desc;
-  final VoidCallback onSelect;
-  final ValueChanged<bool> onDir;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: LiquidPress(
-        onTap: onSelect,
-        radius: 13,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(13),
-            color: active
-                ? const Color(0x334F8CFF)
-                : Colors.white.withOpacity(0.04),
-            border: Border.all(
-              color: active
-                  ? const Color(0x874F8CFF)
-                  : Colors.white.withOpacity(0.10),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w700,
-                    color: active ? Colors.white : const Color(0xFFD5DEEF),
-                  ),
-                ),
-              ),
-              _dirSeg(!desc, '↑ 升', () => onDir(false)),
-              const SizedBox(width: 3),
-              _dirSeg(desc, '↓ 降', () => onDir(true)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _dirSeg(bool on, String label, VoidCallback onTap) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 7,
-      scale: 0.94,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(7),
-          color: on ? const Color(0x594F8CFF) : Colors.black.withOpacity(0.30),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 简介文本：默认截断，点「更多」展开 / 收起
-/// 分段控件（1.7.38）：把原来三个独立胶囊合成一体，
-/// 选中态是一整块背景在槽内滑动，不再出现「两颗胶囊之间有一条缝」的观感。
 class _Seg extends StatelessWidget {
   const _Seg({
     required this.options,

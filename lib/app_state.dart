@@ -137,16 +137,19 @@ class AppState extends ChangeNotifier {
   List<MediaItem> get continueWatching {
     final cached = _continueCache;
     if (cached != null) return cached;
-    final list = _items
-        .where(
-          (e) =>
-              e.resumeProgress != null &&
-              e.resumeProgress! > 0.01 &&
-              e.resumeProgress! < 0.99,
-        )
-        // 刚看过的排最前：Emby 原生「继续观看」同样是 LastPlayedDate 倒序
-        .toList()
-      ..sort((a, b) => (b.lastPlayedAt ?? 0).compareTo(a.lastPlayedAt ?? 0));
+    final list =
+        _items
+            .where(
+              (e) =>
+                  e.resumeProgress != null &&
+                  e.resumeProgress! > 0.01 &&
+                  e.resumeProgress! < 0.99,
+            )
+            // 刚看过的排最前：Emby 原生「继续观看」同样是 LastPlayedDate 倒序
+            .toList()
+          ..sort(
+            (a, b) => (b.lastPlayedAt ?? 0).compareTo(a.lastPlayedAt ?? 0),
+          );
     _continueCache = list;
     return list;
   }
@@ -583,10 +586,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 刷新条目
-  Future<void> refresh() async {
+  /// 刷新条目，返回同步到的条目数（无服务器 / 失败返回 -1）
+  ///
+  /// 返回数量是为了让下拉刷新能给用户一句明确反馈（「已同步 N 项」），
+  /// 而不是转圈结束就悄无声息。
+  Future<int> refresh() async {
     final s = _server;
-    if (s == null) return;
+    if (s == null) return -1;
     _loading = true;
     notifyListeners();
     try {
@@ -597,12 +603,15 @@ class AppState extends ChangeNotifier {
       _views = await s.userViews();
       _offline = false;
       await _saveCache();
+      _loadPlayback();
+      return _items.length;
     } catch (e) {
       _error = e.toString();
+      return -1;
+    } finally {
+      _loading = false;
+      notifyListeners();
     }
-    _loading = false;
-    notifyListeners();
-    _loadPlayback();
   }
 
   // ---------------- 本地缓存（文字 + 列表） ----------------

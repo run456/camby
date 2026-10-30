@@ -13,6 +13,7 @@ import '../reco.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
+import '../widgets/glass_toast.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/poster_hero.dart';
 import 'search_page.dart';
@@ -61,10 +62,13 @@ class _HomePageState extends State<HomePage> {
   // ---------------- 每日推荐引擎 ----------------
   /// 「最近已推」保留条数：手动换批要整批全新，就要排除足够多的旧片
   static const int _recoRecentLimit = RecoEngine.recentLimit;
+
   /// 上次推送的时间戳（毫秒）
   int? _recoAt;
+
   /// 最近推过 {id: 时间戳}（用于去重，避免换一批又换回来）
   final Map<String, int> _recoRecent = <String, int>{};
+
   /// 手动偏移量：点一次「换一批」+1，重启后还原
   int _recoSeed = 0;
 
@@ -145,7 +149,8 @@ class _HomePageState extends State<HomePage> {
         }
       }
       final now = DateTime.now();
-      final sameDay = at != null &&
+      final sameDay =
+          at != null &&
           DateTime.fromMillisecondsSinceEpoch(at).year == now.year &&
           DateTime.fromMillisecondsSinceEpoch(at).month == now.month &&
           DateTime.fromMillisecondsSinceEpoch(at).day == now.day;
@@ -155,8 +160,9 @@ class _HomePageState extends State<HomePage> {
         ..addAll(recent);
       _recoAt = at;
       _recoSeed = seed;
-      final source =
-          widget.state.items.isEmpty ? demoLibrary : widget.state.items;
+      final source = widget.state.items.isEmpty
+          ? demoLibrary
+          : widget.state.items;
       if (sameDay && seed != 0) {
         // 当天已有结果：按同一套权重 + 同一种子重算出同一批顺序。
         // 这里必须走 setState——_rebuildHeroPool 只动 _heroPool/_hero，不会触发重建。
@@ -232,8 +238,9 @@ class _HomePageState extends State<HomePage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     final old = List<MediaItem>.of(_heroPool);
     _recoSeed = (_recoSeed + 1) % 100000;
-    final source =
-        widget.state.items.isEmpty ? demoLibrary : widget.state.items;
+    final source = widget.state.items.isEmpty
+        ? demoLibrary
+        : widget.state.items;
     if (!mounted) return;
     setState(() => _rebuildHeroPool(source));
     _syncHeroNotifiers();
@@ -265,6 +272,14 @@ class _HomePageState extends State<HomePage> {
       await _shuffleReco();
       _scheduleMidnightRefresh();
     });
+  }
+
+  /// 下拉刷新：从服务器同步全部条目与媒体库视图，并给一句明确反馈
+  /// （原来只有转圈结束，用户不知道到底同步了多少）
+  Future<void> _onRefresh() async {
+    final n = await widget.state.refresh();
+    if (!mounted) return;
+    showToast(context, n >= 0 ? '已同步 $n 项' : '刷新失败，请检查网络或服务器地址');
   }
 
   /// PageView 跳到指定页（不触发 onPageChanged 的重复处理）
@@ -473,7 +488,7 @@ class _HomePageState extends State<HomePage> {
             child: RefreshIndicator(
               color: AppColors.primary,
               backgroundColor: const Color(0xF2121828),
-              onRefresh: () => state.refresh(),
+              onRefresh: _onRefresh,
               // 独立图层：滚动只重绘列表，背后全屏模糊/大图不再每帧重算
               child: RepaintBoundary(
                 child: CustomScrollView(
@@ -689,8 +704,7 @@ class _HomePageState extends State<HomePage> {
                                                             AppColors.primary,
                                                       )
                                                     : const Icon(
-                                                        Icons
-                                                            .refresh_rounded,
+                                                        Icons.refresh_rounded,
                                                         size: 15,
                                                         color:
                                                             AppColors.primary,
@@ -806,9 +820,8 @@ class _HomePageState extends State<HomePage> {
                     _GlassCircleBtn(
                       icon: Icons.search_rounded,
                       semanticLabel: '搜索',
-                      onTap: () => Navigator.of(
-                        context,
-                      ).push(_searchRoute(state)),
+                      onTap: () =>
+                          Navigator.of(context).push(_searchRoute(state)),
                     ),
                     const SizedBox(width: 10),
                     _Pill(
@@ -935,14 +948,17 @@ class _HomePageState extends State<HomePage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(_heroPool.length.clamp(1, 6), (i) {
-                    final sel = i == _heroIndex % (_heroPool.length.clamp(1, 6));
+                    final sel =
+                        i == _heroIndex % (_heroPool.length.clamp(1, 6));
                     return AnimatedContainer(
                       duration: const Duration(milliseconds: 260),
                       margin: const EdgeInsets.symmetric(horizontal: 3),
                       width: sel ? 16 : 5,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: sel ? Colors.white : Colors.white.withOpacity(0.32),
+                        color: sel
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.32),
                         borderRadius: BorderRadius.circular(3),
                       ),
                     );

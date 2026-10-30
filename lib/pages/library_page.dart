@@ -100,6 +100,14 @@ class _LibraryPageState extends State<LibraryPage> {
 
   List<MediaItem> get _source => _viewItems ?? widget.state.items;
 
+  /// 下拉刷新：与首页同一套动作（拉条目 + 视图 + 写缓存），
+  /// 用 toast 明确告诉用户同步了多少项
+  Future<void> _onRefresh() async {
+    final n = await widget.state.refresh();
+    if (!mounted) return;
+    showToast(context, n >= 0 ? '已同步 $n 项' : '刷新失败，请检查网络或服务器地址');
+  }
+
   // ---------------- 条件管理 ----------------
 
   int get _activeCount =>
@@ -251,260 +259,255 @@ class _LibraryPageState extends State<LibraryPage> {
       );
     }
 
-    return Container(
-      color: AppColors.bg,
-      child: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                wide ? 24 : 16,
-                top + 12,
-                wide ? 24 : 16,
-                0,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.grid_view_rounded,
-                        size: 20,
-                        color: AppColors.ink,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '媒体库',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                            Text(
-                              state.demoMode
-                                  ? '演示数据'
-                                  : '${state.sourceLabel} · ${list.length} 项',
-                              style: const TextStyle(
-                                fontSize: 10.5,
-                                color: AppColors.muted,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+    return RefreshIndicator(
+      color: AppColors.primary,
+      backgroundColor: const Color(0xF2121828),
+      onRefresh: _onRefresh,
+      child: Container(
+        color: AppColors.bg,
+        child: CustomScrollView(
+          // AlwaysScrollable：条目不足一屏时也能下拉刷新
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  wide ? 24 : 16,
+                  top + 12,
+                  wide ? 24 : 16,
+                  0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.grid_view_rounded,
+                          size: 20,
+                          color: AppColors.ink,
                         ),
-                      ),
-                      if (state.loading || _viewLoading)
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.primary,
-                          ),
-                        )
-                      else ...[
-                        // 刷新：重新拉取该服务器/媒体库的条目与视图数据
-                        _TopBtn(
-                          onTap: () {
-                            if (state.loading) return;
-                            state.refresh();
-                            showToast(context, '正在刷新媒体库…');
-                          },
-                          child: const Icon(
-                            Icons.refresh_rounded,
-                            size: 18,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // 排序 + 筛选共用一个入口：方向箭头 + 当前字段 + 筛选条件数角标
-                        // （原来这里还有一个漏斗按钮，点开的是同一个抽屉，纯重复）
-                        _TopBtn(
-                          onTap: _openSheet,
-                          badge: _activeCount,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                _desc[_sort] ? '↓' : '↑',
-                                style: const TextStyle(
-                                  fontSize: 13,
+                              const Text(
+                                '媒体库',
+                                style: TextStyle(
+                                  fontSize: 20,
                                   fontWeight: FontWeight.w800,
-                                  color: AppColors.primary,
+                                  letterSpacing: -0.4,
                                 ),
                               ),
-                              const SizedBox(width: 4),
                               Text(
-                                _sortNames[_sort],
+                                state.demoMode
+                                    ? '演示数据'
+                                    : '${state.sourceLabel} · ${list.length} 项',
                                 style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.ink,
+                                  fontSize: 10.5,
+                                  color: AppColors.muted,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ],
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  // 媒体库分组
-                  if (state.views.isNotEmpty)
-                    SizedBox(
-                      height: 34,
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: state.views.length + 1,
-                        itemBuilder: (c, i) {
-                          final isAll = i == 0;
-                          final v = isAll ? null : state.views[i - 1];
-                          final sel = isAll
-                              ? state.selectedViewId == null
-                              : state.selectedViewId == v!.id;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: LiquidPress(
-                              radius: 17,
-                              scale: 0.95,
-                              onTap: () {
-                                state.selectedViewId = isAll ? null : v!.id;
-                                _viewItems = null;
-                                _cacheKey = '';
-                                _loadView(reset: true);
-                              },
-                              child: _Chip(
-                                label: isAll ? '全部' : v!.name,
-                                selected: sel,
-                                icon: !isAll && v!.collectionType == 'tvshows'
-                                    ? Icons.tv_outlined
-                                    : Icons.movie_outlined,
-                              ),
+                        if (state.loading || _viewLoading)
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.primary,
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                  // 摘要条：有激活筛选才出现，单条可移除
-                  if (summary.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 26,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          ...summary.map(
-                            (w) => Padding(
-                              padding: const EdgeInsets.only(right: 7),
-                              child: w,
+                          )
+                        else ...[
+                          // 排序 + 筛选共用一个入口：方向箭头 + 当前字段 + 筛选条件数角标
+                          // （原来这里还有一个漏斗按钮，点开的是同一个抽屉，纯重复）
+                          _TopBtn(
+                            onTap: _openSheet,
+                            badge: _activeCount,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _desc[_sort] ? '↓' : '↑',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _sortNames[_sort],
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.ink,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 2),
-                          LiquidPress(
-                            radius: 13,
-                            onTap: () => setState(() {
-                              _clearFilters();
-                              _cacheKey = '';
-                            }),
-                            child: Container(
-                              height: 26,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(13),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.22),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // 媒体库分组
+                    if (state.views.isNotEmpty)
+                      SizedBox(
+                        height: 34,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: state.views.length + 1,
+                          itemBuilder: (c, i) {
+                            final isAll = i == 0;
+                            final v = isAll ? null : state.views[i - 1];
+                            final sel = isAll
+                                ? state.selectedViewId == null
+                                : state.selectedViewId == v!.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: LiquidPress(
+                                radius: 17,
+                                scale: 0.95,
+                                onTap: () {
+                                  state.selectedViewId = isAll ? null : v!.id;
+                                  _viewItems = null;
+                                  _cacheKey = '';
+                                  _loadView(reset: true);
+                                },
+                                child: _Chip(
+                                  label: isAll ? '全部' : v!.name,
+                                  selected: sel,
+                                  icon: !isAll && v!.collectionType == 'tvshows'
+                                      ? Icons.tv_outlined
+                                      : Icons.movie_outlined,
                                 ),
                               ),
-                              child: const Center(
-                                child: Text(
-                                  '清空',
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.muted,
+                            );
+                          },
+                        ),
+                      ),
+                    // 摘要条：有激活筛选才出现，单条可移除
+                    if (summary.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 26,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            ...summary.map(
+                              (w) => Padding(
+                                padding: const EdgeInsets.only(right: 7),
+                                child: w,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            LiquidPress(
+                              radius: 13,
+                              onTap: () => setState(() {
+                                _clearFilters();
+                                _cacheKey = '';
+                              }),
+                              child: Container(
+                                height: 26,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(13),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.22),
+                                  ),
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    '清空',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.muted,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                ],
-              ),
-            ),
-          ),
-          if (list.isEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 24,
-                ),
-                child: Center(
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.movie_outlined,
-                        size: 34,
-                        color: AppColors.muted,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        _viewLoading ? '正在加载媒体库…' : '该筛选条件下没有条目',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.muted,
+                          ],
                         ),
                       ),
                     ],
-                  ),
+                    const SizedBox(height: 14),
+                  ],
                 ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                wide ? 24 : 16,
-                0,
-                wide ? 24 : 16,
-                120,
-              ),
-              sliver: SliverGrid.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: wide ? 6 : 3,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 14,
-                  childAspectRatio: 0.55,
-                ),
-                itemCount: list.length,
-                itemBuilder: (c, i) {
-                  final e = list[i];
-                  return PosterCard(
-                    item: e,
-                    width: double.infinity,
-                    heroTag: 'lib-${e.id}',
-                    onTap: () => widget.onOpenDetail(e, heroTag: 'lib-${e.id}'),
-                    showProgress: true,
-                    showResBadge: true,
-                    showCnBadge: true,
-                  );
-                },
               ),
             ),
-        ],
+            if (list.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 24,
+                  ),
+                  child: Center(
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.movie_outlined,
+                          size: 34,
+                          color: AppColors.muted,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          _viewLoading ? '正在加载媒体库…' : '该筛选条件下没有条目',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  wide ? 24 : 16,
+                  0,
+                  wide ? 24 : 16,
+                  120,
+                ),
+                sliver: SliverGrid.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: wide ? 6 : 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 14,
+                    childAspectRatio: 0.55,
+                  ),
+                  itemCount: list.length,
+                  itemBuilder: (c, i) {
+                    final e = list[i];
+                    return PosterCard(
+                      item: e,
+                      width: double.infinity,
+                      heroTag: 'lib-${e.id}',
+                      onTap: () =>
+                          widget.onOpenDetail(e, heroTag: 'lib-${e.id}'),
+                      showProgress: true,
+                      showResBadge: true,
+                      showCnBadge: true,
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

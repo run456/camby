@@ -726,3 +726,31 @@ Future<void> _boot() async {
 | `flutter test` | **139 / 139** |
 
 **交付**：`camby-1.7.52-release-arm64.apk`（`cn.camby.camby` / 92 / 1.7.52 / 33M / sha256 `eb63d3f77d962478a3ab1ea81f0288050d4c2a5e590c466007f818cfb424470d`）。
+
+---
+
+## 19. v1.7.53 (93) 刷新交互统一 + 收藏夹页筛选
+
+| # | 需求 | 处理 |
+|---|---|---|
+| 1 | 首页下拉刷新要触发提示 | `AppState.refresh()` 改为 `Future<int>`（返回同步条目数，失败 -1）；首页 `onRefresh` 走 `_onRefresh()`，结束后 toast「已同步 N 项」/「刷新失败，请检查网络或服务器地址」 |
+| 2 | 媒体库改成下拉刷新，去掉刷新按钮 | 移除 v1.7.52 刚加的顶栏刷新钮；`CustomScrollView` 包进 `RefreshIndicator`（physics 改 `AlwaysScrollableScrollPhysics` 保证条目不足一屏也能拉），toast 与首页同一套文案 —— 两页操作逻辑完全一致 |
+| 3 | 收藏页「全部影片」加演员页同款筛选 | 抽出公共组件 `lib/widgets/media_filter_sheet.dart`：演员页本地的 `_PersonFilterSheet` / `_SortRow` 上移为公共件，另提供 `applyMediaFilter` / `countForDecade` / `mediaFilterSummary` 纯函数。`FolderPage` 由 `StatelessWidget` 改 `StatefulWidget`（承载排序/年代草稿态），顶栏加筛选胶囊（tune 图标 + 摘要，与演员页完全同款），网格按筛选结果渲染；演员页改为复用公共件，删掉约 340 行重复代码 |
+
+### 关于 `refresh()` 返回值
+
+原来返回 `Future<void>`，调用方无从知道同步结果。改成 `Future<int>` 后：
+
+- 成功 → 同步到的条目数（用于「已同步 N 项」）
+- 无服务器 / 异常 → `-1`（用于失败提示）
+
+其余调用点（首页错误重试按钮）只 `await` 不取值，行为不变。
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **139 / 139** |
+
+**交付**：`camby-1.7.53-release-arm64.apk`（`cn.camby.camby` / 93 / 1.7.53 / 33M / sha256 `fcd1a6ebd01ac2d380dc8f148ad1aa9e7189ffdc20d2b432a8f339b95ba879f4`）。
