@@ -96,6 +96,13 @@ abstract class PlaybackController {
   /// 观感保持一致，靠的是同一份 [SubtitleStyle] 数据源。
   Future<void> applySubtitleStyle(SubtitleStyle style);
 
+  /// 运行时开关 ASS 特效渲染（设置页「ASS 特效字幕渲染」，v1.7.47 接通）。
+  ///
+  /// 关掉后 libmpv 走 `sub-ass=no`：ASS 只按纯文本 + App 样式渲染，
+  /// 不再有字体特效、定位字幕、卡拉 OK 变色。好处是画面统一、不吃
+  /// GPU；代价是丢失原盘特效。Exo 本来就没有 ASS 能力，恒为 false。
+  Future<void> setAssRendering(bool on);
+
   Future<void> dispose();
 }
 
@@ -237,6 +244,11 @@ class ExoController implements PlaybackController {
   @override
   Future<void> applySubtitleStyle(SubtitleStyle style) async {}
 
+  // Exo 无 ASS 能力：叠加层只画纯文本。设置页那一项对 Exo 无意义，
+  // 页面会据 [nativeSubtitles] 提示用户切 MPV。
+  @override
+  Future<void> setAssRendering(bool on) async {}
+
   @override
   Future<void> dispose() async => _c?.dispose();
 }
@@ -366,6 +378,28 @@ class MpvController implements PlaybackController {
       } catch (_) {
         // 老版本 libmpv 可能没有某个属性，跳过即可
       }
+    }
+  }
+
+  /// 运行时开关 ASS 特效渲染（v1.7.47）。
+  ///
+  /// libmpv 的 `sub-ass`：yes → 走 libass，完整还原 ASS/SSA 特效；
+  /// no → ASS 被当纯文本，按 [applySubtitleStyle] 下发的样式渲染。
+  ///
+  /// 注意顺序：必须在字幕已挂载之后设置才稳，部分版本在无字幕时设置
+  /// 会被忽略，所以这里设完再补一次 `sub-visibility`。
+  @override
+  Future<void> setAssRendering(bool on) async {
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    try {
+      await platform.setProperty('sub-ass', on ? 'yes' : 'no');
+      if (on) {
+        // 重新挂一次，让 libmpv 用新开关重解析当前轨道
+        await platform.setProperty('sub-visibility', 'yes');
+      }
+    } catch (_) {
+      // 老版本 libmpv 无此属性，忽略
     }
   }
 

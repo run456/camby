@@ -11,6 +11,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../player/boot_watch.dart';
 import '../player/playback.dart';
+import '../player/subtitle_pick.dart';
 import '../subtitles/subtitles.dart';
 import '../routes.dart';
 import '../theme.dart';
@@ -64,6 +65,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   bool _autoFellBack = false;
   /// 设置页「STRM 优先 Exo」（D 方案），默认开
   bool _strmPreferExo = true;
+
+  /// 设置页「ASS 特效字幕渲染」，默认开（v1.7.47 接通，仅 MPV 生效）
+  bool _assSubtitle = true;
 
   Timer? _hideTimer;
   Timer? _ticker;
@@ -165,6 +169,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   SubtitleTrackInfo? _subtitle;
   List<SubtitleCue> _cues = const [];
 
+  /// 用户在本页字幕菜单里手动选过轨（关掉字幕也算）。
+  /// 一旦为 true，自动选轨就不再插手 —— 用户意图高于设置项。
+  bool _userPickedSub = false;
+
   /// 当前应显示的字幕文本（v1.7.38 改由 ValueNotifier 驱动，见 [_cueNv]）
   String get _cueText => _cueNv.value;
   set _cueText(String v) {
@@ -197,6 +205,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     unawaited(_loadSubStyle());
     _loadRecordHistory();
     _applySavedPreferences();
+    // 字幕自动选轨必须在 _open() 之前定下来：_start() 会拿 _subtitle 去挂载。
+    // 外部显式传了 subtitle（详情页点某条字幕进入）就不覆盖用户意图。
+    if (widget.subtitle == null) unawaited(_autoPickSubtitle());
     _open();
     _loadEpisodes();
     _resetHideTimer();
@@ -379,6 +390,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
       _autoNext = prefs.getBool('set_auto_next') ?? true;
       _strmPreferExo = prefs.getBool('set_strm_exo') ?? true;
+      _assSubtitle = prefs.getBool('set_ass_subtitle') ?? true;
     } catch (_) {}
   }
 
@@ -388,6 +400,32 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final v = prefs.getBool('set_record_history') ?? true;
       if (mounted) _recordHistory = v;
     } catch (_) {}
+  }
+
+  /// 设置页「字幕默认语言」→ 自动选轨（v1.7.47 接通）。
+  ///
+  /// 这个设置项从 1.7.36 起就只有 UI、没有读取点，点了等于没点。
+  /// 现在按 [SubtitlePicker] 的规则挑一条，交给 [_start] 在建立内核时挂上。
+  ///
+  /// 只影响「进入播放页时的初选」：用户一旦在字幕菜单里手动选过，本页
+  /// 后续切集也不会被自动选轨覆盖（[_userPickedSub]）。
+  Future<void> _autoPickSubtitle() async {
+    // 用户已手动定过轨（含「关闭字幕」）→ 尊重他，自动选轨不插手
+    if (_userPickedSub) return;
+    SubtitlePref pref;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      pref = SubtitlePrefX.fromCode(prefs.getInt('set_sub_lang'));
+    } catch (_) {
+      pref = SubtitlePref.auto;
+    }
+    final pick = SubtitlePicker.pick(widget.item.subtitles, pref);
+    if (!mounted) return;
+    setState(() => _subtitle = pick.track);
+    // 已经建好内核（改成异步后才返回的极端情况）：补挂一次
+    if (_player != null && pick.track != null) {
+      unawaited(_applySubtitle(pick.track, silent: true));
+    }
   }
 
   Future<void> _loadSubStyle() async {
@@ -677,6 +715,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   /// 切上一集 / 下一集（自动连播的落地实现）
+  ///
+  /// 注意：pushReplacement 是 **新的 State**，用户手选的字幕状态会丢；
+  /// 但如果新一集有字幕资源，仍按设置项的偏好重新选一次（各集轨道集合
+  /// 常常不同，沿用上一集的 url 会挂错文件）。
   void _goEpisode(int delta) {
     final next = _episodes[_episodeIndex + delta];
     Navigator.of(context).pushReplacement(
@@ -741,8 +783,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       });
       await prev?.dispose();
       await p.play();
-      // 新建的内核（尤其是 MPV）需要重新下发一次字幕样式
+      // 新建的内核（尤其是 MPV）需要重新下发一次字幕样式与 ASS 开关
       unawaited(p.applySubtitleStyle(_subStyle));
+      unawaited(p.setAssRendering(_assSubtitle));
       return true;
     } catch (_) {
       await p?.dispose();
@@ -1205,7 +1248,14 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Future<void> _pickSubtitle() async {
     final tracks = widget.item.subtitles;
     if (tracks.isEmpty) {
-      showToast(context, '该影片没有可用的外挂字幕');
+      // 字幕轨全部来自服务端 MediaStreams。这里一条都没有，说明服务器上
+      // 这部电影既没有内封字幕、也没有扫描到外挂字幕 —— App 侧没有远端
+      // 字幕站可查（没接 OpenSubtitles 之类的源），只能引导用户去解决源头。
+      showToast(
+        context,
+        '该影片没有可用字幕：可在 Emby 装字幕插件后重新扫描，或手动放置外挂字幕',
+        icon: Icons.subtitles_off_rounded,
+      );
       return;
     }
     final picked = await Navigator.of(context).push<_SubPick>(
@@ -1236,13 +1286,20 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // 以前这里把 null 当成「关闭字幕」，所以一碰画面字幕就没了。
     if (picked == null) return;
     if (picked.track?.url == _subtitle?.url) return;
+    // 用户手动定过字幕：本页后续切集/切内核不再自动选轨覆盖他的选择
+    _userPickedSub = true;
     await _applySubtitle(picked.track);
   }
 
   /// 切换字幕：**不重建播放器**，因此不会丢进度。
   ///  · MPV：内核原生挂载，ASS 特效也能显示
   ///  · Exo：video_player 没有运行时挂字幕接口 → 用叠加层自己渲染
-  Future<void> _applySubtitle(SubtitleTrackInfo? track) async {
+  ///
+  /// [silent] = true 时不弹 toast（自动选轨用，避免起播就糊用户一脸提示）。
+  Future<void> _applySubtitle(
+    SubtitleTrackInfo? track, {
+    bool silent = false,
+  }) async {
     setState(() {
       _subtitle = track;
       if (track == null) {
@@ -1252,7 +1309,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     });
     if (track == null) {
       await _player?.setSubtitle(null);
-      showToast(context, '已关闭字幕');
+      if (!silent) showToast(context, '已关闭字幕');
       _resetHideTimer();
       return;
     }
@@ -1261,17 +1318,15 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     if (!native) {
       final cues = await _loadCues(track);
       if (!mounted) return;
-      if (cues.isEmpty) {
-        showToast(context, _subFailText());
-      } else {
-        showToast(context, '字幕：${track.menuLabel}');
+      if (!silent) {
+        showToast(context, cues.isEmpty ? _subFailText() : '字幕：${track.menuLabel}');
       }
     } else {
       setState(() {
         _cues = const [];
         _cueText = '';
       });
-      showToast(context, '字幕：${track.menuLabel}');
+      if (!silent) showToast(context, '字幕：${track.menuLabel}');
     }
     _resetHideTimer();
   }
