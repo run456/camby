@@ -27,27 +27,17 @@ class FolderPage extends StatefulWidget {
 }
 
 class _FolderPageState extends State<FolderPage> {
-  /// 排序（与媒体库 / 演员页同一套）：0 发行日期 / 1 评分 / 2 标题
-  int _sortKey = 0;
-  bool _desc = true;
+  /// 排序与筛选状态（与媒体库 / 演员页同一份实现）
+  final MediaFilter _filter = MediaFilter(sort: 1);
 
-  /// 年代筛选：0 不限 / 1 近 3 年 / 2 近 10 年 / 3 更早
-  int _decade = 0;
-
-  Future<void> _showFilterSheet(int total) async {
+  Future<void> _showFilterSheet(List<MediaItem> items) async {
     final result = await showMediaFilterSheet(
       context,
-      sortKey: _sortKey,
-      desc: _desc,
-      decade: _decade,
-      total: total,
+      filter: _filter,
+      source: items,
     );
     if (result == null || !mounted) return;
-    setState(() {
-      _sortKey = result.$1;
-      _desc = result.$2;
-      _decade = result.$3;
-    });
+    setState(() => _filter.applyResult(result));
   }
 
   @override
@@ -60,12 +50,7 @@ class _FolderPageState extends State<FolderPage> {
         final items = folder == null
             ? state.favorites
             : state.itemsOfFolder(folder);
-        final shown = applyMediaFilter(
-          items,
-          sortKey: _sortKey,
-          desc: _desc,
-          decade: _decade,
-        );
+        final shown = _filter.apply(items);
         final title = folder?.name ?? '全部收藏';
         return Scaffold(
           backgroundColor: AppColors.bg,
@@ -109,42 +94,10 @@ class _FolderPageState extends State<FolderPage> {
                           ],
                         ),
                       ),
-                      // 排序与筛选：与演员页同款（排序字段 × 升/降 + 年代）
-                      LiquidPress(
-                        onTap: () => _showFilterSheet(items.length),
-                        radius: 999,
-                        scale: 0.94,
-                        semanticLabel: '排序与筛选',
-                        child: Container(
-                          height: 34,
-                          padding: const EdgeInsets.symmetric(horizontal: 11),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: Colors.white.withOpacity(0.05),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.10),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.tune_rounded,
-                                size: 14,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                mediaFilterSummary(_sortKey, _desc, _decade),
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      // 排序与筛选：与媒体库完全同一个控件
+                      MediaFilterButton(
+                        filter: _filter,
+                        onTap: () => _showFilterSheet(items),
                       ),
                       if (folder != null) ...[
                         const SizedBox(width: 8),

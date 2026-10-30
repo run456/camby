@@ -203,6 +203,24 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
     if (mounted) setState(() {});
   }
 
+  /// 确认：落盘并关闭面板
+  Future<void> _confirm() async {
+    widget.onChanged(_style, true);
+    await SubtitleStyleStore.save(_style);
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  /// 关闭 = 取消：把拖动过程中的即时预览回滚到打开面板时的样式
+  Future<void> _cancel() async {
+    final orig = widget.style;
+    widget.onChanged(orig, true);
+    await SubtitleStyleStore.save(orig);
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  /// 恢复默认：直接套回出厂样式（并即时下发，方便当场看效果）
+  Future<void> _resetDefaults() => _commit(const SubtitleStyle());
+
   // ---- 数值 → 设计稿语义文案 ----
 
   String get _sizeLabel =>
@@ -258,7 +276,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 14, 14, 4),
+                  padding: const EdgeInsets.fromLTRB(22, 12, 12, 4),
                   child: Row(
                     children: [
                       const Expanded(
@@ -271,7 +289,13 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                           ),
                         ),
                       ),
-                      const _CloseButton(),
+                      // 恢复默认 / 确认 放在关闭旁边（面板高度吃紧时不用
+                      // 再往下滚去找按钮）
+                      _HeaderBtn(label: '恢复默认', onTap: _resetDefaults),
+                      const SizedBox(width: 8),
+                      _HeaderBtn(label: '确认', primary: true, onTap: _confirm),
+                      const SizedBox(width: 8),
+                      _CloseButton(onTap: _cancel),
                     ],
                   ),
                 ),
@@ -429,14 +453,16 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
   }
 }
 
-/// 弹层右上角的圆形关闭钮
+/// 弹层右上角的圆形关闭钮（＝取消，回滚本次调整）
 class _CloseButton extends StatelessWidget {
-  const _CloseButton();
+  const _CloseButton({required this.onTap});
+
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => Navigator.of(context).maybePop(),
+      onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
         width: 30,
@@ -447,6 +473,64 @@ class _CloseButton extends StatelessWidget {
           border: Border.all(color: Colors.white.withOpacity(0.14)),
         ),
         child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+      ),
+    );
+  }
+}
+
+/// 标题行右侧的小胶囊按钮（恢复默认 / 确认）
+class _HeaderBtn extends StatelessWidget {
+  const _HeaderBtn({
+    required this.label,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          gradient: primary
+              ? const LinearGradient(
+                  colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                )
+              : null,
+          color: primary ? null : Colors.white.withOpacity(0.10),
+          border: Border.all(
+            color: primary
+                ? const Color(0x66FFFFFF)
+                : Colors.white.withOpacity(0.14),
+          ),
+          boxShadow: primary
+              ? const [
+                  BoxShadow(
+                    color: Color(0x592F7FE8),
+                    blurRadius: 14,
+                    offset: Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: primary ? Colors.white : const Color(0xFFC9D6EA),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -40,12 +40,8 @@ class _PersonPageState extends State<PersonPage> {
   bool _fav = false;
   bool _favBusy = false;
 
-  /// 排序（与媒体库同一套交互）：0 发行日期 / 1 评分 / 2 标题
-  int _sortKey = 0;
-  bool _desc = true;
-
-  /// 年代筛选：0 不限 / 1 近 3 年 / 2 近 10 年 / 3 更早
-  int _decade = 0;
+  /// 排序与筛选状态（与媒体库同一份实现：5 字段 × 升降 + 分辨率 + 字幕 + 标签）
+  final MediaFilter _filter = MediaFilter(sort: 1);
 
   @override
   void initState() {
@@ -94,45 +90,26 @@ class _PersonPageState extends State<PersonPage> {
         : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
-  /// 先按「全部 / 电影 / 剧集」tab 过滤（排序与年代在公共函数里做）
+  /// 先按「全部 / 电影 / 剧集」tab 过滤（筛选与排序在公共 [MediaFilter] 里做）
   Iterable<MediaItem> _byTab(List<MediaItem> all) => switch (_tab) {
     1 => all.where((e) => e.isMovie),
     2 => all.where((e) => e.isSeries),
     _ => all.where((_) => true),
   };
 
-  /// 抽屉里「共 N 部」：按草稿年代档位实时算，不依赖已应用的筛选
-  int _countFor(List<MediaItem> all, int decade) =>
-      countForDecade(_byTab(all), decade);
-
-  /// 当前筛选的简短摘要（显示在筛选按钮上）
-  String _filterSummary() => mediaFilterSummary(_sortKey, _desc, _decade);
-
   String get _overview => (_info?['Overview'] as String?) ?? '';
 
-  List<MediaItem> get _filtered => applyMediaFilter(
-    _byTab(_films ?? const []),
-    sortKey: _sortKey,
-    desc: _desc,
-    decade: _decade,
-  );
+  List<MediaItem> get _filtered => _filter.apply(_byTab(_films ?? const []));
 
-  /// 排序与筛选抽屉：与媒体库同一套版式（排序字段行 × 升/降 + 条件chips
-  /// + 底部 重置 / 应用筛选）。
+  /// 排序与筛选抽屉：与媒体库完全同一套版式与能力
   Future<void> _showFilterSheet() async {
     final result = await showMediaFilterSheet(
       context,
-      sortKey: _sortKey,
-      desc: _desc,
-      decade: _decade,
-      total: _countFor(_films ?? const [], _decade),
+      filter: _filter,
+      source: _byTab(_films ?? const []),
     );
     if (result == null || !mounted) return;
-    setState(() {
-      _sortKey = result.$1;
-      _desc = result.$2;
-      _decade = result.$3;
-    });
+    setState(() => _filter.applyResult(result));
   }
 
   @override
@@ -264,43 +241,9 @@ class _PersonPageState extends State<PersonPage> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            LiquidPress(
+                            MediaFilterButton(
+                              filter: _filter,
                               onTap: _showFilterSheet,
-                              radius: 999,
-                              scale: 0.94,
-                              semanticLabel: '作品排序与筛选',
-                              child: Container(
-                                height: 34,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 11,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  color: Colors.white.withOpacity(0.05),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.10),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.tune_rounded,
-                                      size: 14,
-                                      color: Colors.white,
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      _filterSummary(),
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
                             ),
                           ],
                         ),

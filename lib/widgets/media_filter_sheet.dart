@@ -1,101 +1,269 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../models.dart';
 import '../theme.dart';
 import 'liquid_press.dart';
 
-/// 媒体库 / 演员页 / 收藏夹共用的「排序与筛选」能力
+/// 「排序与筛选」的**唯一实现**：媒体库 / 演员页 / 收藏夹共用。
 ///
-/// 三处版式与交互必须一致（排序字段行 × 升/降 + 年代 chips +
-/// 底部 重置 / 应用筛选），所以抽成公共文件：
-/// - `showMediaFilterSheet`：弹出抽屉，返回 `(sortKey, desc, decade)`
-/// - `filterByDecade` / `sortMedia`：纯函数，页面各自拼装筛选结果
-const mediaSortNames = ['发行日期', '评分', '标题'];
+/// 之前媒体库有一套（`LibraryFilterSheet`），演员页与收藏夹各有简化版
+/// （只有年代档，没有分辨率 / 字幕 / 标签），三处版式与能力都对不上。
+/// 现在统一到这里：
+/// - [MediaFilter]：筛选与排序状态（排序 5 字段 × 各自升降 + 分辨率 +
+///   中文字幕 + 标签），页面直接 `filter.apply(items)` 拿结果
+/// - [MediaFilterButton]：顶栏入口胶囊（↓ 发行日期 + 条件数角标）
+/// - [showMediaFilterSheet]：底部抽屉，版式与媒体库完全一致
+const List<String> mediaSortNames = ['创建日期', '发行日期', '标题', '播放时长', '评分'];
 
-/// 年代档位：0 不限 / 1 近 3 年 / 2 近 10 年 / 3 更早
-const mediaDecadeNames = ['不限', '近 3 年', '近 10 年', '更早'];
+/// 分辨率分组（十进制口径，来自视频流真实高度）
+const List<String> mediaResBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
 
-/// 弹窗上方「共 N 项」：按草稿年代档位实时算，不依赖已应用的筛选
-int countForDecade(Iterable<MediaItem> items, int decade) {
-  final now = DateTime.now().year;
-  return items.where((e) {
-    final y = e.year;
-    if (y <= 0) return true; // 没有年份信息不过滤
-    return matchDecade(y, decade, now);
-  }).length;
+/// 抽屉返回结果（草稿态提交）
+class MediaFilterResult {
+  const MediaFilterResult({
+    required this.sort,
+    required this.desc,
+    required this.res,
+    required this.cnOnly,
+    required this.tags,
+  });
+
+  final int sort;
+  final List<bool> desc;
+  final Set<String> res;
+  final bool cnOnly;
+  final Set<String> tags;
 }
 
-bool matchDecade(int year, int decade, int now) => switch (decade) {
-  1 => now - year <= 3,
-  2 => now - year <= 10,
-  3 => now - year > 10,
-  _ => true,
-};
+/// 筛选与排序状态。页面持有，抽屉里编辑草稿，点「应用筛选」才回写。
+class MediaFilter {
+  MediaFilter({
+    this.sort = 1,
+    List<bool>? desc,
+    Set<String>? res,
+    this.cnOnly = false,
+    Set<String>? tags,
+  }) : desc = desc ?? List<bool>.filled(mediaSortNames.length, true),
+       res = res ?? <String>{},
+       tags = tags ?? <String>{};
 
-/// 按年代筛选 + 排序（纯函数，返回新列表）
-List<MediaItem> applyMediaFilter(
-  Iterable<MediaItem> items, {
-  required int sortKey,
-  required bool desc,
-  required int decade,
-}) {
-  final now = DateTime.now().year;
-  final kept = items.where((e) {
-    final y = e.year;
-    if (y <= 0) return true;
-    return matchDecade(y, decade, now);
-  }).toList();
-  int cmp(MediaItem a, MediaItem b) => switch (sortKey) {
-    1 => a.rating.compareTo(b.rating),
-    2 => a.name.compareTo(b.name),
-    _ => a.year.compareTo(b.year),
-  };
-  kept.sort(desc ? (a, b) => cmp(b, a) : cmp);
-  return kept;
+  /// 当前排序字段下标（见 [mediaSortNames]）
+  int sort;
+
+  /// 每个字段各自记一个方向：true = 降序
+  List<bool> desc;
+
+  final Set<String> res;
+  bool cnOnly;
+  final Set<String> tags;
+
+  int get activeCount => res.length + (cnOnly ? 1 : 0) + tags.length;
+
+  /// 顶栏胶囊上的文案：方向箭头 + 当前字段名
+  String get summary => mediaSortNames[sort];
+  String get arrow => desc[sort] ? '↓' : '↑';
+
+  void applyResult(MediaFilterResult r) {
+    sort = r.sort;
+    desc = List<bool>.of(r.desc);
+    res
+      ..clear()
+      ..addAll(r.res);
+    cnOnly = r.cnOnly;
+    tags
+      ..clear()
+      ..addAll(r.tags);
+  }
+
+  /// 只清条件，不动排序
+  void clearConditions() {
+    res.clear();
+    cnOnly = false;
+    tags.clear();
+  }
+
+  bool keeps(MediaItem e) {
+    if (res.isNotEmpty && !res.contains(resolutionBucket(e))) return false;
+    if (cnOnly && !itemHasChineseSubtitle(e)) return false;
+    if (tags.isNotEmpty && !e.tags.any(tags.contains)) return false;
+    return true;
+  }
+
+  /// 筛选 + 排序（返回新列表）
+  List<MediaItem> apply(Iterable<MediaItem> items) {
+    final list = items.where(keeps).toList();
+    final d = desc[sort] ? -1 : 1;
+    switch (sort) {
+      case 0: // 创建日期：addedDaysAgo 越小越新
+        list.sort((a, b) => d * a.addedDaysAgo.compareTo(b.addedDaysAgo));
+      case 1:
+        list.sort((a, b) => d * a.year.compareTo(b.year));
+      case 2:
+        list.sort((a, b) => d * a.name.compareTo(b.name));
+      case 3:
+        list.sort((a, b) => d * a.runtimeMin.compareTo(b.runtimeMin));
+      case 4:
+        list.sort((a, b) => d * a.rating.compareTo(b.rating));
+    }
+    return list;
+  }
+
+  /// 命中条数（只筛不排，抽屉里「共 N 项」用）
+  int countOf(Iterable<MediaItem> items) => items.where(keeps).length;
+
+  static Map<String, int> resCountsOf(Iterable<MediaItem> items) {
+    final m = <String, int>{};
+    for (final e in items) {
+      final k = resolutionBucket(e);
+      m[k] = (m[k] ?? 0) + 1;
+    }
+    return m;
+  }
+
+  static Map<String, int> tagCountsOf(Iterable<MediaItem> items) {
+    final m = <String, int>{};
+    for (final e in items) {
+      for (final t in e.tags) {
+        m[t] = (m[t] ?? 0) + 1;
+      }
+    }
+    return m;
+  }
 }
 
-/// 当前筛选的简短摘要（显示在筛选按钮上）
-String mediaFilterSummary(int sortKey, bool desc, int decade) {
-  final parts = <String>[
-    if (decade != 0) mediaDecadeNames[decade],
-    '${mediaSortNames[sortKey]}${desc ? '↓' : '↑'}',
-  ];
-  return parts.isEmpty ? '筛选' : parts.join('·');
+/// 顶栏「排序与筛选」入口胶囊：真磨砂 + 方向箭头 + 字段名 + 条件数角标。
+/// 媒体库 / 演员页 / 收藏夹三处必须是同一个控件。
+class MediaFilterButton extends StatelessWidget {
+  const MediaFilterButton({
+    super.key,
+    required this.filter,
+    required this.onTap,
+  });
+
+  final MediaFilter filter;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        LiquidPress(
+          onTap: onTap,
+          radius: 19,
+          scale: 0.92,
+          semanticLabel: '排序与筛选',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(19),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(19),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.10),
+                      Colors.white.withOpacity(0.04),
+                    ],
+                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.16)),
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        filter.arrow,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        filter.summary,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (filter.activeCount > 0)
+          Positioned(
+            top: -5,
+            right: -5,
+            child: Container(
+              constraints: const BoxConstraints(minWidth: 16),
+              height: 16,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.bg, width: 1.4),
+              ),
+              child: Center(
+                child: Text(
+                  '${filter.activeCount}',
+                  style: const TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-/// 弹出排序与筛选抽屉，返回 `(sortKey, desc, decade)`；取消返回 null
-Future<(int, bool, int)?> showMediaFilterSheet(
+/// 弹出排序与筛选抽屉；取消返回 null
+Future<MediaFilterResult?> showMediaFilterSheet(
   BuildContext context, {
-  required int sortKey,
-  required bool desc,
-  required int decade,
-  required int total,
+  required MediaFilter filter,
+  required Iterable<MediaItem> source,
 }) {
-  return showModalBottomSheet<(int, bool, int)>(
+  final items = source.toList();
+  return showModalBottomSheet<MediaFilterResult>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (ctx) => _MediaFilterSheet(
-      sortKey: sortKey,
-      desc: desc,
-      decade: decade,
-      total: total,
+    builder: (_) => _MediaFilterSheet(
+      filter: filter,
+      resCounts: MediaFilter.resCountsOf(items),
+      tagCounts: MediaFilter.tagCountsOf(items),
+      total: items.length,
     ),
   );
 }
 
-/// 草稿态在内部编辑，点「应用筛选」才提交
+/// 抽屉：草稿态在内部编辑，点「应用筛选」才提交
 class _MediaFilterSheet extends StatefulWidget {
   const _MediaFilterSheet({
-    required this.sortKey,
-    required this.desc,
-    required this.decade,
+    required this.filter,
+    required this.resCounts,
+    required this.tagCounts,
     required this.total,
   });
 
-  final int sortKey;
-  final bool desc;
-  final int decade;
+  final MediaFilter filter;
+  final Map<String, int> resCounts;
+  final Map<String, int> tagCounts;
   final int total;
 
   @override
@@ -103,20 +271,27 @@ class _MediaFilterSheet extends StatefulWidget {
 }
 
 class _MediaFilterSheetState extends State<_MediaFilterSheet> {
-  late int _sortKey;
-  late bool _desc;
-  late int _decade;
+  late int _sort;
+  late List<bool> _desc;
+  late Set<String> _res;
+  late bool _cn;
+  late Set<String> _tags;
 
   @override
   void initState() {
     super.initState();
-    _sortKey = widget.sortKey;
-    _desc = widget.desc;
-    _decade = widget.decade;
+    _sort = widget.filter.sort;
+    _desc = List<bool>.of(widget.filter.desc);
+    _res = Set<String>.of(widget.filter.res);
+    _cn = widget.filter.cnOnly;
+    _tags = Set<String>.of(widget.filter.tags);
   }
+
+  int get _activeCount => _res.length + (_cn ? 1 : 0) + _tags.length;
 
   @override
   Widget build(BuildContext context) {
+    final tags = widget.tagCounts.keys.toList()..sort();
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.88,
@@ -154,7 +329,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                   ),
                   const Spacer(),
                   Text(
-                    '共 ${widget.total} 项 · 已选 ${_decade == 0 ? 0 : 1} 个条件',
+                    '共 ${widget.total} 项 · 已选 $_activeCount 个条件',
                     style: const TextStyle(
                       fontSize: 11,
                       color: AppColors.muted,
@@ -170,30 +345,47 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                 children: [
                   _sectionTitle('排序方式', '点字段切换，右侧选升 / 降'),
                   ...List.generate(mediaSortNames.length, (i) {
-                    final on = _sortKey == i;
                     return _SortRow(
                       name: mediaSortNames[i],
-                      active: on,
-                      desc: _desc,
-                      onSelect: () => setState(() => _sortKey = i),
+                      active: _sort == i,
+                      desc: _desc[i],
+                      onSelect: () => setState(() => _sort = i),
                       onDir: (v) => setState(() {
-                        _desc = v;
-                        _sortKey = i;
+                        _desc[i] = v;
+                        _sort = i;
                       }),
                     );
                   }),
-                  _sectionTitle('年代', '单选'),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    children: [
-                      for (var i = 0; i < mediaDecadeNames.length; i++)
-                        _chip(
-                          mediaDecadeNames[i],
-                          on: _decade == i,
-                          onTap: () => setState(() => _decade = i),
-                        ),
-                    ],
+                  _sectionTitle('分辨率', '多选 · 来自视频流真实高度'),
+                  _chipWrap(
+                    mediaResBuckets.map(
+                      (b) => _fChip(
+                        b,
+                        count: widget.resCounts[b] ?? 0,
+                        on: _res.contains(b),
+                        onTap: () => setState(() {
+                          _res.contains(b) ? _res.remove(b) : _res.add(b);
+                        }),
+                      ),
+                    ),
+                  ),
+                  _sectionTitle('字幕', null),
+                  _SwitchRow(
+                    on: _cn,
+                    onChanged: (v) => setState(() => _cn = v),
+                  ),
+                  _sectionTitle('标签', '多选 · 可滚动'),
+                  _chipWrap(
+                    tags.map(
+                      (t) => _fChip(
+                        t,
+                        count: widget.tagCounts[t] ?? 0,
+                        on: _tags.contains(t),
+                        onTap: () => setState(() {
+                          _tags.contains(t) ? _tags.remove(t) : _tags.add(t);
+                        }),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -206,9 +398,9 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                 children: [
                   LiquidPress(
                     onTap: () => setState(() {
-                      _decade = 0;
-                      _sortKey = 0;
-                      _desc = true;
+                      _res.clear();
+                      _cn = false;
+                      _tags.clear();
                     }),
                     radius: 14,
                     child: Container(
@@ -235,8 +427,16 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: LiquidPress(
-                      onTap: () =>
-                          Navigator.pop(context, (_sortKey, _desc, _decade)),
+                      onTap: () => Navigator.pop(
+                        context,
+                        MediaFilterResult(
+                          sort: _sort,
+                          desc: _desc,
+                          res: _res,
+                          cnOnly: _cn,
+                          tags: _tags,
+                        ),
+                      ),
                       radius: 14,
                       child: Container(
                         height: 44,
@@ -304,7 +504,16 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
     );
   }
 
-  Widget _chip(String label, {required bool on, required VoidCallback onTap}) {
+  Widget _chipWrap(Iterable<Widget> chips) {
+    return Wrap(spacing: 7, runSpacing: 7, children: chips.toList());
+  }
+
+  Widget _fChip(
+    String label, {
+    required int count,
+    required bool on,
+    required VoidCallback onTap,
+  }) {
     return LiquidPress(
       onTap: onTap,
       radius: 15,
@@ -322,16 +531,75 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                 : Colors.white.withOpacity(0.10),
           ),
         ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: on ? Colors.white : AppColors.muted,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: on
+                    ? const Color(0xFFA9C4FF)
+                    : AppColors.muted.withOpacity(0.75),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 「仅看有中文字幕」开关行
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({required this.on, required this.onChanged});
+
+  final bool on;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withOpacity(0.04),
+        border: Border.all(color: Colors.white.withOpacity(0.10)),
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '仅看有中文字幕',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  '简体 / 繁体 / 中字外挂轨均计入',
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
+                ),
+              ],
             ),
           ),
-        ),
+          Switch(value: on, onChanged: onChanged),
+        ],
       ),
     );
   }

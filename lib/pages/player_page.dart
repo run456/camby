@@ -50,6 +50,7 @@ class PlayerPage extends StatefulWidget {
 
 class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   PlaybackController? _player;
+
   /// 起播内核。设置页「默认播放内核」0=Exo / 1=MPV —— 之前在 initState 里
   /// 硬写 exo，导致设置项形同虚设（v1.7.29 bug1 的同类问题，本次一并根治）
   PlaybackEngine _engine = PlaybackEngine.exo;
@@ -62,10 +63,12 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 首帧是否真的渲染出来了。MPV 的 `open()` 立即返回，不能拿它当「已开播」——
   /// 之前就是这么误判的，于是黑幕一揭、画面全黑而 App 毫不知情。
   bool _firstFrame = false;
+
   /// 起播已等待秒数（用 Notifier 是为了不每 500ms 重建整页）
   final ValueNotifier<double> _bootVN = ValueNotifier<double>(0);
   DateTime? _bootAt;
   Timer? _bootTimer;
+
   /// MPV 无首帧已经自动回退过 Exo（每轮起播只回退一次）
   bool _autoFellBack = false;
 
@@ -372,8 +375,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         _markBootSettled();
         return;
       }
-      final secs =
-          DateTime.now().difference(_bootAt!).inMilliseconds / 1000.0;
+      final secs = DateTime.now().difference(_bootAt!).inMilliseconds / 1000.0;
       _bootVN.value = secs;
       if (BootWatchPolicy.shouldFallback(
         engine: p.engine,
@@ -1351,7 +1353,10 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final cues = await _loadCues(track);
       if (!mounted) return;
       if (!silent) {
-        showToast(context, cues.isEmpty ? _subFailText() : '字幕：${track.menuLabel}');
+        showToast(
+          context,
+          cues.isEmpty ? _subFailText() : '字幕：${track.menuLabel}',
+        );
       }
     } else {
       setState(() {
@@ -1753,20 +1758,30 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               ),
 
               if (_locked)
+                // 锁定后顶栏整体隐去，只剩这一枚锁；位置必须与未锁定时
+                // 顶栏里那颗「解锁」钮**完全重合**（同 SafeArea + 同 14/8
+                // 内边距 + 同 42 尺寸），否则一点锁就视觉跳一下。
                 Positioned(
-                  right: 18,
                   top: 0,
-                  bottom: 0,
-                  child: Center(
-                    // 长按解锁：锁定多半是为了防止小朋友误触，
-                    // 轻点解锁等于没锁，这里要求按住 600ms
-                    child: GestureDetector(
-                      onLongPress: _unlockScreen,
-                      child: GlassIconButton(
-                        icon: Icons.lock_rounded,
-                        size: 44,
-                        blurEnabled: false,
-                        onTap: null,
+                  left: 0,
+                  right: 0,
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: GestureDetector(
+                          // 长按解锁：锁定多半是为了防止小朋友误触，
+                          // 轻点解锁等于没锁，这里要求按住 600ms
+                          onLongPress: _unlockScreen,
+                          child: GlassIconButton(
+                            icon: Icons.lock_rounded,
+                            iconSize: 15,
+                            blurEnabled: false,
+                            onTap: null,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1888,10 +1903,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                   const SizedBox(height: 8),
                   const Text(
                     '片源仍在探测，可能需要在服务端装预热插件',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: AppColors.warn,
-                    ),
+                    style: TextStyle(fontSize: 10, color: AppColors.warn),
                   ),
                 ],
               ],
@@ -2528,79 +2540,79 @@ class _Sheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _GlassPanel(
-          child: Material(
-            type: MaterialType.transparency,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
-                // 标题会压在正文上，截图里就是这个观感）
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 14, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      // 关闭：手势返回之外再给一个明确的出口
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).maybePop(),
-                        behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.10),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.14),
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.close_rounded,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (subtitle != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        subtitle!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF9FB0CC),
-                        ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
+            // 标题会压在正文上，截图里就是这个观感）
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 14, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
-                // 长内容自己滚，标题始终可见
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(top: 2, bottom: 14),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: children,
+                  // 关闭：手势返回之外再给一个明确的出口
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).maybePop(),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.10),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.14),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            if (subtitle != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    subtitle!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF9FB0CC),
+                    ),
+                  ),
+                ),
+              ),
+            // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
+            // 长内容自己滚，标题始终可见
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.only(top: 2, bottom: 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: children,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

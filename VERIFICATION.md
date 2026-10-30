@@ -754,3 +754,27 @@ Future<void> _boot() async {
 | `flutter test` | **139 / 139** |
 
 **交付**：`camby-1.7.53-release-arm64.apk`（`cn.camby.camby` / 93 / 1.7.53 / 33M / sha256 `fcd1a6ebd01ac2d380dc8f148ad1aa9e7189ffdc20d2b432a8f339b95ba879f4`）。
+
+---
+
+## 20. v1.7.54 (94) 锁定钮对位 + 三页筛选统一 + 字幕样式面板可确认
+
+| # | 需求 | 处理 |
+|---|---|---|
+| 1 | 播放页锁定按钮与未锁定时不在同一位置 | 锁定态原来用 `Positioned(right: 18, top: 0, bottom: 0) + Center`，贴在屏幕**垂直居中**处、尺寸 44；未锁定的锁钮在顶栏最后一位（SafeArea + `fromLTRB(14, 8, 14, 0)` + 42）。改为锁定态复用同一套 SafeArea / 内边距 / 尺寸 / iconSize，`Align(centerRight)` 右对齐 —— 点锁定后锁钮原地不动，只是顶栏其余部分隐去 |
+| 2 | 收藏页、演员页的筛选控件要和媒体库一致 | 删除媒体库本地的 `LibraryFilterSheet` / `LibraryFilterResult` / `_TopBtn` / `_SortRow` / `_SwitchRow`，把整套能力上移为**唯一实现** `MediaFilter` + `MediaFilterButton` + `showMediaFilterSheet`（5 个排序字段 × 各自升降 + 分辨率多选 + 仅看中文字幕 + 标签多选 + 重置/应用筛选）。三页顶栏都换成同一个磨砂胶囊（↓ 发行日期 + 条件数角标）；收藏页、演员页的筛选能力从「只有年代档」升级到与媒体库完全一致；媒体库 `_compute` 也改为调用 `MediaFilter.apply`，逻辑只剩一份 |
+| 3 | 字幕样式面板不生效、需要确认与恢复默认按钮 | ①不生效根因：`_assSubtitle` 默认 true，MPV 走 libass 按 ASS 自带样式渲染，App 下发的字号/颜色/描边被忽略 → `applySubtitleStyle` 增发 `sub-ass-override=force`（采用 App 样式覆盖，保留 ASS 定位）；同时删掉误映射的 `sub-delay`（`offset` 是垂直微调不是时间轴）。②面板标题行新增「恢复默认」「确认」两枚胶囊（关闭钮左侧），关闭钮语义改为**取消**（回滚到打开面板时的样式并落盘），确认才保留本次调整 |
+
+### 筛选一致性的实现边界
+
+- 三页共用 `MediaFilter`：排序字段、方向记忆、条件判定（组内或 / 组间且）、计数口径全部一份代码。
+- 演员页的筛选作用于「当前 tab（全部/电影/剧集）」子集；收藏夹页作用于「当前收藏夹」子集；媒体库作用于「当前媒体库视图」子集 —— 数据源不同，能力与版式完全相同。
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **139 / 139** |
+
+**交付**：`camby-1.7.54-release-arm64.apk`（`cn.camby.camby` / 94 / 1.7.54 / 33M / sha256 `9988a3826ecea8630d954be2be389758a2b5404d446bacd3dd764c2d6022879c`）。

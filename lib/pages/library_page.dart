@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -7,6 +5,7 @@ import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/glass_toast.dart';
+import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
 
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
@@ -30,8 +29,6 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  static const _sortNames = ['创建日期', '发行日期', '标题', '播放时长', '评分'];
-
   /// 每个排序字段的默认方向（true = 降序）
   static const _defaultDesc = [true, true, false, true, true];
   static const _resBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
@@ -110,99 +107,48 @@ class _LibraryPageState extends State<LibraryPage> {
 
   // ---------------- 条件管理 ----------------
 
-  int get _activeCount =>
-      _resFilters.length + (_cnOnly ? 1 : 0) + _tagFilters.length;
-
   void _clearFilters() {
     _resFilters.clear();
     _cnOnly = false;
     _tagFilters.clear();
   }
 
-  /// 只在筛选/排序/数据变化时重算一次
+  /// 只在筛选/排序/数据变化时重算一次（筛选与排序逻辑统一走 [MediaFilter]）
   List<MediaItem> _compute(String key) {
     if (key == _cacheKey) return _cached;
-    final list = List<MediaItem>.from(_source);
-
-    // 筛选：组内或、组间且
-    if (_resFilters.isNotEmpty) {
-      list.retainWhere((e) => _resFilters.contains(resolutionBucket(e)));
-    }
-    if (_cnOnly) list.retainWhere(itemHasChineseSubtitle);
-    if (_tagFilters.isNotEmpty) {
-      list.retainWhere((e) => e.tags.any(_tagFilters.contains));
-    }
-
-    // 排序：字段 + 各自记忆的方向
-    final d = _desc[_sort] ? -1 : 1;
-    switch (_sort) {
-      case 0: // 创建日期：addedDaysAgo 越小越新
-        list.sort((a, b) => d * a.addedDaysAgo.compareTo(b.addedDaysAgo));
-      case 1:
-        list.sort((a, b) => d * a.year.compareTo(b.year));
-      case 2:
-        list.sort((a, b) => d * a.name.compareTo(b.name));
-      case 3:
-        list.sort((a, b) => d * a.runtimeMin.compareTo(b.runtimeMin));
-      case 4:
-        list.sort((a, b) => d * a.rating.compareTo(b.rating));
-    }
-    _cached = list;
+    _cached = _asFilter.apply(_source);
     _cacheKey = key;
-    return list;
-  }
-
-  /// 各分组选项 + 命中数（基于当前媒体库原始数据，进抽屉时算一次）
-  Map<String, int> _countsOf(String Function(MediaItem) keyOf) {
-    final m = <String, int>{};
-    for (final e in _source) {
-      final k = keyOf(e);
-      m[k] = (m[k] ?? 0) + 1;
-    }
-    return m;
-  }
-
-  Map<String, int> get _resCounts => _countsOf(resolutionBucket);
-
-  Map<String, int> get _tagCounts {
-    final m = <String, int>{};
-    for (final e in _source) {
-      for (final t in e.tags) {
-        m[t] = (m[t] ?? 0) + 1;
-      }
-    }
-    return m;
+    return _cached;
   }
 
   // ---------------- 抽屉 ----------------
 
+  /// 把页面状态映射成公共筛选状态（抽屉与顶栏胶囊共用同一份定义）
+  MediaFilter get _asFilter => MediaFilter(
+    sort: _sort,
+    desc: List<bool>.of(_desc),
+    res: Set<String>.of(_resFilters),
+    cnOnly: _cnOnly,
+    tags: Set<String>.of(_tagFilters),
+  );
+
   Future<void> _openSheet() async {
-    final result = await showModalBottomSheet<LibraryFilterResult>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => LibraryFilterSheet(
-        sort: _sort,
-        desc: List<bool>.from(_desc),
-        resFilters: Set<String>.from(_resFilters),
-        cnOnly: _cnOnly,
-        tagFilters: Set<String>.from(_tagFilters),
-        resCounts: _resCounts,
-        tagCounts: _tagCounts,
-        total: _source.length,
-      ),
+    final result = await showMediaFilterSheet(
+      context,
+      filter: _asFilter,
+      source: _source,
     );
     if (result == null || !mounted) return;
     setState(() {
       _sort = result.sort;
-      _desc = result.desc;
+      _desc = List<bool>.of(result.desc);
       _resFilters
         ..clear()
-        ..addAll(result.resFilters);
+        ..addAll(result.res);
       _cnOnly = result.cnOnly;
       _tagFilters
         ..clear()
-        ..addAll(result.tagFilters);
+        ..addAll(result.tags);
       _cacheKey = '';
     });
   }
@@ -326,33 +272,11 @@ class _LibraryPageState extends State<LibraryPage> {
                             ),
                           )
                         else ...[
-                          // 排序 + 筛选共用一个入口：方向箭头 + 当前字段 + 筛选条件数角标
-                          // （原来这里还有一个漏斗按钮，点开的是同一个抽屉，纯重复）
-                          _TopBtn(
+                          // 排序 + 筛选共用一个入口（公共组件：媒体库 / 演员页 /
+                          // 收藏夹三处必须是同一个控件）
+                          MediaFilterButton(
+                            filter: _asFilter,
                             onTap: _openSheet,
-                            badge: _activeCount,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _desc[_sort] ? '↓' : '↑',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _sortNames[_sort],
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.ink,
-                                  ),
-                                ),
-                              ],
-                            ),
                           ),
                         ],
                       ],
@@ -509,566 +433,6 @@ class _LibraryPageState extends State<LibraryPage> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// 底部抽屉结果
-class LibraryFilterResult {
-  const LibraryFilterResult({
-    required this.sort,
-    required this.desc,
-    required this.resFilters,
-    required this.cnOnly,
-    required this.tagFilters,
-  });
-
-  final int sort;
-  final List<bool> desc;
-  final Set<String> resFilters;
-  final bool cnOnly;
-  final Set<String> tagFilters;
-}
-
-/// 排序与筛选抽屉：草稿态在内部编辑，点「应用」才提交
-class LibraryFilterSheet extends StatefulWidget {
-  const LibraryFilterSheet({
-    super.key,
-    required this.sort,
-    required this.desc,
-    required this.resFilters,
-    required this.cnOnly,
-    required this.tagFilters,
-    required this.resCounts,
-    required this.tagCounts,
-    required this.total,
-  });
-
-  final int sort;
-  final List<bool> desc;
-  final Set<String> resFilters;
-  final bool cnOnly;
-  final Set<String> tagFilters;
-  final Map<String, int> resCounts;
-  final Map<String, int> tagCounts;
-  final int total;
-
-  @override
-  State<LibraryFilterSheet> createState() => _LibraryFilterSheetState();
-}
-
-class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
-  static const _sortNames = ['创建日期', '发行日期', '标题', '播放时长', '评分'];
-  static const _resBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
-
-  late int _sort;
-  late List<bool> _desc;
-  late Set<String> _res;
-  late bool _cn;
-  late Set<String> _tags;
-
-  @override
-  void initState() {
-    super.initState();
-    _sort = widget.sort;
-    _desc = List<bool>.from(widget.desc);
-    _res = Set<String>.from(widget.resFilters);
-    _cn = widget.cnOnly;
-    _tags = Set<String>.from(widget.tagFilters);
-  }
-
-  int get _activeCount => _res.length + (_cn ? 1 : 0) + _tags.length;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
-      ),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF171C27), Color(0xFF10141D)],
-        ),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border(top: BorderSide(color: Colors.white12)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 9),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(2),
-                color: Colors.white.withOpacity(0.22),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              child: Row(
-                children: [
-                  const Text(
-                    '排序与筛选',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '共 ${widget.total} 项 · 已选 $_activeCount 个条件',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Flexible(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
-                shrinkWrap: true,
-                children: [
-                  _sectionTitle('排序方式', '点字段切换，右侧选升 / 降'),
-                  ...List.generate(_sortNames.length, (i) {
-                    final on = _sort == i;
-                    return _SortRow(
-                      name: _sortNames[i],
-                      active: on,
-                      desc: _desc[i],
-                      onSelect: () => setState(() => _sort = i),
-                      onDir: (v) => setState(() {
-                        _desc[i] = v;
-                        _sort = i;
-                      }),
-                    );
-                  }),
-                  _sectionTitle('分辨率', '多选 · 来自视频流真实高度'),
-                  _chipWrap(
-                    _resBuckets.map(
-                      (b) => _fChip(
-                        b,
-                        count: widget.resCounts[b] ?? 0,
-                        on: _res.contains(b),
-                        onTap: () => setState(() {
-                          _res.contains(b) ? _res.remove(b) : _res.add(b);
-                        }),
-                      ),
-                    ),
-                  ),
-                  _sectionTitle('字幕', null),
-                  _SwitchRow(
-                    on: _cn,
-                    onChanged: (v) => setState(() => _cn = v),
-                  ),
-                  _sectionTitle('标签', '多选 · 可滚动'),
-                  _chipWrap(
-                    (widget.tagCounts.keys.toList()..sort()).map(
-                      (t) => _fChip(
-                        t,
-                        count: widget.tagCounts[t] ?? 0,
-                        on: _tags.contains(t),
-                        onTap: () => setState(() {
-                          _tags.contains(t) ? _tags.remove(t) : _tags.add(t);
-                        }),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                ],
-              ),
-            ),
-            // 底部操作栏：重置 + 应用
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
-              child: Row(
-                children: [
-                  LiquidPress(
-                    onTap: () => setState(() {
-                      _res.clear();
-                      _cn = false;
-                      _tags.clear();
-                    }),
-                    radius: 14,
-                    child: Container(
-                      height: 44,
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.22),
-                        ),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          '重置',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: LiquidPress(
-                      onTap: () => Navigator.pop(
-                        context,
-                        LibraryFilterResult(
-                          sort: _sort,
-                          desc: _desc,
-                          resFilters: _res,
-                          cnOnly: _cn,
-                          tagFilters: _tags,
-                        ),
-                      ),
-                      radius: 14,
-                      child: Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x592F7FE8),
-                              blurRadius: 18,
-                              offset: Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Text(
-                            '应用筛选',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionTitle(String title, String? hint) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 14, bottom: 8),
-      child: Row(
-        children: [
-          Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-              color: AppColors.muted,
-            ),
-          ),
-          const Spacer(),
-          if (hint != null)
-            Text(
-              hint,
-              style: TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.muted.withOpacity(0.7),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _chipWrap(Iterable<Widget> chips) {
-    return Wrap(spacing: 7, runSpacing: 7, children: chips.toList());
-  }
-
-  Widget _fChip(
-    String label, {
-    required int count,
-    required bool on,
-    required VoidCallback onTap,
-  }) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 15,
-      scale: 0.95,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
-          border: Border.all(
-            color: on
-                ? const Color(0x874F8CFF)
-                : Colors.white.withOpacity(0.10),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: on ? Colors.white : AppColors.muted,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: on
-                    ? const Color(0xFFA9C4FF)
-                    : AppColors.muted.withOpacity(0.75),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 排序字段行：字段名 + 升/降分段
-class _SortRow extends StatelessWidget {
-  const _SortRow({
-    required this.name,
-    required this.active,
-    required this.desc,
-    required this.onSelect,
-    required this.onDir,
-  });
-
-  final String name;
-  final bool active;
-  final bool desc;
-  final VoidCallback onSelect;
-  final ValueChanged<bool> onDir;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: LiquidPress(
-        onTap: onSelect,
-        radius: 13,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(13),
-            color: active
-                ? const Color(0x334F8CFF)
-                : Colors.white.withOpacity(0.04),
-            border: Border.all(
-              color: active
-                  ? const Color(0x874F8CFF)
-                  : Colors.white.withOpacity(0.10),
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: active ? FontWeight.w800 : FontWeight.w700,
-                    color: active ? Colors.white : const Color(0xFFD5DEEF),
-                  ),
-                ),
-              ),
-              _dirSeg(!desc, '↑ 升', () => onDir(false)),
-              const SizedBox(width: 3),
-              _dirSeg(desc, '↓ 降', () => onDir(true)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _dirSeg(bool on, String label, VoidCallback onTap) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 7,
-      scale: 0.94,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(7),
-          color: on ? const Color(0x594F8CFF) : Colors.black.withOpacity(0.30),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 「仅看有中文字幕」开关行
-class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.on, required this.onChanged});
-  final bool on;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(13),
-        color: Colors.white.withOpacity(0.05),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '仅看有中文字幕',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '简体 / 繁体 / 中字外挂轨均计入',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    color: AppColors.muted.withOpacity(0.8),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          LiquidPress(
-            onTap: () => onChanged(!on),
-            radius: 12,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 40,
-              height: 23,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: on ? AppColors.primary : Colors.white.withOpacity(0.14),
-              ),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                alignment: on ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  margin: const EdgeInsets.all(2.5),
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 顶栏玻璃按钮（排序 / 漏斗），带激活数角标
-class _TopBtn extends StatelessWidget {
-  const _TopBtn({required this.onTap, required this.child, this.badge = 0});
-  final VoidCallback onTap;
-  final Widget child;
-  final int badge;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        LiquidPress(
-          onTap: onTap,
-          radius: 19,
-          scale: 0.92,
-          child: ClipRRect(
-            // 真磨砂玻璃：与首页胶囊（_Pill）、各页圆钮统一
-            borderRadius: BorderRadius.circular(19),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-              child: Container(
-                height: 38,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(19),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withOpacity(0.10),
-                      Colors.white.withOpacity(0.04),
-                    ],
-                  ),
-                  border: Border.all(color: Colors.white.withOpacity(0.16)),
-                ),
-                child: Center(child: child),
-              ),
-            ),
-          ),
-        ),
-        if (badge > 0)
-          Positioned(
-            top: -5,
-            right: -5,
-            child: Container(
-              constraints: const BoxConstraints(minWidth: 16),
-              height: 16,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                color: AppColors.primary,
-                border: Border.all(color: AppColors.bg, width: 2),
-              ),
-              child: Center(
-                child: Text(
-                  '$badge',
-                  style: const TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

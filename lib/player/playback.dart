@@ -256,8 +256,8 @@ class ExoController implements PlaybackController {
 /// MPV / libmpv（media_kit）
 class MpvController implements PlaybackController {
   MpvController({bool hardwareDecode = true, int cacheMb = 512})
-      : _hwdec = hardwareDecode,
-        _cacheMb = cacheMb {
+    : _hwdec = hardwareDecode,
+      _cacheMb = cacheMb {
     _player = Player();
     _vc = VideoController(_player);
   }
@@ -365,12 +365,15 @@ class MpvController implements PlaybackController {
     final pairs = <String, String>{
       'sub-scale': subScale.toStringAsFixed(3),
       'sub-pos': subPos.toStringAsFixed(2),
-      'sub-delay': style.offset.toStringAsFixed(2),
       'sub-color': _mpvColor(style.color),
       // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
       'sub-border-color': '#000000',
       'sub-opacity': style.opa.clamp(0.0, 1.0).toStringAsFixed(2),
       'sub-border-size': borderSize.toStringAsFixed(2),
+      // 关键：ASS 字幕默认由 libass 按文件自带样式渲染，App 里的字号 /
+      // 颜色 / 描边全被忽略（这就是「面板调了没反应」的根因）。force 让
+      // libass 采用上面的样式覆盖，但保留 ASS 的定位信息。
+      'sub-ass-override': 'force',
     };
     for (final e in pairs.entries) {
       try {
