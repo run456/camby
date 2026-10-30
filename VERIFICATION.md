@@ -663,3 +663,31 @@ Future<void> _boot() async {
 | `lib/pages/detail_page.dart` | 改：媒体信息移到剧情简介后 |
 | `test/player_boot_order_test.dart` | 改：守卫随 `set_strm_exo` 下架更新 |
 | `test/goldens/favorites_wall.png` | 重生成：堆叠墙视觉变更 |
+
+---
+
+## 17. v1.7.51 (91) 收藏页堆叠墙「边缘被裁剪」修复
+
+**用户反馈**：收藏页还是不对，后层海报的边缘好像被裁剪了（附当前效果 / 目标效果两张截图）。
+
+### 根因（两层叠加）
+
+1. **`LiquidPress` 的 `ClipRRect` 把后层裁掉了**。`_StackTile` 用 `LiquidPress(radius: 14)` 包裹整格，而堆叠后层靠 `Transform.rotate/translate` **探出瓦片矩形**才能露出来 —— 全部被 `ClipRRect` 裁在格内，只剩一条「被裁的边」，看起来接近单张海报。
+2. **主海报自己撑满整格**（`SizedBox(width: w, height: h)`），即使后层不被裁，也会被前层完全盖住。
+
+### 修复
+
+| # | 改动 |
+|---|---|
+| 1 | `LiquidPress` 新增 `clip` 参数（默认 `true` 保持既有行为）；按下高光层本来就自带 `borderRadius` 装饰不会溢出，去掉外层 `ClipRRect` 无副作用。`_StackTile` 传 `clip: false` 解除裁剪 |
+| 2 | `_layer` 几何重调：三张卡统一缩到 **0.86 居中**（主海报不再撑满，给后层留探出空间）；后卡 ±7° 扇开 + 向上探出（`depth2=(0.11, +0.060, -0.050)`、`depth1=(-0.13, -0.060, -0.050)`、前卡微倾 `-0.02`），探出量控制在格内不压相邻卡片 |
+| 3 | golden 重生成（堆叠墙视觉变更，渲染无异常/无溢出） |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **139 / 139** |
+
+**交付**：`camby-1.7.51-release-arm64.apk`（`cn.camby.camby` / 91 / 1.7.51 / 33M / sha256 `4155eae73654af28dc67bdb2324a1c4057a6e69c3723762ccee861d1951cc1a9`）。

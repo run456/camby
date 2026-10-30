@@ -25,6 +25,7 @@ class LiquidPress extends StatefulWidget {
     this.behavior = HitTestBehavior.opaque,
     this.semanticLabel,
     this.shadows,
+    this.clip = true,
   });
 
   /// 按钮本体（不再自己包 GestureDetector）
@@ -49,6 +50,11 @@ class LiquidPress extends StatefulWidget {
 
   /// 外阴影（放在裁剪层之外，否则会被 ClipRRect 切掉）
   final List<BoxShadow>? shadows;
+
+  /// 是否把子内容裁进圆角。默认 true（按钮类）；
+  /// 子内容需要探出边界（如收藏页海报堆叠墙的后层卡）时传 false —— 
+  /// 按下高光层自带圆角装饰，不裁也不会溢出。
+  final bool clip;
 
   @override
   State<LiquidPress> createState() => _LiquidPressState();
@@ -99,65 +105,69 @@ class _LiquidPressState extends State<LiquidPress> {
             scale: _on ? widget.scale : 1.0,
             duration: widget.duration,
             curve: Curves.easeOutCubic,
-            child: ClipRRect(
-              borderRadius: br,
-              child: Stack(
-                fit: StackFit.passthrough,
-                children: [
-                  widget.child,
-                  // 按下高光层：整片提亮 + 手指位置镜面光晕 + 边缘加亮
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: AnimatedOpacity(
-                        opacity: _on ? 1 : 0,
-                        duration: widget.duration,
-                        curve: Curves.easeOutCubic,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: br,
-                            // 整片玻璃被压薄 → 整体提亮
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.white.withOpacity(widget.tint),
-                                Colors.white.withOpacity(widget.tint * 0.25),
-                                Colors.white.withOpacity(widget.tint * 0.6),
-                              ],
-                              stops: const [0.0, 0.5, 1.0],
-                            ),
-                          ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: br,
-                              // 手指处的折射焦点
-                              gradient: RadialGradient(
-                                center: _focus,
-                                radius: 1.15,
-                                colors: [
-                                  Colors.white.withOpacity(widget.glow),
-                                  Colors.white.withOpacity(widget.glow * 0.35),
-                                  Colors.white.withOpacity(0),
-                                ],
-                                stops: const [0.0, 0.45, 1.0],
-                              ),
-                              // 玻璃被挤压 → 边缘高光更亮
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.30),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: _body(br),
           ),
         ),
       ),
     );
+  }
+
+  /// 高光层自带圆角装饰（不会溢出），只有子内容本身需要按需裁进圆角
+  Widget _body(BorderRadius br) {
+    final stack = Stack(
+      fit: StackFit.passthrough,
+      children: [
+        widget.child,
+        // 按下高光层：整片提亮 + 手指位置镜面光晕 + 边缘加亮
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: _on ? 1 : 0,
+              duration: widget.duration,
+              curve: Curves.easeOutCubic,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: br,
+                  // 整片玻璃被压薄 → 整体提亮
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(widget.tint),
+                      Colors.white.withOpacity(widget.tint * 0.25),
+                      Colors.white.withOpacity(widget.tint * 0.6),
+                    ],
+                    stops: const [0.0, 0.5, 1.0],
+                  ),
+                ),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: br,
+                    // 手指处的折射焦点
+                    gradient: RadialGradient(
+                      center: _focus,
+                      radius: 1.15,
+                      colors: [
+                        Colors.white.withOpacity(widget.glow),
+                        Colors.white.withOpacity(widget.glow * 0.35),
+                        Colors.white.withOpacity(0),
+                      ],
+                      stops: const [0.0, 0.45, 1.0],
+                    ),
+                    // 玻璃被挤压 → 边缘高光更亮
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.30),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    if (!widget.clip) return stack;
+    return ClipRRect(borderRadius: br, child: stack);
   }
 }
 

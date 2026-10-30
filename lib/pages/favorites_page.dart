@@ -518,6 +518,9 @@ class _StackTile extends StatelessWidget {
       radius: 14,
       scale: 0.97,
       glow: 0.18,
+      // 堆叠墙的后层卡靠 Transform 探出瓦片矩形，这里不能裁剪 ——
+      // 之前后层就是被这层 ClipRRect 裁掉的，只剩一条「被裁的边」
+      clip: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -585,15 +588,19 @@ class _StackTile extends StatelessWidget {
   }
 
   /// depth: 0 = 最上层（夹内最新海报）；1 = 左后卡；2 = 右后卡。
-  /// 按设计稿：三张**真实海报**像扑克牌一样向两侧扇开，后面两张只露出
-  /// 上缘。之前后层用纯渐变卡且位移极小，整叠看起来就是一张平面海报。
+  /// 按设计稿：三张**真实海报**像扑克牌一样向两侧扇开，后面两张从主海报
+  /// 左右探出、顶部略高。卡片统一缩到 0.86 居中 —— 主海报不再撑满整格，
+  /// 给后层留出探出的空间（探出量控制在格内，不压相邻卡片）。
   Widget _layer(int depth, double w, double h) {
-    // 角度 / 位移：设计稿三卡扇形（前卡微倾，后卡 ±9° 向上探出）
+    // 角度 / 位移（相对卡片尺寸）：前卡微倾，后卡 ±7° 向两侧、向上探出
     final (angle, dxr, dyr) = switch (depth) {
-      2 => (0.155, 0.085, -0.050),
-      1 => (-0.185, -0.085, -0.050),
-      _ => (-0.045, -0.012, 0.012),
+      2 => (0.11, 0.060, -0.050),
+      1 => (-0.13, -0.060, -0.050),
+      _ => (-0.020, -0.008, 0.008),
     };
+    const scale = 0.86;
+    final cw = w * scale;
+    final ch = h * scale;
 
     // 后层也用真实海报（依次取夹内第 2、3 张）；空夹才退到占位渐变
     MediaItem? item;
@@ -640,7 +647,7 @@ class _StackTile extends StatelessWidget {
         child: Align(
           alignment: Alignment.bottomCenter,
           child: Padding(
-            padding: EdgeInsets.only(bottom: h * 0.10),
+            padding: EdgeInsets.only(bottom: ch * 0.10),
             child: Icon(
               Icons.movie_creation_outlined,
               size: depth == 0 ? 24 : 19,
@@ -676,11 +683,13 @@ class _StackTile extends StatelessWidget {
       angle: angle,
       alignment: Alignment.bottomCenter,
       child: Transform.translate(
-        offset: Offset(w * dxr, h * dyr),
+        offset: Offset(cw * dxr, ch * dyr),
         child: card,
       ),
     );
-    return SizedBox(width: w, height: h, child: card);
+    return Center(
+      child: SizedBox(width: cw, height: ch, child: card),
+    );
   }
 
   Widget get _placeholder => DecoratedBox(
