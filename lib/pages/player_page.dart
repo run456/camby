@@ -1826,26 +1826,35 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                               MediaQuery.of(context).size.height / 2,
                             ),
                     child: IgnorePointer(
-                      // v1.7.58：白字 + 半透明黑底圆角块，两个内核外观统一
-                      // （此前只有 MPV 渲染自带背景的 ASS 才有这个效果）
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withAlpha(
-                            (255 * 0.55 * _subStyle.opa.clamp(0.0, 1.0))
-                                .round(),
+                      // v1.7.59：背景块**贴文字宽度**居中（参考设计图）——
+                      // Positioned(left+right) 是紧约束，会把 Container
+                      // 撑满整行；外面套 Align 给 loose 约束后，块收缩到
+                      // 文字实际宽度。多行长字幕限宽 85% 自动换行。
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          constraints: BoxConstraints(
+                            maxWidth:
+                                MediaQuery.of(context).size.width * 0.85,
                           ),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: Text(
-                          cue,
-                          textAlign: TextAlign.center,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: _subStyle.textStyle,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withAlpha(
+                              (255 * 0.55 * _subStyle.opa.clamp(0.0, 1.0))
+                                  .round(),
+                            ),
+                            borderRadius: BorderRadius.circular(7),
+                          ),
+                          child: Text(
+                            cue,
+                            textAlign: TextAlign.center,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: _subStyle.textStyle,
+                          ),
                         ),
                       ),
                     ),

@@ -887,3 +887,30 @@ MPV 下 ASS 字幕自带半透明背景块（视觉正确），但 SRT 只有白
 | `flutter test` | **157 / 157**（新增 `test/subtitle_background_test.dart` 4 条守卫） |
 
 **交付**：`camby-1.7.58-release-arm64.apk`（`cn.camby.camby` / 98 / 1.7.58 / 33M / sha256 `90f8501bd53c3fa8d45181fb87e9a76787b4b39546a19fd85d3b3b162244ce20`）。
+
+---
+
+## 25. v1.7.59 (99) 背景块贴文字宽度（参考设计图）
+
+### 需求
+
+v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文字出现的地方有背景块**，块随文字宽度收缩、居中。
+
+### 根因
+
+叠加层的 `Positioned(left: 24, right: 24)` 对子级施加**紧约束**，Container 被迫占满可用宽度，背景块变成整行长条。
+
+### 处理（`lib/pages/player_page.dart` 叠加层）
+
+- Container 外包 `Align(alignment: Alignment.bottomCenter)`：loose 约束让块收缩到文字实际宽度
+- 多行长字幕限宽 `maxWidth = 屏宽 * 0.85`，自动换行（maxLines 3 + ellipsis 保持）
+- 内边距 10/5、圆角 7、55% 黑底不变
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **157 / 157** |
+
+**交付**：`camby-1.7.59-release-arm64.apk`（`cn.camby.camby` / 99 / 1.7.59 / 33M / sha256 `7da11acf8ea5b1ea5c5d06b216c89da6cc321b06818652df6f10a9f6f56f2ee9`）。
