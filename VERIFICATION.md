@@ -270,3 +270,72 @@ $ flutter build apk --release --target-platform=android-arm64
 **质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **98/98**（新增启动冒烟 1 组）。
 
 **交付**：`camby-1.7.45-release-arm64.apk`（`cn.camby.camby` / 85 / 1.7.45 / 33M / sha256 `66e8ea64…`）。
+
+---
+
+## 12. v1.7.46 (86) 「我的」页渲染崩溃修复
+
+**症状**：v1.7.45 能进 App 了，但点「我的」Tab 整页被红字替代：
+
+```
+界面渲染出错
+type 'Null' is not a subtype of type 'int'
+```
+
+「我的」页崩了 → 无法进入「添加服务器」，等于全 App 不可用。
+
+> 这段红字正是 v1.7.45 第 5 条加固（`ErrorWidget.builder` 可见化）换来的 —— 上一个版本同样会崩，只是表现为一片黑，看不到原因。
+
+### 根因
+
+**v1.7.42 清理设置页「死键」时，只删了 `_load()` 里的 map 条目，没删 Widget 树里对它们的引用。**
+
+具体链路：
+
+1. v1.7.42 做了一次「配置项瘦身」，把 12 个已经没有任何读取点的偏好键从 `settings_page.dart` 的 `_load()` 返回 map 里删掉了（`sub_lang`、`theme_mode`、`danmaku_on`、`pip_on`…）。
+2. 但页面 `build()` 里对应的行仍然在，仍然写着 `_s['sub_lang'] as int` 这样的取值。
+3. Dart 里 `Map<String, dynamic>` 取不存在的键返回 `null`，`null as int` 直接抛 `_TypeError`。
+4. 该异常发生在 `SettingsPage.build()` 内部 → 整棵子树被 `ErrorWidget` 顶掉 → 用户看到满屏红字。
+
+v1.7.43 ~ v1.7.45 这三个版本都没碰设置页，所以这颗雷一直埋着；之前 97 个测试全绿也抓不到，因为**没有任何一个测试 build 过设置页**。
+
+### 修复
+
+**① 删除 4 组残留 UI**（它们背后的 key 早已不生效，留着只会误导用户）：
+
+| 删除项 | 失效的键 |
+|---|---|
+| 字幕默认语言（选择行） | `sub_lang` |
+| 弹幕整组 | `danmaku_on` / `danmaku_opacity` / `danmaku_area` / `danmaku_speed` |
+| 主题整组 + `_ThemeDots` 组件类 | `theme_mode` / `theme_seed` |
+| 画中画 / 气泡整组 | `pip_on` / `bubble_on` |
+
+连带删掉 `_SliderRow` 组件类（唯一调用方在弹幕组里）。
+
+**② 补齐仍在用的键**（这些功能是活的，只是 `_load()` 漏了初始化）：
+
+```dart
+'sub_lang':         prefs.getInt('set_sub_lang') ?? 0,
+'ass_subtitle':     prefs.getBool('set_ass_subtitle') ?? true,
+'online_subtitle':  prefs.getBool('set_online_subtitle') ?? true,
+'strm_exo':         prefs.getBool('set_strm_exo') ?? true,
+```
+
+**③ 同时落地上个版本承诺的「STRM 优先 Exo」开关**（v1.7.44 的 D 方案只在 `player_page` 里读了 `set_strm_exo`，设置页没有入口），默认开。
+
+### 测试补强 —— 这次要堵住的是「测试全绿但页面崩掉」的盲区
+
+| 新文件 | 做什么 | 组数 |
+|---|---|---|
+| `test/all_pages_render_test.dart` | 五个 Tab（首页 / 搜索 / 追剧 / 片单 / 我的）**逐个 pumpWidget 真实页面**，断言无异常、无 `ErrorWidget` | 5 |
+| `test/settings_render_test.dart` | ① build 设置页断言不抛；② **正则扫源码**：抓出所有 `_s['xxx']` 引用与 `_load()` 里初始化的键，做差集，缺失即失败 | 2 |
+
+第 ② 条是数据驱动的一致性检查，不依赖人工维护清单 —— 以后再出现「删了 key 没删 UI」或「加了 UI 没加 key」，测试直接红，开发阶段就能拦住，不用等真机。
+
+**有效性已验证**：`git stash` 掉修复代码后跑 `all_pages_render_test`，成功复现 `type 'Null' is not a subtype of type 'int'`；恢复后转绿。测试确实打在病灶上，不是空跑。
+
+> 顺带一提：`settings_render_test.dart` 第一次跑就自己抓出了 `sub_lang`、`ass_subtitle`、`online_subtitle` 三个缺失键 —— 我原以为只崩了一个，实际是四个雷同时埋着，只是第一个触发就中断了后续构建。
+
+**质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **105/105**（97 → 105，新增 8 组）。
+
+**交付**：`camby-1.7.46-release-arm64.apk`（`cn.camby.camby` / 86 / 1.7.46 / 33M / sha256 `3356553dc4a437abafc32b24c31a677ee8509ec3344297d6f9f48d92ccda69b6`）。

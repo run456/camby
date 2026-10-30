@@ -29,7 +29,6 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   static const _bitrates = ['自动', '40 Mbps', '20 Mbps', '10 Mbps'];
   static const _caches = ['512 MB', '1 GB', '2 GB', '4 GB'];
-  static const _subLangs = ['简体中文', '繁體中文', 'English', '关闭'];
   /// 每日推荐分栏的说明文案（刷新规则写死在代码里，这里只做告知）
   static const _recoRefreshDesc = '每天 00:00 自动换一批，也可点首页 ↻ 手动换';
 
@@ -52,6 +51,11 @@ class _SettingsPageState extends State<SettingsPage> {
         'play_engine': prefs.getInt('set_play_engine') ?? 0,
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
         'auto_next': prefs.getBool('set_auto_next') ?? true,
+        // 字幕默认语言：这一项目前还没有生效点（播放页是让用户在字幕
+        // 列表里手选），先保留可设置的开关；读取端日后接上再改这里
+        'sub_lang': prefs.getInt('set_sub_lang') ?? 0,
+        'ass_subtitle': prefs.getBool('set_ass_subtitle') ?? true,
+        'online_subtitle': prefs.getBool('set_online_subtitle') ?? true,
         'strm_exo': prefs.getBool('set_strm_exo') ?? true,
         'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
@@ -253,16 +257,6 @@ class _SettingsPageState extends State<SettingsPage> {
           _Group(
             children: [
               _RowItem(
-                title: '字幕默认语言',
-                trailing: _Value(
-                  _subLangs[_s['sub_lang']],
-                  onTap: () => _set(
-                    'sub_lang',
-                    ((_s['sub_lang'] as int) + 1) % _subLangs.length,
-                  ),
-                ),
-              ),
-              _RowItem(
                 title: 'ASS 特效字幕渲染',
                 desc: '需 MPV 内核',
                 trailing: _Toggle(
@@ -323,64 +317,6 @@ class _SettingsPageState extends State<SettingsPage> {
           _Group(
             children: [
               _RowItem(
-                title: '播放弹幕',
-                trailing: _Toggle(
-                  value: _s['danmaku'],
-                  onChanged: (v) => _set('danmaku', v),
-                ),
-              ),
-              _RowItem(
-                title: '弹幕人物防遮挡',
-                trailing: _Toggle(
-                  value: _s['danmaku_anti'],
-                  onChanged: (v) => _set('danmaku_anti', v),
-                ),
-              ),
-              _RowItem(
-                title: '弹幕透明度',
-                desc: '${(_s['danmaku_opacity'] * 100).round()}%',
-                trailing: _SliderRow(
-                  value: _s['danmaku_opacity'],
-                  onChanged: (v) => _set('danmaku_opacity', v),
-                ),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
-                title: '主题',
-                desc: '深海 · 夜间',
-                trailing: _ThemeDots(
-                  value: _s['theme_idx'],
-                  onSelect: (i) => _set('theme_idx', i),
-                ),
-              ),
-              _RowItem(
-                title: 'Monet 动态取色',
-                desc: '跟随系统壁纸色',
-                trailing: _Toggle(
-                  value: _s['monet'],
-                  onChanged: (v) => _set('monet', v),
-                ),
-              ),
-              _RowItem(
-                title: '液态玻璃强度',
-                desc: '${(_s['glass_strength'] * 40).round()} px',
-                trailing: _SliderRow(
-                  value: _s['glass_strength'],
-                  onChanged: (v) => _set('glass_strength', v),
-                ),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
                 title: '记录观看明细',
                 desc: '用于时段热力图与趋势',
                 trailing: _Toggle(
@@ -396,32 +332,10 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
-                title: '交互式画中画',
-                desc: 'Android 17 新能力',
-                trailing: _Toggle(
-                  value: _s['pip'],
-                  onChanged: (v) => _set('pip', v),
-                ),
-              ),
-              _RowItem(
-                title: '悬浮气泡小窗',
-                desc: 'App Bubbles',
-                trailing: _Toggle(
-                  value: _s['bubble'],
-                  onChanged: (v) => _set('bubble', v),
-                ),
-                last: true,
-              ),
-            ],
-          ),
           const SizedBox(height: 18),
           const Center(
             child: Text(
-              'Camby v1.7.40 (80) · arm64 · 隐私政策 · 开源许可',
+              'Camby v1.7.46 · arm64 · 隐私政策 · 开源许可',
               style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
             ),
           ),
@@ -1254,69 +1168,6 @@ class _Value extends StatelessWidget {
   }
 }
 
-class _SliderRow extends StatelessWidget {
-  const _SliderRow({required this.value, this.onChanged});
-  final double value;
-  final ValueChanged<double>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 110,
-      child: SliderTheme(
-        data: SliderThemeData(
-          trackHeight: 5,
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7.5),
-          activeTrackColor: AppColors.accent,
-          inactiveTrackColor: Colors.white.withOpacity(0.14),
-          thumbColor: Colors.white,
-        ),
-        child: Slider(value: value, min: 0, max: 1, onChanged: onChanged),
-      ),
-    );
-  }
-}
-
-class _ThemeDots extends StatelessWidget {
-  const _ThemeDots({required this.value, this.onSelect});
-  final int value;
-  final ValueChanged<int>? onSelect;
-
-  static const colors = [
-    [Color(0xFF4F8CFF), Color(0xFF2A5AD6)],
-    [Color(0xFF7B5CFF), Color(0xFF4B31C9)],
-    [Color(0xFF38E8C8), Color(0xFF159F88)],
-    [Color(0xFFFFB64D), Color(0xFFD9821F)],
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(colors.length, (i) {
-        final sel = i == value;
-        return LiquidPress(
-          radius: 6,
-          scale: 0.9,
-          enabled: onSelect != null,
-          onTap: onSelect == null ? null : () => onSelect!(i),
-          child: Container(
-            width: 17,
-            height: 17,
-            margin: const EdgeInsets.only(left: 5),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              gradient: LinearGradient(colors: colors[i]),
-              border: sel ? Border.all(color: Colors.white, width: 1.6) : null,
-            ),
-          ),
-        );
-      }),
-    );
-  }
-}
-
-/// 协议切换：与「连接服务器」主按钮同款渐变胶囊
 class _ProtocolToggle extends StatelessWidget {
   const _ProtocolToggle({required this.secure, required this.onChanged});
 
