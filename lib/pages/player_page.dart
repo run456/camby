@@ -832,16 +832,23 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         );
       }
       p.fit = _fit;
-      await p.open(url, subtitleUrl: _subtitle?.url);
+      // v1.7.58：只有 ASS/SSA 才交给 MPV 内核渲染（保留特效）；SRT/VTT
+      // 一律走 App 叠加层，两内核外观统一（白字 + 半透明背景块），
+      // 样式面板也必然生效。
+      await p.open(
+        url,
+        subtitleUrl: (p.nativeSubtitles && _isAssUrl(_subtitle?.url))
+            ? _subtitle?.url
+            : null,
+      );
       await p.setSpeed(_playbackSpeed);
       if (!mounted) {
         await p.dispose();
         return false;
       }
-      // Exo 无法原生挂字幕：启动时就把已选字幕加载进叠加层
       final sub = _subtitle;
-      if (!p.nativeSubtitles && sub?.url != null) {
-        unawaited(_loadCuesFor(sub!));
+      if (sub != null && !(p.nativeSubtitles && _isAssUrl(sub.url))) {
+        unawaited(_loadCuesFor(sub));
       }
       final prev = _player;
       // p 在 setState 闭包里不会被提升到非空，这里先取出来
@@ -924,13 +931,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       await _player?.seek(pos);
       if (!wasPlaying) await _player?.pause();
     }
-    // MPV 由内核渲染字幕：清掉 Exo 时代的叠加层，避免两份字幕叠着
-    if (ok && target == PlaybackEngine.mpv && mounted) {
-      setState(() {
-        _cues = const [];
-        _cueText = '';
-      });
-    }
+    // v1.7.58：字幕挂载由 _start 统一按类型分发（ASS 走内核、文本走
+    // 叠加层），这里不再无条件清叠加层——否则 MPV 下 SRT 会被清成空白。
     if (!mounted) return;
     setState(() => _initializing = false);
     // 切换失败（地址不通 / 内核建不起来）必须明说，否则用户只会看到
@@ -1413,8 +1415,9 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   /// 切换字幕：**不重建播放器**，因此不会丢进度。
-  ///  · MPV：内核原生挂载，ASS 特效也能显示
-  ///  · Exo：video_player 没有运行时挂字幕接口 → 用叠加层自己渲染
+  ///  · MPV + ASS/SSA：内核原生挂载，ASS 特效也能显示
+  ///  · 其余（Exo 全部、MPV 的 SRT/VTT）：用 App 叠加层自己渲染，
+  ///    外观与样式面板完全可控（v1.7.58）
   ///
   /// [silent] = true 时不弹 toast（自动选轨用，避免起播就糊用户一脸提示）。
   Future<void> _applySubtitle(
@@ -1435,7 +1438,13 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       return;
     }
 
-    final native = await _player?.setSubtitle(track.url) ?? false;
+    // MPV 只接管 ASS/SSA；换到文本字幕时要先摘掉内核字幕，
+    // 否则会出现「内核渲染 + 叠加层渲染」两份字幕重叠
+    final useNative = _player?.nativeSubtitles == true && _isAssUrl(track.url);
+    if (!useNative && _player?.nativeSubtitles == true) {
+      await _player?.setSubtitle(null);
+    }
+    final native = useNative ? (await _player?.setSubtitle(track.url) ?? false) : false;
     if (!native) {
       final cues = await _loadCues(track);
       if (!mounted) return;
@@ -1453,6 +1462,18 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       if (!silent) showToast(context, '字幕：${track.menuLabel}');
     }
     _resetHideTimer();
+  }
+
+  /// 字幕是否 ASS/SSA（v1.7.58）。
+  ///
+  /// 只有这类字幕才交给 MPV 内核原生渲染：它们自带样式与特效，交给
+  /// libass 还原最省事。SRT/VTT 走 App 叠加层——mpv 对文本字幕既不能
+  /// 指定 BorderStyle（0.36/0.37 都没有 `sub-border-style`），也无法保证
+  /// 样式面板的每一项都生效，而叠加层是完全可控的 White-on-半透明块。
+  static bool _isAssUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    final u = url.toLowerCase().split('?').first.split('#').first;
+    return u.endsWith('.ass') || u.endsWith('.ssa');
   }
 
   /// 字幕失败提示：带上具体原因（HTTP 状态 / 编码 / 无时间轴），
@@ -1805,12 +1826,27 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                               MediaQuery.of(context).size.height / 2,
                             ),
                     child: IgnorePointer(
-                      child: Text(
-                        cue,
-                        textAlign: TextAlign.center,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: _subStyle.textStyle,
+                      // v1.7.58：白字 + 半透明黑底圆角块，两个内核外观统一
+                      // （此前只有 MPV 渲染自带背景的 ASS 才有这个效果）
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withAlpha(
+                            (255 * 0.55 * _subStyle.opa.clamp(0.0, 1.0))
+                                .round(),
+                          ),
+                          borderRadius: BorderRadius.circular(7),
+                        ),
+                        child: Text(
+                          cue,
+                          textAlign: TextAlign.center,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: _subStyle.textStyle,
+                        ),
                       ),
                     ),
                   );

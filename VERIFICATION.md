@@ -850,3 +850,40 @@ Future<void> _boot() async {
 | `flutter test` | **153 / 153** |
 
 **交付**：`camby-1.7.57-release-arm64.apk`（`cn.camby.camby` / 97 / 1.7.57 / 33M / sha256 `d722180bb7f06f8890fc84a7c55ebae4cfad7d50c4d366026883c84e6f7e0a53`）。
+
+---
+
+## 24. v1.7.58 (98) 文本字幕统一为「白字 + 半透明背景块」
+
+### 需求
+
+MPV 下 ASS 字幕自带半透明背景块（视觉正确），但 SRT 只有白字+细描边；希望在两个内核下 SRT 也是白字 + 半透明背景块。
+
+### 为什么不能靠 mpv 原生实现（本机 mpv 0.37 实测）
+
+| 尝试 | 结果 |
+|---|---|
+| `sub-back-color=#80000000` | 无效果——SRT 默认 BorderStyle=1（描边），没有背景块可填色 |
+| `sub-border-style=4` | **选项不存在**（0.36 / 0.37 均 option not found，mpv 0.38 才引入） |
+| `sub-ass-force-style=BorderStyle=3,BackColour=&H59…` | 无效果（且该选项在 0.37 已废弃为 `sub-ass-style-overrides` 的别名） |
+| `sub-ass-style-overrides=BorderStyle=3,BackColour=&H59…` | 对 SRT 同样无效果（仅作用于真 ASS 脚本的 Default 样式） |
+
+结论：mpv 在 0.36/0.37 上**无法给文本字幕指定背景块**，只能换渲染主体。
+
+### 处理
+
+1. **渲染主体分流**（`lib/pages/player_page.dart`）
+   - 新增 `_isAssUrl()`：只有 `.ass` / `.ssa` 才交给 MPV 内核原生渲染（保留 ASS 特效与自带样式）
+   - 其余（SRT / VTT，以及 Exo 全部）走 App **叠加层**渲染 → 两个内核外观完全一致、样式面板必然生效
+   - `open()` 不再无条件把字幕交给内核；切换字幕时若目标不是 ASS，先 `setSubtitle(null)` 摘掉内核字幕，避免两份字幕重叠
+   - 删除切内核时「无条件清叠加层」的旧逻辑（否则 MPV 下 SRT 会被清成空白）
+2. **叠加层外观**：字幕外包 `Container`（黑 55% 底 + 圆角 7 + 10/5 内边距），底色 alpha 跟随字幕不透明度滑杆
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **157 / 157**（新增 `test/subtitle_background_test.dart` 4 条守卫） |
+
+**交付**：`camby-1.7.58-release-arm64.apk`（`cn.camby.camby` / 98 / 1.7.58 / 33M / sha256 `90f8501bd53c3fa8d45181fb87e9a76787b4b39546a19fd85d3b3b162244ce20`）。
