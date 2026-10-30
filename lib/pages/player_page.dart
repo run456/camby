@@ -1762,12 +1762,14 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 ),
 
               // 亮度 / 音量指示：距屏幕边缘 22dp，不再贴边
+              // v1.7.62：指示条显示在手势的**对侧** —— 左半屏上滑调亮度时
+              // 指示条在右边、右半屏上滑调音量时指示条在左边，避免被手指挡住
               if (_adjustSide != null)
                 Positioned(
                   top: 0,
                   bottom: 0,
-                  left: _adjustSide == 'brightness' ? 22 : null,
-                  right: _adjustSide == 'volume' ? 22 : null,
+                  left: _adjustSide == 'volume' ? 22 : null,
+                  right: _adjustSide == 'brightness' ? 22 : null,
                   width: 62,
                   child: Center(
                     child: Glass(
@@ -1827,37 +1829,50 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
               // 拖动进度时的大时间提示：只显示目标时间 + 相对位移，
               // 不再重复「目标 / 总长」（会和控制层压在一起）
+              // v1.7.62：订阅 _posNv —— 拖动中 _updateScrub 每帧都会把
+              // _scrubPos 推进 _posNv，气泡才能跟着手指实时走。以前直接读
+              // _scrubPos 且只靠整页 setState 重建，拖动期间整页不重建，
+              // 气泡就冻结在起拖附近的旧时间（底部小字却是活的）。
               if (_scrubbing)
                 Align(
                   alignment: const Alignment(0, -0.18),
                   child: IgnorePointer(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _fmt(_scrubPos),
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            shadows: [
-                              Shadow(color: Color(0xAA000000), blurRadius: 14),
-                            ],
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _posNv,
+                      builder: (_, pos, __) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _fmt(pos),
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(
+                                  color: Color(0xAA000000),
+                                  blurRadius: 14,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_scrubPos - _scrubStartPos >= 0 ? '+' : '-'}${_fmt((_scrubPos - _scrubStartPos).abs())} · ${_fmt(total)}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFD2DEFA),
-                            shadows: [
-                              Shadow(color: Color(0x99000000), blurRadius: 10),
-                            ],
+                          const SizedBox(height: 4),
+                          Text(
+                            '${pos - _scrubStartPos >= 0 ? '+' : '-'}${_fmt((pos - _scrubStartPos).abs())} · ${_fmt(total)}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFD2DEFA),
+                              shadows: [
+                                Shadow(
+                                  color: Color(0x99000000),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

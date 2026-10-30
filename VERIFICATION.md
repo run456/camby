@@ -959,3 +959,21 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.61-release-arm64.apk`（`cn.camby.camby` / 101 / 1.7.61 / 33M / sha256 `15a6826973e9f5255e8379554df80555bd5edb7481e60a15de171c8b1f819e5f`）。
 
 > 发布节奏：本地提交，**未推送 GitHub**（v1.7.60 起累计 5 个版本再推；本版为第 2 个，预计 v1.7.64 推送）。
+
+## 28. v1.7.62 (102) 拖动中央时间实时刷新 + 亮度/音量指示条换侧
+
+| # | 问题 | 根因 | 处理 |
+|---|---|---|---|
+| 1 | 拖动进度条时中央大时间冻结在起拖附近的旧值（底部小字却实时正确） | 气泡直接读 `_scrubPos`，但只靠整页 `setState` 重建；拖动期间 `_updateScrub` 只推 `_posNv`，整页不重建 → 气泡冻结 | 气泡改为 `ValueListenableBuilder` 订阅 `_posNv`（拖动中每帧 `_syncPos()` 都会把 `_scrubPos` 推进去），文本改用监听值 `pos` 计算 |
+| 2 | 左半屏上滑调亮度，亮度条出现在左侧被手指挡住；右半屏调音量同理 | 指示条 `left/right` 与手势同侧 | 换到**手势对侧**：调亮度 → 指示条在右；调音量 → 指示条在左 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | 160 → **162 / 162**（新增 `scrub_bubble_adjust_side_test.dart`：气泡必须订阅 `_posNv` 且禁止 `_fmt(_scrubPos)`；指示条必须 `left=volume / right=brightness`） |
+
+**交付**：`camby-1.7.62-release-arm64.apk`（`cn.camby.camby` / 102 / 1.7.62 / 34.5M / sha256 `e44a7c7e51890794e8d564c8dc1a805f24aca5b127679d22a31c3908503294ca`）。
+
+> 发布节奏：本地提交，**未推送 GitHub**（v1.7.60 起累计 5 个版本再推；本版为第 3 个，预计 v1.7.64 推送 v1.7.60~64）。
