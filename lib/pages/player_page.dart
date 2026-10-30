@@ -9,6 +9,7 @@ import 'package:volume_controller/volume_controller.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import '../player/boot_watch.dart';
 import '../player/playback.dart';
 import '../subtitles/subtitles.dart';
 import '../routes.dart';
@@ -50,6 +51,19 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   bool _fallback = false;
   bool _controlsVisible = true;
   bool _locked = false;
+
+  // ---------------- 起播看护（v1.7.44：A 加载态 + B 自动回退 + D 智能内核）--------
+  /// 首帧是否真的渲染出来了。MPV 的 `open()` 立即返回，不能拿它当「已开播」——
+  /// 之前就是这么误判的，于是黑幕一揭、画面全黑而 App 毫不知情。
+  bool _firstFrame = false;
+  /// 起播已等待秒数（用 Notifier 是为了不每 500ms 重建整页）
+  final ValueNotifier<double> _bootVN = ValueNotifier<double>(0);
+  DateTime? _bootAt;
+  Timer? _bootTimer;
+  /// MPV 无首帧已经自动回退过 Exo（每轮起播只回退一次）
+  bool _autoFellBack = false;
+  /// 设置页「STRM 优先 Exo」（D 方案），默认开
+  bool _strmPreferExo = true;
 
   Timer? _hideTimer;
   Timer? _ticker;
@@ -208,6 +222,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     if (_revealed || !mounted) return;
     _revealed = true;
     _revealTimer?.cancel();
+    _bootTimer?.cancel();
     _revealTimer = null;
     setState(() => _veiled = false);
   }
@@ -287,6 +302,60 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // 首页「继续观看」位置随后由 _reportProgressNow() 持续同步
     unawaited(_reportProgressNow());
     _startReportTimer();
+    _startBootWatch();
+  }
+
+  // ---------------- 起播看护 ----------------
+
+  /// 每 500ms 检查一次首帧：
+  /// · 没出来 → 更新「已等待 N 秒」，8 秒后露出「切换 Exo」按钮，25 秒提示插件；
+  /// · 出来了 → 收起胶囊；
+  /// · MPV 超过 10 秒还没出来 → 自动换 Exo 重开（B 方案），用户全程无感。
+  void _startBootWatch() {
+    _bootTimer?.cancel();
+    _bootTimer = null;
+    _bootAt = DateTime.now();
+    _bootVN.value = 0;
+    _firstFrame = _player?.firstFrameReady ?? false;
+    if (_demo || _fallback) return;
+    _bootTimer = Timer.periodic(const Duration(milliseconds: 500), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final p = _player;
+      if (p == null) return;
+      if (p.firstFrameReady) {
+        t.cancel();
+        _bootTimer = null;
+        if (!_firstFrame) setState(() => _firstFrame = true);
+        return;
+      }
+      final secs =
+          DateTime.now().difference(_bootAt!).inMilliseconds / 1000.0;
+      _bootVN.value = secs;
+      if (BootWatchPolicy.shouldFallback(
+        engine: p.engine,
+        alreadyFellBack: _autoFellBack,
+        waitedSecs: secs,
+      )) {
+        _autoFellBack = true;
+        t.cancel();
+        _bootTimer = null;
+        unawaited(_autoFallbackToExo());
+      }
+    });
+  }
+
+  /// MPV 10 秒无首帧 → 自动切 Exo 重开（保留进度）
+  Future<void> _autoFallbackToExo() async {
+    if (!mounted || _engine == PlaybackEngine.exo) return;
+    showToast(
+      context,
+      'MPV 10 秒未出画面，已自动切到 Exo',
+      icon: Icons.swap_horiz_rounded,
+    );
+    await _switchEngine(silent: true);
   }
 
   // ---------------- 字幕样式 / 码率 / 硬解 / 上报 ----------------
@@ -301,9 +370,15 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final br = prefs.getInt('set_max_bitrate') ?? 0;
       final cache = prefs.getInt('set_cache_size') ?? 0;
       _engine = eng == 1 ? PlaybackEngine.mpv : PlaybackEngine.exo;
+      // D 方案：strm 条目默认走 Exo。它对「无 Content-Length / 无 moov」的
+      // 伪流式直链兼容性更好，经常是 Exo 能出画面、MPV 一直黑屏。
+      if (_strmPreferExo && widget.item.isStrm) {
+        _engine = PlaybackEngine.exo;
+      }
       _maxBitrate = _bitrates[br.clamp(0, _bitrates.length - 1)];
       _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
       _autoNext = prefs.getBool('set_auto_next') ?? true;
+      _strmPreferExo = prefs.getBool('set_strm_exo') ?? true;
     } catch (_) {}
   }
 
@@ -675,7 +750,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _switchEngine() async {
+  Future<void> _switchEngine({bool silent = false}) async {
     final target = _engine == PlaybackEngine.exo
         ? PlaybackEngine.mpv
         : PlaybackEngine.exo;
@@ -703,8 +778,11 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     }
     if (!mounted) return;
     setState(() => _initializing = false);
-    showToast(context, '已切换至 ${target.label}');
+    if (!silent) showToast(context, '已切换至 ${target.label}');
     _resetHideTimer();
+    // 新内核重新计时：手动切回 MPV 时也允许再自动回退一次
+    _autoFellBack = false;
+    _startBootWatch();
   }
 
   @override
@@ -726,6 +804,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _bufNv.dispose();
     _cueNv.dispose();
     _styleRev.dispose();
+    _bootVN.dispose();
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
@@ -1368,6 +1447,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 const Center(
                   child: CircularProgressIndicator(color: AppColors.primary),
                 )
+              else if (!_demo && !_fallback && !_firstFrame)
+                // A 方案：黑屏期的加载胶囊。原来这里什么都没有，用户只能
+                // 对着纯黑猜「是不是卡了」，8 秒后才敢去试别的内核。
+                _bootOverlay()
               else if (_demo)
                 Positioned(
                   top: 52,
@@ -1639,6 +1722,118 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// 起播加载胶囊：片名 + 已等待秒数 + 内核实名；8 秒后给「切 Exo」，
+  /// 25 秒后补一句「可能需要服务端插件预热」。
+  Widget _bootOverlay() {
+    final raw = widget.item.filePath;
+    final name = raw.isEmpty ? widget.item.name : raw.split('/').last;
+    return Center(
+      child: ValueListenableBuilder<double>(
+        valueListenable: _bootVN,
+        builder: (_, secs, __) {
+          final slow = BootWatchPolicy.showSwitchButton(
+            engine: _engine,
+            waitedSecs: secs,
+          );
+          final verySlow = BootWatchPolicy.showPluginHint(secs);
+          return Glass(
+            radius: 20,
+            blur: 16,
+            blurEnabled: false,
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 15),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      '正在获取媒体信息…',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 245),
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '已等待 ${secs.toStringAsFixed(0)} 秒 · ${_engine.label}',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: AppColors.muted.withOpacity(0.85),
+                  ),
+                ),
+                if (slow) ...[
+                  const SizedBox(height: 12),
+                  LiquidPress(
+                    radius: 14,
+                    scale: 0.96,
+                    onTap: () => unawaited(_switchEngine()),
+                    child: Container(
+                      height: 34,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: AppColors.accent.withOpacity(0.20),
+                        border: Border.all(
+                          color: AppColors.accent.withOpacity(0.55),
+                        ),
+                      ),
+                      child: const Text(
+                        '切换到 Exo 内核',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFBFD4FF),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+                if (verySlow) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    '片源仍在探测，可能需要在服务端装预热插件',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.warn,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
       ),
     );
   }

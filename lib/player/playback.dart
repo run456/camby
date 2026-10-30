@@ -7,6 +7,15 @@ import 'package:video_player/video_player.dart';
 
 import '../widgets/subtitle_style_sheet.dart';
 
+/// 播放器对外声明的 User-Agent。
+///
+/// strm 片源基本都指向第三方直链（alist / openlist / 网盘反代 / 各类 CDN），
+/// 其中相当一部分对 UA 做白名单校验：libmpv 默认发 `Lavf/xx`，会被直接 403，
+/// 表现就是「进度条不走、画面全黑、也没有任何报错」，而 ExoPlayer 用自己的 UA
+/// 恰好能过 —— 这就是「MPV 一直黑屏、切 Exo 就能放」最常见的成因。
+/// 伪装成 VLC 是最通用的一档（绝大多数直链白名单都放行它）。
+const String kPlayerUserAgent = 'VLC/3.0.20 LibVLC/3.0.20';
+
 /// 播放内核
 enum PlaybackEngine { exo, mpv }
 
@@ -28,6 +37,14 @@ abstract class PlaybackController {
   double get durationSeconds;
   bool get isPlaying;
   bool get isBuffering;
+
+  /// 首帧是否已经真正渲染出来。
+  ///
+  /// Exo 的 `initialize()` 天然等到可渲染才算完成，所以它等于 `ready`；
+  /// MPV 的 `open()` 是**立即返回**的（libmpv 异步探测），必须靠视频参数
+  /// 是否解析出来判断 —— 否则播放页会以为「已经开播了」，直接揭幕，
+  /// 用户看到的是一块纯黑，App 自己却毫不知情。
+  bool get firstFrameReady;
 
   /// 已缓冲到的位置（秒），用于底栏「缓冲至」展示
   double get bufferedSeconds;
@@ -118,6 +135,9 @@ class ExoController implements PlaybackController {
 
   @override
   bool get isBuffering => _c?.value.isBuffering ?? false;
+
+  @override
+  bool get firstFrameReady => _c?.value.isInitialized ?? false;
 
   @override
   double get bufferedSeconds {
@@ -273,6 +293,12 @@ class MpvController implements PlaybackController {
   bool get isBuffering => _player.state.buffering;
 
   @override
+  bool get firstFrameReady {
+    final v = _player.state.videoParams;
+    return (v.w ?? 0) > 0 && (v.h ?? 0) > 0;
+  }
+
+  @override
   bool get nativeSubtitles => true;
 
   @override
@@ -383,9 +409,18 @@ class MpvController implements PlaybackController {
         await platform.setProperty('demuxer-max-bytes', '$bytes');
         await platform.setProperty('demuxer-max-back-bytes', '$bytes');
         await platform.setProperty('cache-secs', '${(mb / 8).clamp(10, 600)}');
+        // strm 直链常见问题：默认 UA 被 CDN 拒绝 → 一直黑屏无报错。
+        // 两处都设（属性 + 请求头）是因为不同 libmpv 版本读的位置不一样。
+        await platform.setProperty('user-agent', kPlayerUserAgent);
+        // 默认 60s 太久：黑屏要等一分钟才暴露问题。30s 足够慢速源，也能
+        // 让「10 秒无首帧自动回退 Exo」先一步生效。
+        await platform.setProperty('network-timeout', '30');
       }
     } catch (_) {}
-    await _player.open(Media(url), play: true);
+    await _player.open(
+      Media(url, httpHeaders: const {'User-Agent': kPlayerUserAgent}),
+      play: true,
+    );
     _opened = true;
     if (subtitleUrl != null && subtitleUrl.isNotEmpty) {
       try {

@@ -52,6 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
         'play_engine': prefs.getInt('set_play_engine') ?? 0,
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
         'auto_next': prefs.getBool('set_auto_next') ?? true,
+        'strm_exo': prefs.getBool('set_strm_exo') ?? true,
         'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
         'record_history': prefs.getBool('set_record_history') ?? true,
@@ -213,6 +214,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: _Toggle(
                   value: _s['auto_next'],
                   onChanged: (v) => _set('auto_next', v),
+                ),
+              ),
+              _RowItem(
+                title: 'STRM 优先 Exo',
+                desc: 'strm 直链用 Exo 起播更稳，MPV 常黑屏',
+                trailing: _Toggle(
+                  value: _s['strm_exo'],
+                  onChanged: (v) => _set('strm_exo', v),
                 ),
               ),
               _RowItem(

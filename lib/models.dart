@@ -490,6 +490,20 @@ class MediaItem {
   bool get isMovie => type == MediaType.movie;
   bool get isSeries => type == MediaType.series;
   bool get isTrue4K => videoHeight >= 2160;
+
+  /// 是否为 strm 片源。
+  ///
+  /// strm 只是一行 URL 的占位文件，Emby 扫库时**不探测远端**，媒体信息
+  /// （时长 / 分辨率 / 码率）要等首次播放才临时 ffprobe —— 这是它首播慢、
+  /// 且经常读不到时长的根源。识别出来才能在播放策略上单独对待。
+  ///
+  /// 判据用 `MediaSources[0].Path` 的后缀：Emby 对 strm 条目的 Path 仍是
+  /// 那个 `.strm` 文件本身，不是它指向的 URL。服务端隐藏 Path 时退化为
+  /// 「容器名是 STRM」这一条（部分版本会这么填）。
+  bool get isStrm {
+    final p = filePath.toLowerCase();
+    return p.endsWith('.strm') || container.toUpperCase() == 'STRM';
+  }
   bool get hasAtmos =>
       audioCodec.contains('TrueHD') ||
       audioCodec.contains('ATMOS') ||

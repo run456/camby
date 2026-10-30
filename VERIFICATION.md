@@ -224,3 +224,25 @@ $ flutter build apk --release --target-platform=android-arm64
 **质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **84/84**（新增 8 组）。
 
 **交付**：只出一个正式包 `camby-1.7.43-release-arm64.apk`（`cn.camby.camby` / 83 / 1.7.43 / 33M）。按用户要求，此后不再构建共存 test 包。
+
+---
+
+## 10. v1.7.44 (84) STRM 起播三件套（A/B/D）
+
+**背景**：`_tryOpen()` 是「直连 → 失败回退 HLS」。Exo 的 `open()` 等到解码器可出帧才返回，所以可信；**MPV 的 `open()` 立即返回**（libmpv 异步探测），App 以为开播成功就揭幕 → 用户看到纯黑而 App 毫不知情。缺的是「首帧到达」这个信号。
+
+| 方案 | 落地 | 关键点 |
+|---|---|---|
+| **A 加载态** | `_bootOverlay()` + `_startBootWatch()` | 中央玻璃胶囊：片名 + 已等待 N 秒 + 内核实名；8s 露「切 Exo」按钮；25s 提示插件。秒数走 `ValueNotifier`，不每 500ms 重建整页 |
+| **B MPV 调优** | `playback.dart` | `user-agent=VLC/3.0.20 LibVLC/3.0.20`（属性 + `Media.httpHeaders` 双写）+ `network-timeout=30`；MPV 10s 无首帧自动切 Exo（保留进度、只切一次） |
+| **D 智能内核** | `MediaItem.isStrm` + 设置项 | 判据 `Path` 以 `.strm` 结尾或 `Container == STRM`；strm 默认 Exo，设置页新增「STRM 优先 Exo」开关（默认开） |
+
+**接口变化**：`PlaybackController` 新增 `bool get firstFrameReady`。Exo = `isInitialized`；MPV = `videoParams.w > 0 && h > 0`。
+
+**策略抽离**：`lib/player/boot_watch.dart` 的 `BootWatchPolicy` 管三个阈值（8 / 10 / 25）与两个判定，单测直接打靶，改数字只改一处。
+
+**质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **97/97**（新增 `test/strm_boot_test.dart` 13 组）。
+
+**交付**：`camby-1.7.44-release-arm64.apk`（`cn.camby.camby` / 84 / 1.7.44 / 33M）。
+
+**附**：`/workspace/08-服务端STRM插件安装指南.md` —— 按 Emby 版本分流（4.8.x → StrmAssistant；4.9/4.10 → MediaInfoKeeper），含 Windows / Docker / Linux / 群晖四种环境的完整命令。
