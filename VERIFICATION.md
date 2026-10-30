@@ -1013,3 +1013,5 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 | `flutter test` | 165 → **168 / 168**（新增 `wakelock_adjust_spacing_test.dart`；同步 `favorites_wall/actors` 黄金图与 v1.7.62 指示条守卫的 48dp 锚点） |
 
 **交付**：`camby-1.7.64-release-arm64.apk`（`cn.camby.camby` / 104 / 1.7.64 / 34.5M / sha256 `658cc1c565e627391d6b608ebdca73ce819c67a4172f24133235249338d9db5e`）。
+
+> 发布节奏：v1.7.60~64 已**统一推送 GitHub** 并逐版创建 Release（附对应 APK），累计窗口清零，下次推送从 v1.7.65 起再累计 5 版。
