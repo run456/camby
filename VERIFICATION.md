@@ -202,3 +202,25 @@ $ flutter build apk --release --target-platform=android-arm64
 **质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **76/76**；产物 `1.7.42 (82)` 双包。
 
 **一个重复出现的问题值得记一笔**：「设置项不生效」已经复发两次（1.7.29 的播放内核、1.7.29 的 CAMBY 字距），根因是重建/回滚时把旧实现又贴了回来。此后改设置相关代码，一律先 grep 键名确认有读取点。
+
+---
+
+## 9. v1.7.43 (83) 收藏夹弹窗 v2
+
+| 项 | v1 | v2 |
+|---|---|---|
+| 头部红心 | 无，只有一行静态文案 | 可点胶囊 ♥已收藏（粉红渐变）/ ♡收藏（灰玻璃） |
+| 取消收藏 | 做不到，要退出弹窗回详情页 | 点红心即切换，`toggleFavorite` 连带 `_removeItemFromFolders` |
+| 未收藏态 | 无此概念 | 收藏夹列表变暗禁用、主按钮改「关闭」、副标题提示点红心 |
+| 新建收藏夹 | 二级对话框，输入框被裁 | 内联输入行，回车即建、同名复用、当场并入选 |
+| 名字长度 | `maxLength` 挤出计数器行 | 提交时截断 20 字 |
+| 键盘/手势条 | 只避让键盘 | `viewInsets` 与 `padding.bottom` 分别计算，不叠加 |
+| 内容过高 | 溢出被裁 | 整体 `SingleChildScrollView`，封顶 82% 屏高 |
+
+**顺带**：`promptFolderName`（收藏页新建 / 文件夹页重命名共用）外层补 `SingleChildScrollView`，输入框改固定 46 高居中容器，二级对话框的同类裁切一并修掉。
+
+**测试可测性**：`AppState.disablePersistence`（`@visibleForTesting`）。根因是 `path_provider` 在 `flutter test` 里没有实现，`_foldersFile()` 的 `await` 会一直挂起 —— 于是「新建收藏夹」这类依赖持久化返回值的流程永远走不到下一步，表现为「夹子建出来了但没勾上」。生产代码从不设置该开关。
+
+**质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **84/84**（新增 8 组）。
+
+**交付**：只出一个正式包 `camby-1.7.43-release-arm64.apk`（`cn.camby.camby` / 83 / 1.7.43 / 33M）。按用户要求，此后不再构建共存 test 包。

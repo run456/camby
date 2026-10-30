@@ -667,12 +667,19 @@ class AppState extends ChangeNotifier {
 
   // ---------------- 收藏夹 / 演员收藏 持久化 ----------------
 
+  /// 单元测试开关：path_provider 在 flutter test 里没有实现，`await` 会一直挂起，
+  /// 导致「新建收藏夹」这类依赖持久化返回值的流程永远走不到下一步。
+  /// 打开后只改内存、不碰磁盘（生产代码从不设置它）。
+  @visibleForTesting
+  static bool disablePersistence = false;
+
   Future<File> _foldersFile() async {
     final dir = await getApplicationSupportDirectory();
     return File('${dir.path}/camby_folders.json');
   }
 
   Future<bool> _loadFolders() async {
+    if (disablePersistence) return false;
     try {
       final f = await _foldersFile();
       if (!await f.exists()) return false;
@@ -691,6 +698,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _saveFolders() async {
+    if (disablePersistence) return;
     try {
       final f = await _foldersFile();
       final data = <String, dynamic>{
