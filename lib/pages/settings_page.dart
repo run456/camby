@@ -1,14 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
-import '../player/subtitle_pick.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
-import '../widgets/subtitle_style_sheet.dart';
 import '../models.dart';
 import '../theme.dart';
 
@@ -30,13 +26,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   static const _bitrates = ['自动', '40 Mbps', '20 Mbps', '10 Mbps'];
   static const _caches = ['512 MB', '1 GB', '2 GB', '4 GB'];
-  /// 每日推荐分栏的说明文案（刷新规则写死在代码里，这里只做告知）
-  static const _recoRefreshDesc = '每天 00:00 自动换一批，也可点首页 ↻ 手动换';
 
   Map<String, dynamic> _s = {};
-
-  /// 叠加层字幕样式（1.7.38 新增）：与播放页共用同一组 SharedPreferences 键
-  SubtitleStyle _subStyle = const SubtitleStyle();
 
   @override
   void initState() {
@@ -46,25 +37,14 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final subStyle = await SubtitleStyleStore.load();
     setState(() {
       _s = {
         'play_engine': prefs.getInt('set_play_engine') ?? 0,
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
-        'auto_next': prefs.getBool('set_auto_next') ?? true,
-        // 字幕默认语言：v1.7.47 起真正生效（播放页 _autoPickSubtitle 读取），
-        // 枚举定义在 player/subtitle_pick.dart，与设置页共用同一份顺序
-        'sub_lang': prefs.getInt('set_sub_lang') ?? 0,
-        'ass_subtitle': prefs.getBool('set_ass_subtitle') ?? true,
-        'strm_exo': prefs.getBool('set_strm_exo') ?? true,
         'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
         'record_history': prefs.getBool('set_record_history') ?? true,
-        // 「推荐」分栏：只保留真正会改变推荐结果的两项
-        'reco_fresh': prefs.getBool('set_reco_fresh') ?? true,
-        'reco_exclude_done': prefs.getBool('set_reco_exclude_done') ?? true,
       };
-      _subStyle = subStyle;
     });
   }
 
@@ -77,48 +57,6 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _toast(String msg) => showToast(context, msg);
-
-  /// 字幕样式：字号 / 位置 / 偏移 / 不透明度 / 描边 / 颜色
-  ///
-  /// 这里改完即刻写盘，播放页下次进片会读到同一份配置；播放页里长按「字幕」
-  /// 拉起的是同一个面板，区别只在于那边能对着画面实时预览。
-  Future<void> _openSubtitleStyle() async {
-    var draft = _subStyle;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => SafeArea(
-        top: false,
-        child: SubtitleStyleSheet(
-          style: draft,
-          onChanged: (s, commit) {
-            draft = s;
-            setState(() => _subStyle = s);
-          },
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await SubtitleStyleStore.save(draft);
-    setState(() => _subStyle = draft);
-  }
-
-  /// 把当前样式压成一行短描述，放在设置项右侧
-  String get _subStyleSummary {
-    final s = _subStyle;
-    final c = switch (s.color.toARGB32()) {
-      0xFFFFFFFF => '白',
-      0xFFFFF3B0 => '暖黄',
-      0xFFA6FFB2 => '绿',
-      0xFFFFC7F0 => '粉',
-      0xFF9FD8FF => '蓝',
-      0xFFD3C4FF => '紫',
-      _ => '自定义',
-    };
-    return '${s.size.round()}px · ${(s.pos * 100).round()}% · $c · '
-        '描边 ${s.stroke.toStringAsFixed(1)}';
-  }
 
   /// 导出统计数据：JSON 复制到剪贴板
   Future<void> _exportStats() async {
@@ -214,21 +152,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               _RowItem(
-                title: '自动连播下一集',
-                trailing: _Toggle(
-                  value: _s['auto_next'],
-                  onChanged: (v) => _set('auto_next', v),
-                ),
-              ),
-              _RowItem(
-                title: 'STRM 优先 Exo',
-                desc: 'strm 直链用 Exo 起播更稳，MPV 常黑屏',
-                trailing: _Toggle(
-                  value: _s['strm_exo'],
-                  onChanged: (v) => _set('strm_exo', v),
-                ),
-              ),
-              _RowItem(
                 title: '最大码率',
                 desc: _bitrates[_s['max_bitrate']],
                 trailing: _Value(
@@ -257,69 +180,6 @@ class _SettingsPageState extends State<SettingsPage> {
           _Group(
             children: [
               _RowItem(
-                title: 'ASS 特效字幕渲染',
-                desc: '需 MPV 内核',
-                trailing: _Toggle(
-                  value: _s['ass_subtitle'],
-                  onChanged: (v) => _set('ass_subtitle', v),
-                ),
-              ),
-              _RowItem(
-                title: '字幕默认语言',
-                desc: SubtitlePrefX.fromCode(_s['sub_lang'] as int).label,
-                trailing: _Value(
-                  SubtitlePrefX.fromCode(_s['sub_lang'] as int).label,
-                  onTap: () => _set(
-                    'sub_lang',
-                    ((_s['sub_lang'] as int) + 1) % SubtitlePref.values.length,
-                  ),
-                ),
-              ),
-              _RowItem(
-                title: '字幕样式',
-                desc: _subStyleSummary,
-                trailing: _Value(
-                  '调整',
-                  onTap: () => unawaited(_openSubtitleStyle()),
-                ),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
-                title: '每日推荐',
-                desc: _recoRefreshDesc,
-                trailing: _Value(
-                  '00:00',
-                  onTap: () => _toast(_recoRefreshDesc),
-                ),
-              ),
-              _RowItem(
-                title: '优先没看过的',
-                desc: '未观看的影片权重更高',
-                trailing: _Toggle(
-                  value: _s['reco_fresh'],
-                  onChanged: (v) => _set('reco_fresh', v),
-                ),
-              ),
-              _RowItem(
-                title: '排除已看完',
-                desc: '关掉后已看过的片也可能被推荐',
-                trailing: _Toggle(
-                  value: _s['reco_exclude_done'],
-                  onChanged: (v) => _set('reco_exclude_done', v),
-                ),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
                 title: '记录观看明细',
                 desc: '用于时段热力图与趋势',
                 trailing: _Toggle(
@@ -338,7 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 18),
           const Center(
             child: Text(
-              'Camby v1.7.46 · arm64 · 隐私政策 · 开源许可',
+              'Camby v1.7.50 · arm64 · 隐私政策 · 开源许可',
               style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
             ),
           ),

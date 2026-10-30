@@ -585,3 +585,81 @@ Future<void> _boot() async {
 | 变异验证 | 内核时序守卫、占位开关守卫、选轨策略守卫均验证过「改坏会红」 |
 
 **交付**：`camby-1.7.49-release-arm64.apk`（`cn.camby.camby` / 89 / 1.7.49 / 33M / sha256 `6de1f5133dd6faaf7e27c313fc96f972e45396b4a2e179194320187fe4fcd586`）。
+
+---
+
+## 16. v1.7.50 (90) 六屏 UI 对齐设计稿（逐项优化）
+
+> 触发：用户基于 14 张设计稿截图，要求「一项项来」，把六大屏按图精修。
+> 约束：当前环境不支持读图，依据用户文字描述 + 既有设计语言实现，最后逐屏自查。
+
+### 16.1 一、播放页
+
+| # | 改动 | 实现 |
+|---|---|---|
+| 1 | 控件布局按图：顶栏去掉多余徽章 | 删除顶栏硬编码的「⚡硬解」`GestureDetector` 徽章（目标图无此元素） |
+| 2 | 底栏加码率 chip + 网速显示 | 底栏 chips 新增 `码率 · ${_bitrateShort()}` 芯片，回调 `_changeBitrate`；`_bitrateShort()` 文案 `原片` → `自动` |
+| 3 | 字幕弹窗「黄线」 | **根因**：自定义 `PageRouteBuilder` 路由（`_GlassPanelRoute`）无 `Material` 祖先，弹层内 `Text` 在 debug 下回退 fallback 样式出现黄线。修复：所有玻璃弹层（`_Sheet`、字幕样式面板）最外层包 `Material(type: MaterialType.transparency)` |
+| 4 | 字幕调节弹窗严格按图（不要乱加东西） | `subtitle_style_sheet.dart` 整文件重写：只留「标题 + 右上圆形关闭 + 4 行（大小/位置/描边/不透明度）+ 5 色（白/黄/绿/蓝/红）」。删预览区、`±` 按钮、底部「恢复默认/完成」按钮 |
+| 5 | 播放详情弹窗按图 | `_showInfo()` 重构：媒体信息改为带蓝竖条的分节标题（`_InfoSection`），只保留片名/分辨率/视频编码/动态范围/音频/封装/大小/字幕/码率上限/进度。删掉「内核/画质/入库/倍速/进度/最近跳转/内核状态」等冗余行 |
+
+### 16.2 二、收藏页
+
+**海报堆叠墙修复**：原实现后层是纯渐变卡、位移极小，视觉上等于平面（「没有堆叠效果」）。
+
+- `_StackTile._layer` 重写：后层改用**真实海报**（`covers[depth % covers.length]`），加大扇形角度与位移（`depth=2 → (0.155,0.085,-0.050)`、`depth=1 → (-0.185,-0.085,-0.050)`、`depth=0 → (-0.045,-0.012,0.012)`），`Transform.rotate` 用 `alignment: Alignment.bottomCenter`，后层叠压暗渐变。
+- `_movieWall()` 内 `maxDepth`：`math.min(3, …)` → `math.min(2, …)`，墙更紧凑。
+- `test/favorites_wall_test.dart` golden 重生成（视觉变更属预期）。
+
+### 16.3 三、设置页
+
+| # | 改动 |
+|---|---|
+| 1 | 清除用不到的设置项（含关联代码）：自动连播下一集、STRM 优先 Exo、ASS 特效字幕渲染、字幕默认语言、字幕样式、每日推荐、优先没看过的、排除已看完。删除对应字段、`_load()` 键、UI 行与说明常量 |
+| 2 | 【bug】选 MPV 内核优先但顶栏仍显示 Exo：根因是 `_strmPreferExo = true` 默认值让 strm 条目无视设置强制走 Exo。`_applySavedPreferences()` 删除该覆盖分支：`_engine = eng == 1 ? mpv : exo`（尊重用户选择）；`main.dart` 的 STRM 加载弹窗改为先读 `set_play_engine` 再决定传 `mpv/exo`，让 MPV 用户能真正切到 MPV |
+
+### 16.4 四、演员页
+
+| # | 改动 | 实现 |
+|---|---|---|
+| 1 | 背景模糊（对齐详情页） | `Positioned.fill` + `RepaintBoundary` + `ImageFiltered(blur 60)` 头像模糊 + 深色遮罩 |
+| 2 | 列表滑动状态对齐详情页 | 结构改 `CustomScrollView`：`SliverToBoxAdapter`(头像 ShaderMask 渐隐) → (姓名/简介/分段+筛选) → `SliverPadding` + `SliverGrid`(懒加载，滚动不发坠) |
+| 3 | 页面选项 bug | `_Seg` 分段控件对齐公式修复：原 `alignment: Alignment(-1 + 2.0 * i / (n-1) * (1 - unit), 0)` 三档时高亮块偏左错位；去掉 `* (1 - unit)` 后归位 |
+| 4 | 筛选跟媒体库一致 | 新增 `_PersonFilterSheet`（媒体库同款：排序字段行 × 升/降 + 年代 chips + 底部重置/应用），返回 `(sortKey, desc, decade)` 元组 |
+| 5 | 按钮液态玻璃效果 | 顶栏按钮改 `_RoundBtn`（液态玻璃圆形，从详情页复制，带光晕/下沉/提亮）；删 `_SheetBtn` |
+
+### 16.5 五、详情页
+
+- 媒体信息位置：`_mediaInfoCard` 从「相似推荐之后」移到「剧情简介之后 / 分集之前」。
+
+### 16.6 六、首页
+
+| # | 改动 | 实现 |
+|---|---|---|
+| 1 | tab 栏按下态优化 | `_GlassNavBar` 的 tab 项改为圆形玻璃片（`AnimatedContainer 38×38 shape: BoxShape.circle`，选中时白色渐变 + 蓝/黑双阴影） |
+| 2 | 图标液态玻璃效果 | `_GlassCircleBtn` 加 `ClipOval` + `BackdropFilter(sigma 16)` 真磨砂；`_Pill` 加 `ClipRRect` + `BackdropFilter(sigma 16)` 真磨砂（海报透出被磨砂化） |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **139 / 139**（与 v1.7.49 持平；`player_boot_order_test` 守卫随 `set_strm_exo` 下架同步更新、`favorites_wall_test` golden 重生成） |
+| 守卫有效性 | 字幕样式面板重写后仍保留 `SubtitleStyle` / `SubtitleStyleStore` 数据模型，模型单测不受影响 |
+
+**交付**：`camby-1.7.50-release-arm64.apk`（`cn.camby.camby` / 90 / 1.7.50 / 33M / sha256 `41f89c1826226f3b68c31ac1f162c478ff2b65ac0014a7424a2f5039bde93918`）。
+
+**改动清单（`lib/`）**
+
+| 文件 | 状态 |
+| --- | --- |
+| `lib/pages/player_page.dart` | 改：控件布局（去硬解徽章 / 加码率 chip）、字幕弹层 Material 包裹、`_showInfo` 分节精简、删 strm 强制 Exo |
+| `lib/widgets/subtitle_style_sheet.dart` | 重写：严格按图的字幕调节面板，保留数据模型 |
+| `lib/pages/favorites_page.dart` | 改：海报堆叠墙（真实后层 + 加大扇形） |
+| `lib/pages/settings_page.dart` | 改：清除 8 项无用设置（含关联代码）、footer 改 v1.7.50 |
+| `lib/main.dart` | 改：STRM 弹窗按真实内核偏好传 engine |
+| `lib/pages/home_page.dart` | 改：tab 圆形玻璃片、图标真磨砂 |
+| `lib/pages/person_page.dart` | 重写：模糊背景 + SliverGrid 懒加载 + `_Seg` 对齐 + 媒体库同款筛选 + 液态玻璃按钮 |
+| `lib/pages/detail_page.dart` | 改：媒体信息移到剧情简介后 |
+| `test/player_boot_order_test.dart` | 改：守卫随 `set_strm_exo` 下架更新 |
+| `test/goldens/favorites_wall.png` | 重生成：堆叠墙视觉变更 |

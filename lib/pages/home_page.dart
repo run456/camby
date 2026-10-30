@@ -129,8 +129,10 @@ class _HomePageState extends State<HomePage> {
   Future<void> _restoreRecoState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _preferFresh = prefs.getBool('set_reco_fresh') ?? true;
-      _excludeDone = prefs.getBool('set_reco_exclude_done') ?? true;
+      // v1.7.50：推荐相关的两个设置行已按设计稿移除，固定默认策略
+      // （优先没看过的 + 排除已看完）
+      _preferFresh = true;
+      _excludeDone = true;
       final at = prefs.getInt('home_reco_at');
       final seed = prefs.getInt('home_reco_seed') ?? 0;
       final raw = prefs.getString('home_reco_recent');
@@ -1010,33 +1012,39 @@ class _GlassCircleBtn extends StatelessWidget {
       child: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          // 与右侧「wifi + 片数」胶囊用同一套玻璃参数：
-          // 之前圆钮边框更亮(0.28)、还叠了一条顶部高光直线，直线在圆弧上
-          // 像一道断开的弦，整个外圈看起来很怪。这里统一为胶囊的观感。
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
-          ),
-          border: Border.all(color: const Color(0x42FFFFFF)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x40000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
+        child: ClipOval(
+          // 真·液态玻璃：BackdropFilter 把身后的海报磨砂化
+          //（顶栏固定不动，只有 1-2 个小圆钮，代价可忽略）
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
+                ),
+                border: Border.all(color: const Color(0x42FFFFFF)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x40000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: Colors.white,
+                  shadows: const [
+                    Shadow(color: Color(0x66000000), blurRadius: 6),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
-        child: Center(
-          child: Icon(
-            icon,
-            size: 20,
-            color: Colors.white,
-            shadows: const [
-              Shadow(color: Color(0x66000000), blurRadius: 6),
-            ],
           ),
         ),
       ),
@@ -1056,29 +1064,35 @@ class _Pill extends StatelessWidget {
       onTap: onTap,
       radius: _height / 2,
       scale: 0.95,
-      child: Container(
-        height: _height,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(_height / 2),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withOpacity(0.24),
-              Colors.white.withOpacity(0.08),
-            ],
-          ),
-          border: Border.all(color: Colors.white.withOpacity(0.26)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x40000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(_height / 2),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            height: _height,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(_height / 2),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.24),
+                  Colors.white.withOpacity(0.08),
+                ],
+              ),
+              border: Border.all(color: Colors.white.withOpacity(0.26)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x40000000),
+                  blurRadius: 12,
+                  offset: Offset(0, 4),
+                ),
+              ],
             ),
-          ],
+            child: Center(child: child),
+          ),
         ),
-        child: Center(child: child),
       ),
     );
   }

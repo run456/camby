@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -8,8 +10,9 @@ import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/media_poster.dart';
 
-/// 演职员详情页（参考 Emby 原生）：
-/// 全屏头像背景 → 姓名 → 出生日期 → 简介（可展开）→ 全部/电影/剧集 筛选 → 作品网格
+/// 演职员详情页（对齐影片详情的观感）：
+/// 全屏模糊背景 + 顶部清晰头像渐隐 → 姓名 → 简介（可展开）
+/// → 全部/电影/剧集 选项 → 排序与筛选抽屉（与媒体库同款）→ 作品网格
 class PersonPage extends StatefulWidget {
   const PersonPage({
     super.key,
@@ -36,10 +39,11 @@ class _PersonPageState extends State<PersonPage> {
   bool _fav = false;
   bool _favBusy = false;
 
-  /// 作品附加筛选（1.7.38 新增）：年代 0 全部 / 1 近 3 年 / 2 近 10 年 / 3 更早
+  /// 排序（与媒体库同一套交互）：0 发行日期 / 1 评分 / 2 标题
+  int _sortKey = 0;
+  bool _desc = true;
+  /// 年代筛选：0 不限 / 1 近 3 年 / 2 近 10 年 / 3 更早
   int _decade = 0;
-  /// 排序 0 上映时间 / 1 评分 / 2 名称
-  int _sort = 0;
 
   @override
   void initState() {
@@ -88,7 +92,9 @@ class _PersonPageState extends State<PersonPage> {
         : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   }
 
-  /// 当前附加筛选的简短摘要（显示在筛选按钮上）
+  static const _decadeNames = ['不限', '近 3 年', '近 10 年', '更早'];
+  static const _sortNames = ['发行日期', '评分', '标题'];
+
   /// 抽屉里「共 N 部」：按草稿年代档位实时算，不依赖已应用的筛选
   int _countFor(List<MediaItem> all, int decade) {
     final now = DateTime.now().year;
@@ -109,21 +115,11 @@ class _PersonPageState extends State<PersonPage> {
     }).length;
   }
 
+  /// 当前筛选的简短摘要（显示在筛选按钮上）
   String _filterSummary() {
-    final d = switch (_decade) {
-      1 => '近3年',
-      2 => '近10年',
-      3 => '更早',
-      _ => null,
-    };
-    final s = switch (_sort) {
-      1 => '评分',
-      2 => '名称',
-      _ => null,
-    };
     final parts = <String>[
-      if (d != null) d,
-      if (s != null) s,
+      if (_decade != 0) _decadeNames[_decade],
+      '${_sortNames[_sortKey]}${_desc ? '↓' : '↑'}',
     ];
     return parts.isEmpty ? '筛选' : parts.join('·');
   }
@@ -148,135 +144,35 @@ class _PersonPageState extends State<PersonPage> {
         _ => true,
       };
     }).toList();
-    // 排序：默认按上映时间倒序（参考 Emby 原生作品表）
-    byDecade.sort((a, b) => switch (_sort) {
-          1 => b.rating.compareTo(a.rating),
+    int cmp(MediaItem a, MediaItem b) => switch (_sortKey) {
+          1 => a.rating.compareTo(b.rating),
           2 => a.name.compareTo(b.name),
-          _ => b.year.compareTo(a.year),
-        });
+          _ => a.year.compareTo(b.year),
+        };
+    byDecade.sort(_desc ? (a, b) => cmp(b, a) : cmp);
     return byDecade;
   }
 
-  /// 作品筛选抽屉：年代 + 排序。结果直接落到 _filtered。
+  /// 排序与筛选抽屉：与媒体库同一套版式（排序字段行 × 升/降 + 条件chips
+  /// + 底部 重置 / 应用筛选）。
   Future<void> _showFilterSheet() async {
-    const decades = ['不限', '近 3 年', '近 10 年', '更早'];
-    const sorts = ['上映时间', '评分', '名称'];
-    var d = _decade;
-    var s = _sort;
-    await showModalBottomSheet<void>(
+    final result = await showModalBottomSheet<(int, bool, int)>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Container(
-          decoration: const BoxDecoration(
-            color: Color(0xF2141A28),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 10),
-                Center(
-                  child: Container(
-                    width: 38,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(4),
-                      color: Colors.white.withOpacity(0.25),
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(18, 12, 18, 6),
-                  child: Text(
-                    '筛选作品',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(18, 4, 18, 6),
-                  child: Text(
-                    '年代',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF9FB0CC)),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _Seg(
-                    options: decades,
-                    index: d,
-                    onChanged: (i) => setSheet(() => d = i),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(18, 14, 18, 6),
-                  child: Text(
-                    '排序',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF9FB0CC)),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _Seg(
-                    options: sorts,
-                    index: s,
-                    onChanged: (i) => setSheet(() => s = i),
-                  ),
-                ),
-                // 计数行：与媒体页筛选抽屉一致，实时反映「草稿态」会得到多少部
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
-                  child: Text(
-                    '共 ${_countFor(_films ?? const [], d)} 部 · 已选 ${d == 0 ? '不限' : decades[d]}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF9FB0CC),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _SheetBtn(
-                          label: '重置',
-                          onTap: () => setSheet(() {
-                            d = 0;
-                            s = 0;
-                          }),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _SheetBtn(
-                          label: '应用',
-                          accent: true,
-                          onTap: () {
-                            setState(() {
-                              _decade = d;
-                              _sort = s;
-                            });
-                            Navigator.pop(ctx);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      isScrollControlled: true,
+      builder: (ctx) => _PersonFilterSheet(
+        sortKey: _sortKey,
+        desc: _desc,
+        decade: _decade,
+        total: _countFor(_films ?? const [], _decade),
       ),
     );
+    if (result == null || !mounted) return;
+    setState(() {
+      _sortKey = result.$1;
+      _desc = result.$2;
+      _decade = result.$3;
+    });
   }
 
   @override
@@ -287,29 +183,24 @@ class _PersonPageState extends State<PersonPage> {
         ? server.personImageUrl(p.id!, p.imageTag)
         : null;
     final films = _filtered;
+    final topPad = MediaQuery.of(context).padding.top;
+    final wide = MediaQuery.of(context).size.width >= 840;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Stack(
         children: [
-          // 全屏头像背景
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 400,
-            child: imgUrl != null
-                ? CachedImage(
-                    url: imgUrl,
-                    alignment: Alignment.topCenter,
-                    memWidth: 600,
-                  )
-                : const SizedBox.shrink(),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 400,
+          // 整页底色：同一张头像模糊 + 深色遮罩（与影片详情一致）
+          // RepaintBoundary 让这层只栅格化一次，滚动期间走缓存纹理
+          if (imgUrl != null)
+            Positioned.fill(
+              child: RepaintBoundary(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+                  child: CachedImage(url: imgUrl, memWidth: 220),
+                ),
+              ),
+            ),
+          Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -317,116 +208,208 @@ class _PersonPageState extends State<PersonPage> {
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.black.withOpacity(0.30),
-                    Colors.transparent,
-                    AppColors.bg.withOpacity(0.92),
-                    AppColors.bg,
+                    Colors.black.withOpacity(0.42),
+                    Colors.black.withOpacity(0.55),
                   ],
-                  stops: const [0.0, 0.30, 0.78, 1.0],
+                  stops: const [0.0, 0.5, 1.0],
                 ),
               ),
             ),
           ),
-          // 顶栏放在 ListView 之后（Stack 最上层）：
-          // 否则 ListView 会优先命中测试，把顶栏区域的点击全部吃掉
-          ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              const SizedBox(height: 318),
-              // 姓名 + 出生日期
-              Center(
-                child: Column(
-                  children: [
-                    Text(
-                      p.name,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 23,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    if (_birth != null) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        _birth!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+          // 独立图层：滚动只重绘列表，背后全屏模糊不再每帧重算
+          RepaintBoundary(
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
-              if (_overview.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  child: _OverviewText(
-                    text: _overview,
-                    expanded: _expanded,
-                    onToggle: () => setState(() => _expanded = !_expanded),
+              slivers: [
+                // 顶部清晰头像，底部渐隐透出模糊主色调
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 340,
+                    child: ShaderMask(
+                      blendMode: BlendMode.dstIn,
+                      shaderCallback: (rect) => const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.white, Colors.white, Colors.transparent],
+                        stops: [0.0, 0.72, 1.0],
+                      ).createShader(rect),
+                      child: imgUrl != null
+                          ? CachedImage(
+                              url: imgUrl,
+                              alignment: Alignment.topCenter,
+                              memWidth: 900,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
                   ),
                 ),
-              ],
-              const SizedBox(height: 16),
-              // 筛选 tab（分段控件）：全部 / 电影 / 剧集 + 附加筛选入口
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _Seg(
-                        options: const ['全部', '电影', '剧集'],
-                        index: _tab,
-                        onChanged: (i) => setState(() => _tab = i),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    LiquidPress(
-                      onTap: _showFilterSheet,
-                      radius: 999,
-                      scale: 0.94,
-                      semanticLabel: '作品筛选',
-                      child: Container(
-                        height: 34,
-                        padding: const EdgeInsets.symmetric(horizontal: 11),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: Colors.white.withOpacity(0.05),
-                          border: Border.all(color: Colors.white.withOpacity(0.10)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      // 姓名 + 出生日期
+                      Center(
+                        child: Column(
                           children: [
-                            const Icon(
-                              Icons.tune_rounded,
-                              size: 14,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 4),
                             Text(
-                              _filterSummary(),
+                              p.name,
+                              textAlign: TextAlign.center,
                               style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                            if (_birth != null) ...[
+                              const SizedBox(height: 5),
+                              Text(
+                                _birth!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.muted,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      if (_overview.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          child: _OverviewText(
+                            text: _overview,
+                            expanded: _expanded,
+                            onToggle: () =>
+                                setState(() => _expanded = !_expanded),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      // 筛选选项（分段控件）：全部 / 电影 / 剧集 + 筛选入口
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _Seg(
+                                options: const ['全部', '电影', '剧集'],
+                                index: _tab,
+                                onChanged: (i) => setState(() => _tab = i),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            LiquidPress(
+                              onTap: _showFilterSheet,
+                              radius: 999,
+                              scale: 0.94,
+                              semanticLabel: '作品排序与筛选',
+                              child: Container(
+                                height: 34,
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 11),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: Colors.white.withOpacity(0.05),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.10),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.tune_rounded,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _filterSummary(),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 14),
-              _buildWorks(context, films),
-              const SizedBox(height: 40),
-            ],
+                // 作品网格：Sliver 懒加载，滚动手感与详情页一致
+                // （之前 shrinkWrap GridView 一次性构建全部条目，卡片一多
+                //   滚动就发坠）
+                const SliverToBoxAdapter(child: SizedBox(height: 14)),
+                if (_loading)
+                  const SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                else if (films.isEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 16,
+                      ),
+                      child: Text(
+                        _error != null ? '加载失败：$_error' : '该分类下暂无作品',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(wide ? 28 : 18, 0, wide ? 28 : 18, 40),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: wide ? 6 : 3,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 0.52,
+                      ),
+                      delegate: SliverChildBuilderDelegate(
+                        (c, i) => PosterCard(
+                          item: films[i],
+                          width: double.infinity,
+                          heroTag: 'person-${widget.person.id}-${films[i].id}',
+                          onTap: () => widget.onOpenDetail(
+                            films[i],
+                            heroTag:
+                                'person-${widget.person.id}-${films[i].id}',
+                          ),
+                        ),
+                        childCount: films.length,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           // 顶栏（最上层，保证可点）
-          _buildTopBar(context),
+          _buildTopBar(context, topPad),
         ],
       ),
     );
@@ -445,57 +428,400 @@ class _PersonPageState extends State<PersonPage> {
     showToast(context, _fav ? '已收藏演员' : '已取消收藏');
   }
 
-  Widget _buildTopBar(BuildContext context) {
+  Widget _buildTopBar(BuildContext context, double topPad) {
     return Positioned(
       top: 0,
       left: 0,
       right: 0,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(14, topPad + 8, 14, 0),
+        child: Row(
+          children: [
+            _RoundBtn(
+              icon: Icons.arrow_back_ios_new_rounded,
+              semanticLabel: '返回',
+              onTap: () => Navigator.pop(context),
+            ),
+            const Spacer(),
+            _RoundBtn(
+              icon: _fav
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              semanticLabel: _fav ? '取消收藏' : '收藏演员',
+              iconColor: _fav ? const Color(0xFFFF5C7A) : Colors.white,
+              onTap: _toggleFav,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 顶部圆形按钮：半透明渐变 + 高光描边（与影片详情页 _RoundBtn 同款液态玻璃）
+class _RoundBtn extends StatelessWidget {
+  const _RoundBtn({
+    required this.icon,
+    this.onTap,
+    this.semanticLabel,
+    this.iconColor,
+  });
+  final IconData icon;
+  final VoidCallback? onTap;
+  final String? semanticLabel;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final btn = LiquidPress(
+      onTap: onTap,
+      radius: 20,
+      shadows: const [
+        BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 4)),
+      ],
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withOpacity(0.20),
+              Colors.white.withOpacity(0.06),
+            ],
+          ),
+          border: Border.all(color: Colors.white.withOpacity(0.24)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Icon(icon, size: 17, color: iconColor ?? Colors.white),
+      ),
+    );
+    if (semanticLabel == null) return btn;
+    return Semantics(button: true, label: semanticLabel, child: btn);
+  }
+}
+
+/// 演员作品「排序与筛选」抽屉：版式与媒体库筛选一致。
+/// 草稿态在内部编辑，点「应用筛选」才提交，返回 (sortKey, desc, decade)。
+class _PersonFilterSheet extends StatefulWidget {
+  const _PersonFilterSheet({
+    required this.sortKey,
+    required this.desc,
+    required this.decade,
+    required this.total,
+  });
+
+  final int sortKey;
+  final bool desc;
+  final int decade;
+  final int total;
+
+  @override
+  State<_PersonFilterSheet> createState() => _PersonFilterSheetState();
+}
+
+class _PersonFilterSheetState extends State<_PersonFilterSheet> {
+  static const _sortNames = ['发行日期', '评分', '标题'];
+  static const _decadeNames = ['不限', '近 3 年', '近 10 年', '更早'];
+
+  late int _sortKey;
+  late bool _desc;
+  late int _decade;
+
+  @override
+  void initState() {
+    super.initState();
+    _sortKey = widget.sortKey;
+    _desc = widget.desc;
+    _decade = widget.decade;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.88,
+      ),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF171C27), Color(0xFF10141D)],
+        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        border: Border(top: BorderSide(color: Colors.white12)),
+      ),
       child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 9),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                color: Colors.white.withOpacity(0.22),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              child: Row(
+                children: [
+                  const Text(
+                    '排序与筛选',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '共 ${widget.total} 项 · 已选 ${_decade == 0 ? 0 : 1} 个条件',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
+                shrinkWrap: true,
+                children: [
+                  _sectionTitle('排序方式', '点字段切换，右侧选升 / 降'),
+                  ...List.generate(_sortNames.length, (i) {
+                    final on = _sortKey == i;
+                    return _SortRow(
+                      name: _sortNames[i],
+                      active: on,
+                      desc: _desc,
+                      onSelect: () => setState(() => _sortKey = i),
+                      onDir: (v) => setState(() {
+                        _desc = v;
+                        _sortKey = i;
+                      }),
+                    );
+                  }),
+                  _sectionTitle('年代', '单选'),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: [
+                      for (var i = 0; i < _decadeNames.length; i++)
+                        _chip(
+                          _decadeNames[i],
+                          on: _decade == i,
+                          onTap: () => setState(() => _decade = i),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
+              ),
+            ),
+            // 底部操作栏：重置 + 应用筛选
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 12),
+              child: Row(
+                children: [
+                  LiquidPress(
+                    onTap: () => setState(() {
+                      _decade = 0;
+                      _sortKey = 0;
+                      _desc = true;
+                    }),
+                    radius: 14,
+                    child: Container(
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.22),
+                        ),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '重置',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: LiquidPress(
+                      onTap: () =>
+                          Navigator.pop(context, (_sortKey, _desc, _decade)),
+                      radius: 14,
+                      child: Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x592F7FE8),
+                              blurRadius: 18,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '应用筛选',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, String? hint) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1,
+              color: AppColors.muted,
+            ),
+          ),
+          const Spacer(),
+          if (hint != null)
+            Text(
+              hint,
+              style: TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.muted.withOpacity(0.7),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _chip(String label, {required bool on, required VoidCallback onTap}) {
+    return LiquidPress(
+      onTap: onTap,
+      radius: 15,
+      scale: 0.95,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          color: on
+              ? const Color(0x334F8CFF)
+              : Colors.white.withOpacity(0.06),
+          border: Border.all(
+            color: on
+                ? const Color(0x874F8CFF)
+                : Colors.white.withOpacity(0.10),
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 排序字段行：字段名 + 升/降分段（与媒体库同款）
+class _SortRow extends StatelessWidget {
+  const _SortRow({
+    required this.name,
+    required this.active,
+    required this.desc,
+    required this.onSelect,
+    required this.onDir,
+  });
+
+  final String name;
+  final bool active;
+  final bool desc;
+  final VoidCallback onSelect;
+  final ValueChanged<bool> onDir;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: LiquidPress(
+        onTap: onSelect,
+        radius: 13,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(13),
+            color: active
+                ? const Color(0x334F8CFF)
+                : Colors.white.withOpacity(0.04),
+            border: Border.all(
+              color: active
+                  ? const Color(0x874F8CFF)
+                  : Colors.white.withOpacity(0.10),
+            ),
+          ),
           child: Row(
             children: [
-              // 深色遮罩上用深底圆钮保证可点可见
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withOpacity(0.35),
-                ),
-                child: LiquidPress(
-                  radius: 20,
-                  semanticLabel: '返回',
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    size: 17,
-                    color: Colors.white,
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w700,
+                    color: active ? Colors.white : const Color(0xFFD5DEEF),
                   ),
                 ),
               ),
-              const Spacer(),
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withOpacity(0.35),
-                ),
-                child: LiquidPress(
-                  radius: 20,
-                  semanticLabel: _fav ? '取消收藏' : '收藏演员',
-                  onTap: _toggleFav,
-                  child: Icon(
-                    _fav
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    size: 18,
-                    color: _fav ? const Color(0xFFFF5C7A) : Colors.white,
-                  ),
-                ),
-              ),
+              _dirSeg(!desc, '↑ 升', () => onDir(false)),
+              const SizedBox(width: 3),
+              _dirSeg(desc, '↓ 降', () => onDir(true)),
             ],
           ),
         ),
@@ -503,54 +829,26 @@ class _PersonPageState extends State<PersonPage> {
     );
   }
 
-  Widget _buildWorks(BuildContext context, List<MediaItem> films) {
-    if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppColors.primary,
-            ),
-          ),
+  Widget _dirSeg(bool on, String label, VoidCallback onTap) {
+    return LiquidPress(
+      onTap: onTap,
+      radius: 7,
+      scale: 0.94,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(7),
+          color: on
+              ? const Color(0x594F8CFF)
+              : Colors.black.withOpacity(0.30),
         ),
-      );
-    }
-    if (films.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: Text(
-          _error != null ? '加载失败：$_error' : '该分类下暂无作品',
-          style: const TextStyle(fontSize: 12, color: AppColors.muted),
-        ),
-      );
-    }
-    final wide = MediaQuery.of(context).size.width >= 840;
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: wide ? 28 : 18),
-      child: GridView.builder(
-        shrinkWrap: true,
-        // 关键：嵌套 GridView 默认会吃掉 MediaQuery.padding.top，造成巨大空白
-        padding: EdgeInsets.zero,
-        primary: false,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: wide ? 6 : 3,
-          crossAxisSpacing: 10,
-          mainAxisSpacing: 16,
-          childAspectRatio: 0.52,
-        ),
-        itemCount: films.length,
-        itemBuilder: (c, i) => PosterCard(
-          item: films[i],
-          width: double.infinity,
-          heroTag: 'person-${widget.person.id}-${films[i].id}',
-          onTap: () => widget.onOpenDetail(
-            films[i],
-            heroTag: 'person-${widget.person.id}-${films[i].id}',
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
           ),
         ),
       ),
@@ -591,8 +889,10 @@ class _Seg extends StatelessWidget {
           AnimatedAlign(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
-            // -1 为最左、1 为最右；滑块宽 1/n，要按剩余行程缩放到 ±(1-unit)
-            alignment: Alignment(n <= 1 ? 0 : -1 + (2.0 * i / (n - 1)) * (1 - unit), 0),
+            // 滑块宽 1/n、alignment ∈ [-1,1]：第 k 段的中点对齐用
+            // -1 + 2k/(n-1)。之前误乘 (1-unit)，三档时「电影」的高亮块
+            // 偏在左半边、与文字错位。
+            alignment: Alignment(n <= 1 ? 0 : -1 + 2.0 * i / (n - 1), 0),
             child: FractionallySizedBox(
               widthFactor: unit,
               heightFactor: 1,
@@ -635,50 +935,6 @@ class _Seg extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 筛选抽屉里的按钮（重置 / 应用）
-class _SheetBtn extends StatelessWidget {
-  const _SheetBtn({required this.label, required this.onTap, this.accent = false});
-  final String label;
-  final VoidCallback onTap;
-  final bool accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 14,
-      scale: 0.97,
-      child: Container(
-        height: 42,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          gradient: accent
-              ? const LinearGradient(
-                  colors: [Color(0x664F8CFF), Color(0x667B5CFF)],
-                )
-              : null,
-          color: accent ? null : Colors.white.withOpacity(0.06),
-          border: Border.all(
-            color: accent
-                ? AppColors.primary.withOpacity(0.6)
-                : Colors.white.withOpacity(0.12),
-          ),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: Colors.white,
-            ),
-          ),
-        ),
       ),
     );
   }

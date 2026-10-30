@@ -529,7 +529,7 @@ class _StackTile extends StatelessWidget {
                 // 层数跟随夹内影片数：空夹只画 1 张占位，1 部不堆叠
                 final maxDepth = covers.isEmpty
                     ? 0
-                    : math.min(3, covers.length - 1);
+                    : math.min(2, covers.length - 1);
                 return Stack(
                   clipBehavior: Clip.none,
                   alignment: Alignment.center,
@@ -584,24 +584,24 @@ class _StackTile extends StatelessWidget {
     );
   }
 
-  /// depth: 0 = 最上层（夹内最新海报）；1~3 = 后方渐变卡，按设计稿向两侧扇形散开。
-  /// 之前每层都画海报，四张海报色调相近、叠起来糊成一张，看不出"扑克牌"层次。
+  /// depth: 0 = 最上层（夹内最新海报）；1 = 左后卡；2 = 右后卡。
+  /// 按设计稿：三张**真实海报**像扑克牌一样向两侧扇开，后面两张只露出
+  /// 上缘。之前后层用纯渐变卡且位移极小，整叠看起来就是一张平面海报。
   Widget _layer(int depth, double w, double h) {
-    // 角度 / 位移取自设计稿（卡片 132×198 时的 8°/4°/-4° 与 7/4/-4px）
+    // 角度 / 位移：设计稿三卡扇形（前卡微倾，后卡 ±9° 向上探出）
     final (angle, dxr, dyr) = switch (depth) {
-      3 => (0.155, 0.078, -0.036),
-      2 => (0.085, 0.044, -0.019),
-      1 => (-0.105, -0.074, -0.019),
-      _ => (0.0, 0.0, 0.0),
+      2 => (0.155, 0.085, -0.050),
+      1 => (-0.185, -0.085, -0.050),
+      _ => (-0.045, -0.012, 0.012),
     };
-    final tints = switch (depth) {
-      3 => const [Color(0xFF2C415C), Color(0xFF111A28)],
-      2 => const [Color(0xFF3B5270), Color(0xFF172231)],
-      1 => const [Color(0xFF5B3C4A), Color(0xFF1D1726)],
-      _ => const [Color(0xFF3F3560), Color(0xFF181D33)],
-    };
-    // 只有最上层用真实海报；后层用纯渐变卡托出扇面
-    final item = depth == 0 && covers.isNotEmpty ? covers.first : null;
+
+    // 后层也用真实海报（依次取夹内第 2、3 张）；空夹才退到占位渐变
+    MediaItem? item;
+    if (covers.isNotEmpty) {
+      item = depth == 0
+          ? covers.first
+          : covers[depth % covers.length];
+    }
 
     Widget inner;
     if (item != null) {
@@ -610,13 +610,31 @@ class _StackTile extends StatelessWidget {
         memWidth: 600,
         errorWidget: _placeholder,
       );
+      // 后层压暗，把视觉重心让给前卡
+      if (depth > 0) {
+        inner = DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withOpacity(0.30),
+                Colors.black.withOpacity(0.55),
+              ],
+            ),
+          ),
+          child: inner,
+        );
+      }
     } else {
       inner = DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: tints,
+            colors: depth == 0
+                ? const [Color(0xFF3F3560), Color(0xFF181D33)]
+                : const [Color(0xFF2C415C), Color(0xFF111A28)],
           ),
         ),
         child: Align(
@@ -656,6 +674,7 @@ class _StackTile extends StatelessWidget {
 
     card = Transform.rotate(
       angle: angle,
+      alignment: Alignment.bottomCenter,
       child: Transform.translate(
         offset: Offset(w * dxr, h * dyr),
         child: card,

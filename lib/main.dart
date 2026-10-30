@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_state.dart';
 import 'models.dart';
@@ -259,11 +260,24 @@ class _AppShellState extends State<AppShell>
       settled.dispose();
       return;
     }
+    // 与播放页 _applySavedPreferences 同一套规则：设置选了 MPV 就按 MPV 展示，
+    // >8s 时弹窗才提供「切换 Exo」。之前写死 Exo，选 MPV 的用户永远看不到入口。
+    var engine = PlaybackEngine.exo;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if ((prefs.getInt('set_play_engine') ?? 0) == 1) {
+        engine = PlaybackEngine.mpv;
+      }
+    } catch (_) {}
+    if (!mounted) {
+      settled.dispose();
+      return;
+    }
     try {
       await showStrmLoading(
         context: context,
         item: item,
-        engine: PlaybackEngine.exo,
+        engine: engine,
         start: () async => true,
         ready: () => settled.value,
         // 弹窗里点「切换 Exo 内核」：播放页此刻可能正卡在 MPV 上，
@@ -458,67 +472,75 @@ class _GlassNavBar extends StatelessWidget {
                   return Expanded(
                     child: LiquidPress(
                       onTap: () => onChanged(i),
-                      radius: 24,
+                      radius: 22,
                       scale: 0.92,
+                      glow: 0.36,
                       child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 260),
-                          curve: Curves.easeOutCubic,
-                          width: 58,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            gradient: sel
-                                ? LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Colors.white.withOpacity(0.26),
-                                      Colors.white.withOpacity(0.10),
-                                    ],
-                                  )
-                                : null,
-                            border: sel
-                                ? Border.all(
-                                    color: Colors.white.withOpacity(0.30),
-                                    width: 1,
-                                  )
-                                : null,
-                            boxShadow: sel
-                                ? const [
-                                    BoxShadow(
-                                      color: Color(0x33000000),
-                                      blurRadius: 16,
-                                      offset: Offset(0, 6),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // 图标坐在一颗圆形玻璃片上：选中常亮，
+                            // 按下时 LiquidPress 的光晕叠加在圆片上
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutCubic,
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: sel
+                                    ? LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          Colors.white.withOpacity(0.28),
+                                          Colors.white.withOpacity(0.10),
+                                        ],
+                                      )
+                                    : null,
+                                border: sel
+                                    ? Border.all(
+                                        color: Colors.white.withOpacity(0.32),
+                                        width: 1,
+                                      )
+                                    : null,
+                                boxShadow: sel
+                                    ? const [
+                                        BoxShadow(
+                                          color: Color(0x40000000),
+                                          blurRadius: 14,
+                                          offset: Offset(0, 5),
+                                        ),
+                                        BoxShadow(
+                                          color: Color(0x2E4F8CFF),
+                                          blurRadius: 18,
+                                          offset: Offset(0, 4),
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: Icon(
                                 item.$1,
                                 size: 18,
-                                color: sel
-                                    ? Colors.white.withOpacity(0.90)
-                                    : Colors.white.withOpacity(0.90),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                item.$2,
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: sel
-                                      ? FontWeight.w800
-                                      : FontWeight.w500,
-                                  color: sel
-                                      ? Colors.white.withOpacity(0.90)
-                                      : Colors.white.withOpacity(0.90),
+                                color: Colors.white.withOpacity(
+                                  sel ? 0.96 : 0.78,
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              item.$2,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: sel
+                                    ? FontWeight.w800
+                                    : FontWeight.w500,
+                                color: Colors.white.withOpacity(
+                                  sel ? 0.95 : 0.75,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

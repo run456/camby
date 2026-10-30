@@ -60,11 +60,16 @@ void main() {
     );
   });
 
-  test('_applySavedPreferences 确实读的是 set_play_engine', () {
-    // 防的是「读设置函数被改了键名，设置页写一套、播放页读另一套」
+  test('_applySavedPreferences 读的是设置页仍在用的键', () {
+    // 防「设置页写一套、播放页读另一套」。
+    // v1.7.50：STRM 优先 Exo 已下架，故不再读 set_strm_exo。
     expect(src.contains("prefs.getInt('set_play_engine')"), isTrue);
-    expect(src.contains("prefs.getInt('set_strm_exo')") ||
-        src.contains("prefs.getBool('set_strm_exo')"), isTrue);
+    expect(src.contains("prefs.getInt('set_max_bitrate')"), isTrue);
+    expect(src.contains("prefs.getInt('set_cache_size')"), isTrue);
+    expect(src.contains("prefs.getBool('set_hw_decode')"), isTrue);
+    expect(src.contains("prefs.getBool('set_record_history')"), isTrue);
+    // 已下架的设置项不应再被播放页读取
+    expect(src.contains('set_strm_exo'), isFalse);
   });
 
   test('弹窗能切内核：播放页对外暴露 switchToExo', () {

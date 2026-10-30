@@ -68,10 +68,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Timer? _bootTimer;
   /// MPV 无首帧已经自动回退过 Exo（每轮起播只回退一次）
   bool _autoFellBack = false;
-  /// 设置页「STRM 优先 Exo」（D 方案），默认开
-  bool _strmPreferExo = true;
 
-  /// 设置页「ASS 特效字幕渲染」，默认开（v1.7.47 接通，仅 MPV 生效）
+  /// ASS 特效渲染开关，默认开（仅 MPV 生效；设置行已按设计稿移除）
   bool _assSubtitle = true;
 
   /// 起播是否已经拿到结论（首帧出 或 明确失败）。
@@ -97,7 +95,6 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   int _seekSeq = 0;
   DateTime? _lastPreviewAt;
   double _lastPreviewTarget = -1;
-  String _seekDiag = '未跳转';
 
   // 进出场黑幕：进出场时盖住整页，把横竖屏切换的系统旋转动画藏在黑幕后面
   bool _veiled = true;
@@ -428,17 +425,13 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       final eng = prefs.getInt('set_play_engine') ?? 0;
       final br = prefs.getInt('set_max_bitrate') ?? 0;
       final cache = prefs.getInt('set_cache_size') ?? 0;
+      // v1.7.50：尊重用户选的内核。之前 strm 条目会无视设置强制 Exo，
+      // 表现为「设置选了 MPV，播放页却显示 Exo」，用户当成 bug 上报。
       _engine = eng == 1 ? PlaybackEngine.mpv : PlaybackEngine.exo;
-      // D 方案：strm 条目默认走 Exo。它对「无 Content-Length / 无 moov」的
-      // 伪流式直链兼容性更好，经常是 Exo 能出画面、MPV 一直黑屏。
-      if (_strmPreferExo && widget.item.isStrm) {
-        _engine = PlaybackEngine.exo;
-      }
       _maxBitrate = _bitrates[br.clamp(0, _bitrates.length - 1)];
       _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
-      _autoNext = prefs.getBool('set_auto_next') ?? true;
-      _strmPreferExo = prefs.getBool('set_strm_exo') ?? true;
-      _assSubtitle = prefs.getBool('set_ass_subtitle') ?? true;
+      // v1.7.50：自动连播 / strm 优先 Exo / ASS 特效的设置行已按设计稿移除，
+      // 行为固定取默认值（开 / 开 / 开），字段保留供播放流程引用。
     } catch (_) {}
   }
 
@@ -450,24 +443,17 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     } catch (_) {}
   }
 
-  /// 设置页「字幕默认语言」→ 自动选轨（v1.7.47 接通）。
+  /// 自动选轨（v1.7.47 接通）。
   ///
-  /// 这个设置项从 1.7.36 起就只有 UI、没有读取点，点了等于没点。
-  /// 现在按 [SubtitlePicker] 的规则挑一条，交给 [_start] 在建立内核时挂上。
+  /// 「字幕默认语言」设置行已按设计稿移除，固定按 auto 规则挑一条，
+  /// 交给 [_start] 在建立内核时挂上。
   ///
   /// 只影响「进入播放页时的初选」：用户一旦在字幕菜单里手动选过，本页
   /// 后续切集也不会被自动选轨覆盖（[_userPickedSub]）。
   Future<void> _autoPickSubtitle() async {
     // 用户已手动定过轨（含「关闭字幕」）→ 尊重他，自动选轨不插手
     if (_userPickedSub) return;
-    SubtitlePref pref;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      pref = SubtitlePrefX.fromCode(prefs.getInt('set_sub_lang'));
-    } catch (_) {
-      pref = SubtitlePref.auto;
-    }
-    final pick = SubtitlePicker.pick(widget.item.subtitles, pref);
+    final pick = SubtitlePicker.pick(widget.item.subtitles, SubtitlePref.auto);
     if (!mounted) return;
     setState(() => _subtitle = pick.track);
     // 已经建好内核（切集等场景）：补挂一次
@@ -1106,10 +1092,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final cur = _player?.positionSeconds ?? t;
     if ((t - cur).abs() <= 1.0) {
       if (mounted) {
-        setState(() {
-          _seeking = false;
-          _seekDiag = '已在 ${_fmt(t)}';
-        });
+        setState(() => _seeking = false);
       }
       return;
     }
@@ -1131,13 +1114,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       ok = false;
     }
     if (!mounted || seq != _seekSeq) return;
-    final err = _player?.lastSeekError ?? '';
-    setState(() {
-      _seeking = false;
-      _seekDiag = ok
-          ? '成功 ${_fmt(t)}'
-          : '失败 ${_fmt(t)} · ${_engine.short}${err.isEmpty ? '' : ' · $err'}';
-    });
+    setState(() => _seeking = false);
     if (!ok) {
       final err = _player?.lastSeekError ?? '';
       showToast(
@@ -1267,9 +1244,9 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       ? '原片（不限 · 直连播放）'
       : '≤ ${(_maxBitrate! ~/ 1000000)} Mbps（服务端转码）';
 
-  /// 播放信息面板：码率按钮上的短标签
+  /// 码率按钮上的短标签（自动 / 20 Mbps）
   String _bitrateShort() =>
-      _maxBitrate == null ? '原片' : '${(_maxBitrate! ~/ 1000000)} Mbps';
+      _maxBitrate == null ? '自动' : '${(_maxBitrate! ~/ 1000000)} Mbps';
 
   /// 文件大小：0 表示服务端没给（strm 常见），显示「未知」而不是 0 B
   String _fmtSize(int bytes) {
@@ -1281,15 +1258,6 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       return '${(bytes / kb / kb).toStringAsFixed(1)} MB';
     }
     return '${(bytes / kb / kb / kb).toStringAsFixed(2)} GB';
-  }
-
-  /// 入库时间：只有日期，避免信息面板被长串时间戳撑开
-  String _fmtDate(int? ms) {
-    if (ms == null || ms <= 0) return '未知';
-    final d = DateTime.fromMillisecondsSinceEpoch(ms);
-    final m = d.month.toString().padLeft(2, '0');
-    final day = d.day.toString().padLeft(2, '0');
-    return '${d.year}-$m-$day';
   }
 
   // ---------------- 字幕 / 信息 弹层 ----------------
@@ -1463,12 +1431,15 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
           title: '播放信息',
           children: [
             _InfoRow(k: '片名', v: item.name),
-            _InfoRow(k: '内核', v: _engine.label),
+            const _InfoSection('媒体信息'),
             _InfoRow(
-              k: '画质',
-              v: item.resolutionKnown
-                  ? '${item.videoHeight}p · ${item.videoCodec}'
-                  : '未知 · ${item.videoCodec}',
+              k: '分辨率',
+              v: item.resolutionKnown ? '${item.videoHeight}p' : '未知',
+            ),
+            _InfoRow(k: '视频编码', v: item.videoCodec.toUpperCase()),
+            _InfoRow(
+              k: '动态范围',
+              v: item.hasDolbyVision ? 'Dolby Vision' : 'SDR',
             ),
             _InfoRow(
               k: '音频',
@@ -1476,37 +1447,11 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
             ),
             _InfoRow(k: '封装', v: item.container),
             _InfoRow(k: '大小', v: _fmtSize(item.fileSizeBytes)),
-            _InfoRow(k: '入库', v: _fmtDate(item.dateCreatedMs)),
             _InfoRow(k: '字幕', v: _subInfoText()),
-            _InfoRow(k: '倍速', v: _speedLabel),
-            _InfoRow(k: '码率', v: _bitrateText()),
+            _InfoRow(k: '码率上限', v: _bitrateText()),
             _InfoRow(
               k: '进度',
-              v:
-                  '${_fmt(_positionSeconds)} / ${_fmt(_totalSeconds)}'
-                  '${_player?.durationSeconds != null && _player!.durationSeconds > 0 ? '' : '（时长未知，用片长兜底）'}',
-            ),
-            _InfoRow(k: '最近跳转', v: _seekDiag),
-            _InfoRow(
-              k: '内核状态',
-              v:
-                  '${_player?.ready == true ? '已就绪' : '未就绪'}'
-                  '${_player?.lastSeekOk == true ? '' : ' · ${_player?.lastSeekError ?? ''}'}',
-            ),
-            _SheetRow(
-              label: '码率上限（当前 ${_bitrateShort()}）',
-              hint: '调低可适配外网',
-              onTap: () {
-                Navigator.pop(ctx);
-                unawaited(_changeBitrate());
-              },
-            ),
-            _SheetRow(
-              label: '切换内核（当前 ${_engine.short}）',
-              onTap: () {
-                Navigator.pop(ctx);
-                _switchEngine();
-              },
+              v: '${_fmt(_positionSeconds)} / ${_fmt(_totalSeconds)}',
             ),
           ],
         ),
@@ -2024,38 +1969,6 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 ),
               ),
               const SizedBox(width: 8),
-              // 硬件解码热开关：出现异常解码时可直接切回软解，
-              // 不用回设置页改完再重建播放器（丢进度）
-              GestureDetector(
-                onLongPress: _toggleHardware,
-                child: Glass(
-                  height: 34,
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  radius: 17,
-                  blur: 18,
-                  blurEnabled: false,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.bolt_rounded,
-                        size: 13,
-                        color: _hw ? AppColors.accent : AppColors.muted,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _hw ? '硬解' : '软解',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _hw ? Colors.white : AppColors.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
               GlassIconButton(
                 icon: Icons.lock_open_rounded,
                 iconSize: 15,
@@ -2203,6 +2116,12 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                               : '硬解',
                           icon: Icons.memory_rounded,
                           onTap: () => unawaited(_toggleHardware()),
+                        ),
+                        const SizedBox(width: 8),
+                        _Chip(
+                          label: '码率 · ${_bitrateShort()}',
+                          icon: Icons.speed_rounded,
+                          onTap: _changeBitrate,
                         ),
                       ],
                     ),
@@ -2609,69 +2528,79 @@ class _Sheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _GlassPanel(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
-          // 标题会压在正文上，截图里就是这个观感）
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-            child: Row(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
+                // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
+                // 标题会压在正文上，截图里就是这个观感）
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 14, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                      // 关闭：手势返回之外再给一个明确的出口
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).maybePop(),
+                        behavior: HitTestBehavior.opaque,
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.10),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.14),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                // 关闭：手势返回之外再给一个明确的出口
-                GestureDetector(
-                  onTap: () => Navigator.of(context).maybePop(),
-                  behavior: HitTestBehavior.opaque,
-                  child: Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: Colors.white.withOpacity(0.55),
+                if (subtitle != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        subtitle!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF9FB0CC),
+                        ),
+                      ),
+                    ),
+                  ),
+                // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
+                // 长内容自己滚，标题始终可见
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(top: 2, bottom: 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: children,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          if (subtitle != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  subtitle!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF9FB0CC),
-                  ),
-                ),
-              ),
-            ),
-          Divider(height: 1, color: Colors.white.withOpacity(0.07)),
-          // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
-          // 长内容自己滚，标题始终可见
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(top: 6, bottom: 14),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: children,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -2746,6 +2675,40 @@ class _SheetRow extends StatelessWidget {
   }
 }
 
+/// 蓝竖条分节标题（设计稿「媒体信息」样式）
+class _InfoSection extends StatelessWidget {
+  const _InfoSection(this.title);
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 12,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(2),
+              color: AppColors.accent,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFB9C8E2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.k, required this.v});
   final String k;
@@ -2759,7 +2722,7 @@ class _InfoRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 62,
+            width: 72,
             child: Text(
               k,
               style: const TextStyle(fontSize: 11.5, color: Color(0xFF9FB0CC)),

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -151,9 +149,11 @@ abstract final class SubtitleStyleStore {
   }
 }
 
-/// 字幕样式面板：播放页底栏「字幕」长按 / 「字幕样式」入口拉起。
+/// 字幕样式面板：播放页「字幕样式」入口拉起。
 ///
-/// 拖动即时预览（_emit），松手后落盘（_commit）。
+/// 版式严格按设计稿：标题 + 右上关闭圆钮；四行滑杆（大小 / 位置 / 描边 /
+/// 不透明度），右侧蓝色语义化数值；底部一行颜色圆点。
+/// 拖动即时预览（_emit），松手落盘（_commit）。
 class SubtitleStyleSheet extends StatefulWidget {
   const SubtitleStyleSheet({
     super.key,
@@ -173,13 +173,13 @@ class SubtitleStyleSheet extends StatefulWidget {
 class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
   late SubtitleStyle _style;
 
+  /// 设计稿色板：白 / 黄 / 绿 / 蓝 / 红
   static const List<Color> _palette = <Color>[
     Color(0xFFFFFFFF),
-    Color(0xFFFFF3B0),
-    Color(0xFFA6FFB2),
-    Color(0xFFFFC7F0),
-    Color(0xFF9FD8FF),
-    Color(0xFFD3C4FF),
+    Color(0xFFF7D354),
+    Color(0xFF82D98C),
+    Color(0xFF85B6F0),
+    Color(0xFFF28D8D),
   ];
 
   @override
@@ -203,25 +203,35 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
     if (mounted) setState(() {});
   }
 
-  /// 数值微调：±step 后立刻提交（滑块在横屏大屏上很难拖准，补一组 ± 按钮）
-  Future<void> _nudge(
-    double current,
-    double step,
-    double min,
-    double max,
-    SubtitleStyle Function(double v) apply,
-  ) async {
-    final v = (current + step).clamp(min, max);
-    await _commit(apply(v.toDouble()));
+  // ---- 数值 → 设计稿语义文案 ----
+
+  String get _sizeLabel =>
+      '${(_style.size / SubtitleStyle.baseSize * 100).round()}%';
+
+  String get _posLabel {
+    final v = _style.pos;
+    if (v < 0.10) return '很低';
+    if (v < 0.16) return '偏低';
+    if (v < 0.24) return '适中';
+    if (v < 0.32) return '偏高';
+    return '很高';
   }
+
+  String get _strokeLabel {
+    final v = _style.stroke;
+    if (v <= 0) return '关闭';
+    if (v < 1.2) return '较细';
+    if (v < 2.6) return '适中';
+    return '较粗';
+  }
+
+  String get _opaLabel => '${(_style.opa * 100).round()}%';
 
   @override
   Widget build(BuildContext context) {
-    // 与播放页 _GlassPanel 保持同一套尺寸规则：横屏下尽量吃满可用高度，
-    // 标题栏固定、内容区滚动（之前 0.88 倍高会切掉底部按钮）
+    // 与播放页 _GlassPanel 保持同一套尺寸规则：横屏下尽量吃满可用高度
     final media = MediaQuery.of(context);
     final avail = media.size.height - media.padding.vertical;
-    // v1.7.32：从底部抽屉改为居中玻璃面板，与播放信息/变速/字幕选择统一
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 470, maxHeight: avail - 24),
@@ -240,183 +250,92 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               ),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(18, 16, 12, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '字幕样式',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.only(right: 6),
-                      child: Icon(
-                        Icons.close_rounded,
-                        size: 18,
-                        color: Color(0x8CFFFFFF),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Divider(height: 1, color: Color(0x14FFFFFF)),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                // 实时预览
+          // Material(transparency)：弹层路由没有 Material 祖先，
+          // 缺它时 Text 落回 fallback 样式（debug 下出现黄色下划线）
+          child: Material(
+            type: MaterialType.transparency,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 6,
-                  ),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.5),
-                          AppColors.bg.withOpacity(0.35),
-                        ],
-                      ),
-                    ),
-                    child: SizedBox(
-                      height: 84,
-                      child: Center(
+                  padding: const EdgeInsets.fromLTRB(22, 14, 14, 4),
+                  child: Row(
+                    children: [
+                      const Expanded(
                         child: Text(
-                          '字幕预览 Subtitle Preview',
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          style: _style.textStyle,
+                          '字幕样式',
+                          style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-                _colorRow(),
-                _slider(
-                  label: '字号',
-                  value: _style.size,
-                  min: 12,
-                  max: 30,
-                  step: 1,
-                  display: '${_style.size.round()}',
-                  onLive: (v) => _emit(_style.copyWith(size: v)),
-                  onCommit: (v) => _commit(_style.copyWith(size: v)),
-                ),
-                _slider(
-                  label: '位置',
-                  value: _style.pos,
-                  min: 0.04,
-                  max: 0.45,
-                  step: 0.01,
-                  display: '${(_style.pos * 100).round()}%',
-                  onLive: (v) => _emit(_style.copyWith(pos: v)),
-                  onCommit: (v) => _commit(_style.copyWith(pos: v)),
-                ),
-                _slider(
-                  label: '偏移',
-                  value: _style.offset,
-                  min: -0.2,
-                  max: 0.2,
-                  step: 0.01,
-                  display: _style.offset.toStringAsFixed(2),
-                  onLive: (v) => _emit(_style.copyWith(offset: v)),
-                  onCommit: (v) => _commit(_style.copyWith(offset: v)),
-                ),
-                _slider(
-                  label: '不透明度',
-                  value: _style.opa,
-                  min: 0.3,
-                  max: 1.0,
-                  step: 0.05,
-                  display: '${(_style.opa * 100).round()}%',
-                  onLive: (v) => _emit(_style.copyWith(opa: v)),
-                  onCommit: (v) => _commit(_style.copyWith(opa: v)),
-                ),
-                _slider(
-                  label: '描边',
-                  value: _style.stroke,
-                  min: 0,
-                  max: 4,
-                  step: 0.2,
-                  display: _style.stroke.toStringAsFixed(1),
-                  onLive: (v) => _emit(_style.copyWith(stroke: v)),
-                  onCommit: (v) => _commit(_style.copyWith(stroke: v)),
-                ),
-                    const SizedBox(height: 8),
+                      const _CloseButton(),
                     ],
                   ),
                 ),
-              ),
-              Divider(height: 1, color: Color(0x14FFFFFF)),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _FooterButton(
-                        label: '恢复默认',
-                        primary: false,
-                        onTap: () => _commit(const SubtitleStyle()),
-                      ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(top: 6, bottom: 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _styleRow(
+                          label: '大小',
+                          value: _style.size,
+                          min: 12,
+                          max: 30,
+                          step: 1,
+                          display: _sizeLabel,
+                          onLive: (v) => _emit(_style.copyWith(size: v)),
+                          onCommit: (v) => _commit(_style.copyWith(size: v)),
+                        ),
+                        _styleRow(
+                          label: '位置',
+                          value: _style.pos,
+                          min: 0.04,
+                          max: 0.45,
+                          step: 0.01,
+                          display: _posLabel,
+                          onLive: (v) => _emit(_style.copyWith(pos: v)),
+                          onCommit: (v) => _commit(_style.copyWith(pos: v)),
+                        ),
+                        _styleRow(
+                          label: '描边',
+                          value: _style.stroke,
+                          min: 0,
+                          max: 4,
+                          step: 0.2,
+                          display: _strokeLabel,
+                          onLive: (v) => _emit(_style.copyWith(stroke: v)),
+                          onCommit: (v) => _commit(_style.copyWith(stroke: v)),
+                        ),
+                        _styleRow(
+                          label: '不透明度',
+                          value: _style.opa,
+                          min: 0.3,
+                          max: 1.0,
+                          step: 0.05,
+                          display: _opaLabel,
+                          onLive: (v) => _emit(_style.copyWith(opa: v)),
+                          onCommit: (v) => _commit(_style.copyWith(opa: v)),
+                        ),
+                        _colorRow(),
+                      ],
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _FooterButton(
-                        label: '完成',
-                        primary: true,
-                        onTap: () => Navigator.of(context).maybePop(),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _colorRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 4, 18, 8),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 62,
-            child: Text(
-              '颜色',
-              style: TextStyle(fontSize: 12, color: Color(0xFF9FB0CC)),
-            ),
-          ),
-          ..._palette.map(
-            (c) => Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: _ColorSwatch(
-                color: c,
-                selected: _style.color.toARGB32() == c.toARGB32(),
-                onTap: () => _commit(_style.copyWith(color: c)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _slider({
+  /// 设计稿的一行：左侧标签 + 中间滑杆 + 右侧蓝色语义值
+  Widget _styleRow({
     required String label,
     required double value,
     required double min,
@@ -427,27 +346,19 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
     required ValueChanged<double> onCommit,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.fromLTRB(22, 2, 22, 2),
       child: Row(
         children: [
           SizedBox(
-            width: 62,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12),
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF9FB0CC)),
+            width: 76,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            iconSize: 16,
-            color: Colors.white,
-            icon: const Icon(Icons.remove_rounded),
-            onPressed: value > min
-                ? () => _nudge(value, -step, min, max, (v) => _copyBy(label, v))
-                : null,
           ),
           Expanded(
             child: SliderTheme(
@@ -456,8 +367,8 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                 inactiveTrackColor: Colors.white.withOpacity(0.16),
                 thumbColor: Colors.white,
                 overlayColor: AppColors.accent.withOpacity(0.2),
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                trackHeight: 3.5,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
               ),
               child: Slider(
                 value: value.clamp(min, max),
@@ -469,24 +380,15 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               ),
             ),
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            iconSize: 16,
-            color: Colors.white,
-            icon: const Icon(Icons.add_rounded),
-            onPressed: value < max
-                ? () => _nudge(value, step, min, max, (v) => _copyBy(label, v))
-                : null,
-          ),
           SizedBox(
-            width: 42,
+            width: 44,
             child: Text(
               display,
               textAlign: TextAlign.right,
               style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF7FA8EE),
               ),
             ),
           ),
@@ -495,21 +397,58 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
     );
   }
 
-  SubtitleStyle _copyBy(String label, double v) {
-    switch (label) {
-      case '字号':
-        return _style.copyWith(size: v);
-      case '位置':
-        return _style.copyWith(pos: v);
-      case '偏移':
-        return _style.copyWith(offset: v);
-      case '不透明度':
-        return _style.copyWith(opa: v);
-      case '描边':
-        return _style.copyWith(stroke: v);
-      default:
-        return _style;
-    }
+  Widget _colorRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 76,
+            child: Text(
+              '颜色',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          ..._palette.map(
+            (c) => Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: _ColorSwatch(
+                color: c,
+                selected: _style.color.toARGB32() == c.toARGB32(),
+                onTap: () => _commit(_style.copyWith(color: c)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 弹层右上角的圆形关闭钮
+class _CloseButton extends StatelessWidget {
+  const _CloseButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Navigator.of(context).maybePop(),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withOpacity(0.10),
+          border: Border.all(color: Colors.white.withOpacity(0.14)),
+        ),
+        child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+      ),
+    );
   }
 }
 
@@ -548,51 +487,6 @@ class _ColorSwatch extends StatelessWidget {
                 spreadRadius: 1,
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// 兼容旧 Widget 的小工具：把样式序列化成字符串调试用
-String debugStyleJson(SubtitleStyle s) => jsonEncode(s.toJson());
-
-/// 面板底部按钮（恢复默认 / 完成）
-class _FooterButton extends StatelessWidget {
-  const _FooterButton({
-    required this.label,
-    required this.onTap,
-    this.primary = false,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-  final bool primary;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        height: 42,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(13),
-          color: primary
-              ? AppColors.accent.withOpacity(0.85)
-              : Colors.white.withOpacity(0.08),
-          border: Border.all(
-            color: Colors.white.withOpacity(primary ? 0.16 : 0.10),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w600,
-            color: primary ? Colors.white : Colors.white.withOpacity(0.8),
-          ),
         ),
       ),
     );

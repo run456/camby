@@ -550,6 +550,13 @@ class _DetailPageState extends State<DetailPage> {
                               ],
                             ),
                           ),
+                          // 媒体信息：文件路径 / 封装 / 大小 / 入库时间
+                          // （v1.7.50：按设计稿移到剧情简介之后）
+                          if (item.filePath.isNotEmpty ||
+                              item.fileSizeBytes > 0) ...[
+                            const SizedBox(height: 22),
+                            _mediaInfoCard(item),
+                          ],
                           if (item.isSeries) ...[
                             const SizedBox(height: 22),
                             _SectionLabel(
@@ -629,12 +636,6 @@ class _DetailPageState extends State<DetailPage> {
                           _SectionLabel('相似推荐'),
                           const SizedBox(height: 12),
                           _similarRow(),
-                          // 媒体信息：文件路径 / 封装 / 大小 / 入库时间
-                          if (item.filePath.isNotEmpty ||
-                              item.fileSizeBytes > 0) ...[
-                            const SizedBox(height: 22),
-                            _mediaInfoCard(item),
-                          ],
                           const SizedBox(height: 120),
                         ],
                       ),
