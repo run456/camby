@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
@@ -196,13 +197,49 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           const SizedBox(height: 18),
-          const Center(
-            child: Text(
-              'Camby v1.7.56 · arm64 · 隐私政策 · 开源许可',
-              style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
-            ),
-          ),
+          // v1.7.60：版本号改为运行时从包信息读取，不再手改硬编码
+          // （以前每次发版都得记得同步这一行，漏一次就显示旧版本）
+          const _VersionLine(),
         ],
+      ),
+    );
+  }
+}
+
+/// 页脚版本行：运行时读包信息（v1.7.60 起不再硬编码版本号）。
+class _VersionLine extends StatefulWidget {
+  const _VersionLine();
+
+  @override
+  State<_VersionLine> createState() => _VersionLineState();
+}
+
+class _VersionLineState extends State<_VersionLine> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    var v = '';
+    try {
+      v = (await PackageInfo.fromPlatform()).version;
+    } catch (_) {
+      v = '';
+    }
+    if (!mounted) return;
+    setState(() => _version = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        'Camby ${_version.isEmpty ? '' : 'v$_version '}· arm64 · 隐私政策 · 开源许可',
+        style: const TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
       ),
     );
   }

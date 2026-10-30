@@ -914,3 +914,26 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 | `flutter test` | **157 / 157** |
 
 **交付**：`camby-1.7.59-release-arm64.apk`（`cn.camby.camby` / 99 / 1.7.59 / 33M / sha256 `7da11acf8ea5b1ea5c5d06b216c89da6cc321b06818652df6f10a9f6f56f2ee9`）。
+
+---
+
+## 26. v1.7.60 (100) 拖动松手回弹 + 设置页版本号动态化
+
+| # | 问题 | 根因 | 处理 |
+|---|---|---|---|
+| 1 | 1:00 拖到 2:00，圆点先到 2:00，松手后先弹回 1:00 再跳 2:00 | `_endScrub()` 先 `_scrubbing = false`、再调 `_commitSeek()` 里才 `setState(_seeking = true)` —— 中间露出「既不拖动、也还没跳转」的一帧，该帧 `_syncPos()` 取真实位置（仍是拖动前的点）推出去 | `_scrubbing=false` 与 `_seeking=true` 放进**同一次** setState，并同步写 `_scrubPos = target` |
+| 2 | seek 完成后仍可能小幅回跳 | libmpv / Exo 的 position 回调滞后（可达数百毫秒），`_seeking=false` 后显示立刻交还给滞后的真实位置 | 新增跳转后「粘滞」：`_settlePos` / `_settleUntil`（900ms 窗口），`_syncPos` 优先显示目标；`_waitSettleOut()` 每 90ms 检查真实位置是否追上（差 ≤1s），追上或超时才交还 |
+| 3 | 设置页版本号停在 v1.7.56 | 硬编码字符串，每次发版要手改，漏改就显示旧版本 | 改为 `_VersionLine` 运行时读 `PackageInfo.fromPlatform()`（`package_info_plus`），加守卫测试禁止再出现硬编码版本号 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **160 / 160**（新增 `test/seek_settle_and_version_test.dart` 3 条守卫） |
+
+**交付**：`camby-1.7.60-release-arm64.apk`（`cn.camby.camby` / 100 / 1.7.60 / 33M / sha256 `7f12caa994664d24f8eea556dd694c110440848c7ddffa5ebf88c9ae0ba7cfed`）。
+
+> **发布节奏约定（v1.7.60 起）**：源码照常每个小版本本地提交，但**不再每次推送 GitHub**；
+> 累计 5 个小版本迭代后再统一推送 + 发 Release。本次为第 1 个（v1.7.60），
+> 预计 v1.7.64 时推送，届时会把 v1.7.60~v1.7.64 一并推上去。

@@ -980,10 +980,40 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   bool get _demo => _fallback || _player == null || !_player!.ready;
 
+  /// 跳转后的「粘滞」显示（v1.7.60）。
+  ///
+  /// seek 发出后 libmpv / Exo 的 position 回调还会滞后几百毫秒地报旧值，
+  /// 若立刻把显示交还给真实位置，圆点会先弹回起点再跳到目标（观感像卡顿）。
+  /// 这里在跳转完成后把显示位置粘在目标一小段时间，等真实位置追上再交还。
+  double? _settlePos;
+  DateTime? _settleUntil;
+
+  bool get _settleActive =>
+      _settlePos != null &&
+      _settleUntil != null &&
+      DateTime.now().isBefore(_settleUntil!);
+
   /// 把当前应显示的进度推给 [_posNv]（拖动中取预览位置，避免回弹）
   void _syncPos() {
-    final p = (_scrubbing || _seeking) ? _scrubPos : _positionSeconds;
+    final p = (_scrubbing || _seeking)
+        ? _scrubPos
+        : (_settleActive ? _settlePos! : _positionSeconds);
     if ((_posNv.value - p).abs() > 0.01) _posNv.value = p;
+  }
+
+  /// 粘滞到期交还：等到真实位置追上目标（差 ≤1s）或窗口结束。
+  Future<void> _waitSettleOut(int seq, double t) async {
+    for (var i = 0; i < 12; i++) {
+      await Future.delayed(const Duration(milliseconds: 90));
+      if (!mounted || seq != _seekSeq) return; // 已被更新的操作取代
+      if ((_positionSeconds - t).abs() <= 1.0) break;
+    }
+    if (!mounted || seq != _seekSeq) return;
+    setState(() {
+      _settlePos = null;
+      _settleUntil = null;
+    });
+    _syncPos();
   }
 
   double get _totalSeconds {
@@ -1130,8 +1160,22 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // "点一下画面，视频顿 1 秒再回退几帧"。
     if (!_scrubbing) return;
     final target = _scrubPos.clamp(0.0, _totalSeconds);
-    _scrubbing = false;
     _scrubWatch?.cancel();
+    // v1.7.60：_scrubbing 与 _seeking 必须在**同一次** setState 里切换。
+    // 分开写会露出「既不拖动、也还没开始跳转」的一帧，那一帧 _syncPos()
+    // 会拿真实位置（还是拖动前那个点）推出去 —— 就是用户看到的
+    // 「圆点先弹回 1:00，再跳到 2:00」。
+    if (mounted) {
+      setState(() {
+        _scrubbing = false;
+        _seeking = true;
+        _scrubPos = target;
+      });
+    } else {
+      _scrubbing = false;
+      _seeking = true;
+      _scrubPos = target;
+    }
     _syncPos();
     await _commitSeek(target);
     _resetHideTimer();
@@ -1183,7 +1227,12 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final cur = _player?.positionSeconds ?? t;
     if ((t - cur).abs() <= 1.0) {
       if (mounted) {
-        setState(() => _seeking = false);
+        setState(() {
+          _settlePos = t;
+          _settleUntil = DateTime.now().add(const Duration(milliseconds: 900));
+          _seeking = false;
+        });
+        unawaited(_waitSettleOut(seq, t));
       }
       return;
     }
@@ -1205,7 +1254,14 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       ok = false;
     }
     if (!mounted || seq != _seekSeq) return;
-    setState(() => _seeking = false);
+    setState(() {
+      // 先接管显示，再收 _seeking —— 顺序反了会露出回弹的一帧
+      _settlePos = t;
+      _settleUntil = DateTime.now().add(const Duration(milliseconds: 900));
+      _seeking = false;
+    });
+    _syncPos();
+    unawaited(_waitSettleOut(seq, t));
     if (!ok) {
       final err = _player?.lastSeekError ?? '';
       showToast(
