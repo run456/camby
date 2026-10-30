@@ -96,7 +96,7 @@ class SubtitlePicker {
   ///     用户换了语言偏好但片源没有该语言时，静默无字幕体验更差
   ///  5. `auto` → 服务端默认轨，都没有就第一条
   ///
-  /// 传空列表 → 返回空结果（无字幕资源，调用方据此决定是否搜在线字幕）。
+  /// 传空列表 → 返回空结果（片源没有任何字幕资源）。
   static SubtitlePick pick(
     List<SubtitleTrackInfo> tracks,
     SubtitlePref pref,

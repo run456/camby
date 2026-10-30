@@ -33,10 +33,6 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 每日推荐分栏的说明文案（刷新规则写死在代码里，这里只做告知）
   static const _recoRefreshDesc = '每天 00:00 自动换一批，也可点首页 ↻ 手动换';
 
-  /// 「在线字幕搜索」的副标题：如实说明本版状态。
-  /// 与其让用户点了开关以为能用，不如直说没接源 —— 符合「宁可少做也不假装」。
-  static const _onlineSubDesc = '本版未接入字幕源（预留）';
-
   Map<String, dynamic> _s = {};
 
   /// 叠加层字幕样式（1.7.38 新增）：与播放页共用同一组 SharedPreferences 键
@@ -60,7 +56,6 @@ class _SettingsPageState extends State<SettingsPage> {
         // 枚举定义在 player/subtitle_pick.dart，与设置页共用同一份顺序
         'sub_lang': prefs.getInt('set_sub_lang') ?? 0,
         'ass_subtitle': prefs.getBool('set_ass_subtitle') ?? true,
-        'online_subtitle': prefs.getBool('set_online_subtitle') ?? true,
         'strm_exo': prefs.getBool('set_strm_exo') ?? true,
         'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
@@ -278,20 +273,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     'sub_lang',
                     ((_s['sub_lang'] as int) + 1) % SubtitlePref.values.length,
                   ),
-                ),
-              ),
-              _RowItem(
-                title: '在线字幕搜索',
-                desc: _onlineSubDesc,
-                trailing: _Toggle(
-                  value: _s['online_subtitle'],
-                  onChanged: (v) {
-                    _set('online_subtitle', v);
-                    if (v) {
-                      _toast('本版暂未接入在线字幕源，开关仅作预留；'
-                          '字幕请由 Emby 插件或外挂文件提供');
-                    }
-                  },
                 ),
               ),
               _RowItem(
