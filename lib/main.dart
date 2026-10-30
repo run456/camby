@@ -10,6 +10,8 @@ import 'models.dart';
 import 'theme.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
+import 'widgets/strm_loading_dialog.dart';
+import 'player/playback.dart';
 import 'pages/home_page.dart';
 import 'pages/detail_page.dart';
 import 'pages/player_page.dart';
@@ -95,6 +97,10 @@ class _AppShellState extends State<AppShell>
 
   /// 切 Tab 的柔和过渡：淡入 + 轻微上浮（页面本身保活，只做视觉过渡）
   late final AnimationController _tabAnim;
+
+  /// 播放页句柄：STRM 加载弹窗里点「切换 Exo」时，直接驱动播放页切内核，
+  /// 而不是重新推一个页面（那样进度、字幕、音量全丢）。
+  final GlobalKey<PlayerPageState> _playerKey = GlobalKey<PlayerPageState>();
 
   @override
   void initState() {
@@ -194,6 +200,18 @@ class _AppShellState extends State<AppShell>
     SubtitleTrackInfo? subtitle, {
     bool resume = true,
   }) {
+    final double startAt = resume ? (item.resumeSeconds ?? 0) : 0;
+
+    // STRM 片源：**先弹加载弹窗**，再进播放页（v1.7.49）
+    //
+    // 设计稿要求的是「加载 strm 前有弹窗」。之前实现成「进播放页后盖一层
+    // 胶囊」，顺序反了，所以用户看不到弹窗。
+    //
+    // 做法：弹窗 + 播放页同时推入，弹窗在上层。播放页照常起播，
+    // 首帧一出来就通过 onBootSettled 把弹窗关掉，用户看到的是
+    // 「弹窗（等待中）→ 画面」，中间不会有黑屏空档。
+    final settled = item.isStrm ? ValueNotifier<bool>(false) : null;
+
     Navigator.of(context).push(
       // 不透明纯黑路由 + 淡入淡出：横竖屏切换全程藏在播放页黑幕后面，
       // 不会再出现详情页被系统旋转动画带着歪斜旋转的怪异转场
@@ -204,10 +222,12 @@ class _AppShellState extends State<AppShell>
         pageBuilder: (_, __, ___) => ListenableBuilder(
           listenable: _state,
           builder: (_, __) => PlayerPage(
+            key: _playerKey,
             item: item,
             state: _state,
             subtitle: subtitle,
-            startSeconds: resume ? (item.resumeSeconds ?? 0) : 0,
+            startSeconds: startAt,
+            onBootSettled: () => settled?.value = true,
           ),
         ),
         transitionsBuilder: (_, anim, __, child) {
@@ -220,6 +240,39 @@ class _AppShellState extends State<AppShell>
         },
       ),
     );
+
+    if (settled != null) {
+      unawaited(_bootWithDialog(item, settled));
+    }
+  }
+
+  /// 在播放页之上盖一层 STRM 加载弹窗，首帧出来就收。
+  ///
+  /// [settled] 由播放页在「首帧出来 / 起播失败」时置 true。
+  Future<void> _bootWithDialog(
+    MediaItem item,
+    ValueNotifier<bool> settled,
+  ) async {
+    // 等播放页这一帧挂上去，否则弹窗会盖在详情页上闪一下
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    if (!mounted) {
+      settled.dispose();
+      return;
+    }
+    try {
+      await showStrmLoading(
+        context: context,
+        item: item,
+        engine: PlaybackEngine.exo,
+        start: () async => true,
+        ready: () => settled.value,
+        // 弹窗里点「切换 Exo 内核」：播放页此刻可能正卡在 MPV 上，
+        // 直接让它切，比重新推一个页面干净（进度、字幕都还在）。
+        onSwitchEngine: _playerKey.currentState?.switchToExo,
+      );
+    } finally {
+      settled.dispose();
+    }
   }
 
   @override

@@ -135,11 +135,16 @@ Future<String?> promptFolderName(
   );
 }
 
+/// 收藏夹名最大字数。截断与界面上的「n / 20」计数共用这一个值，
+/// 改上限时不会出现「提示 20 但实际截 30」这种不一致。
+const int _maxFolderName = 20;
+
 /// 收藏夹名统一在这里截断：不用 `TextField.maxLength` 是因为它会挤出一行
 /// 计数器，把原本就紧张的高度又吃掉一截（1.7.40 裁切问题的一部分）。
+/// 计数由 [_inlineInput] 自己画，样式可控。
 String _clip(String raw) {
   final t = raw.trim();
-  return t.length > 20 ? t.substring(0, 20) : t;
+  return t.length > _maxFolderName ? t.substring(0, _maxFolderName) : t;
 }
 
 /// 打开「收藏夹」弹层（v2）
@@ -391,6 +396,35 @@ class _FolderSheetState extends State<_FolderSheet> {
                     ),
                   ),
                 ),
+                // 设计稿底部的「取消收藏（移出全部收藏夹）」：
+                // 与头部红心互为冗余，但这条路径更好找 —— 之前用户要取消收藏，
+                // 得先退出弹窗回详情页再点一次心。
+                if (_fav) ...[
+                  const SizedBox(height: 10),
+                  Center(
+                    child: LiquidPress(
+                      radius: 18,
+                      enabled: !_busy,
+                      onTap: () async {
+                        await _toggleFav();
+                        if (mounted) Navigator.of(context).maybePop();
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        child: Text(
+                          '取消收藏（移出全部收藏夹）',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: const Color(0xFFFF7A8A).withOpacity(0.9),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -488,13 +522,32 @@ class _FolderSheetState extends State<_FolderSheet> {
             ),
           ),
           const SizedBox(width: 6),
-          // 只让「创建」按钮跟着输入内容重建，不惊动整个弹层
+          // 只让「计数 + 创建按钮」跟着输入内容重建，不惊动整个弹层
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: _ctrl,
-            builder: (_, v, __) => _CreateBtn(
-              enabled: _fav && v.text.trim().isNotEmpty,
-              onTap: _createInline,
-            ),
+            builder: (_, v, __) {
+              final n = v.text.characters.length;
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // 设计稿的「0 / 20」：提交时校验而非硬截断，所以这里只提示
+                  Text(
+                    '$n / $_maxFolderName',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: n > _maxFolderName
+                          ? const Color(0xFFFF7A8A)
+                          : AppColors.muted,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _CreateBtn(
+                    enabled: _fav && v.text.trim().isNotEmpty,
+                    onTap: _createInline,
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),

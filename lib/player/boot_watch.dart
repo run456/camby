@@ -48,4 +48,40 @@ class BootWatchPolicy {
   /// 是否显示「可能需要服务端插件预热」
   static bool showPluginHint(double waitedSecs) =>
       waitedSecs >= pluginHintSecs;
+
+  /// 三段进度点（连接 → 探测 → 缓冲）当前走到第几段（0 起）
+  ///
+  /// 没有真实的分阶段回调可依赖 —— libmpv / ExoPlayer 都不告诉我们
+  /// 「现在在解析 moov 还是在校验 302」。所以按等待时长推断：
+  /// 这是给用户「正在推进」的体感，不是精确进度，不该被当成真话读。
+  ///
+  ///  · 0–4s  ：连接（DNS / 302 跳转 / 建 TLS）
+  ///  · 4–12s ：探测（服务端 ffprobe 远端文件，strm 的主要耗时就在这里）
+  ///  · 12s+  ：缓冲（拿到元信息，开始灌数据）
+  static int stageIndex(double waitedSecs) {
+    if (waitedSecs >= 12) return 2;
+    if (waitedSecs >= 4) return 1;
+    return 0;
+  }
+
+  /// 阶段文案
+  static const List<String> stageLabels = ['连接', '探测', '缓冲'];
+
+  /// 加载弹窗的主标题：随阶段变化，让用户知道「不是卡死了，是在往后走」
+  static String titleFor(double waitedSecs) {
+    switch (stageIndex(waitedSecs)) {
+      case 0:
+        return '正在连接服务器…';
+      case 1:
+        return '正在获取媒体信息…';
+      default:
+        return '正在缓冲画面…';
+    }
+  }
+
+  /// 弹窗最短显示时长。
+  ///
+  /// 网络快的时候 300ms 就出画面了，弹窗一闪而过反而像闪屏；垫到 1.2 秒
+  /// 让它有一个完整的「出现 → 淡出」过程，看起来才是设计过的动效。
+  static const double minVisibleSecs = 1.2;
 }

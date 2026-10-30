@@ -33,17 +33,22 @@ class PlayerPage extends StatefulWidget {
 
     /// 起播位置（秒）：「继续播放」传入上次位置，「重新播放」传 0
     this.startSeconds = 0,
+
+    /// 起播有结论时回调（首帧出来 / 明确失败）。
+    /// 详情页的 STRM 加载弹窗靠它知道自己该关掉了。
+    this.onBootSettled,
   });
   final MediaItem item;
   final AppState state;
   final SubtitleTrackInfo? subtitle;
   final double startSeconds;
+  final VoidCallback? onBootSettled;
 
   @override
-  State<PlayerPage> createState() => _PlayerPageState();
+  State<PlayerPage> createState() => PlayerPageState();
 }
 
-class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
+class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   PlaybackController? _player;
   /// 起播内核。设置页「默认播放内核」0=Exo / 1=MPV —— 之前在 initState 里
   /// 硬写 exo，导致设置项形同虚设（v1.7.29 bug1 的同类问题，本次一并根治）
@@ -68,6 +73,10 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 设置页「ASS 特效字幕渲染」，默认开（v1.7.47 接通，仅 MPV 生效）
   bool _assSubtitle = true;
+
+  /// 起播是否已经拿到结论（首帧出 或 明确失败）。
+  /// 详情页的 STRM 加载弹窗通过 [PlayerPage.onBootSettled] 拿这个信号。
+  final ValueNotifier<bool> _bootSettled = ValueNotifier<bool>(false);
 
   Timer? _hideTimer;
   Timer? _ticker;
@@ -204,11 +213,12 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     _revealTimer = Timer(const Duration(milliseconds: 900), _reveal);
     unawaited(_loadSubStyle());
     _loadRecordHistory();
-    _applySavedPreferences();
-    // 字幕自动选轨必须在 _open() 之前定下来：_start() 会拿 _subtitle 去挂载。
-    // 外部显式传了 subtitle（详情页点某条字幕进入）就不覆盖用户意图。
-    if (widget.subtitle == null) unawaited(_autoPickSubtitle());
-    _open();
+    // 注意：设置必须全部读完再开播。
+    // 之前这里是 _applySavedPreferences(); _open(); 两句并发 —— 前者要 await
+    // SharedPreferences.getInstance()（首次有磁盘 IO），后者是同步往下跑的，
+    // 等 _start() 用 _engine 的时候设置根本还没读进来，于是「设置里选 MPV，
+    // 实际永远开 Exo」。这是截图里顶栏恒显示 Exo 的真实原因。
+    unawaited(_boot());
     _loadEpisodes();
     _resetHideTimer();
     _ticker = Timer.periodic(const Duration(milliseconds: 300), (_) {
@@ -302,6 +312,9 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   Future<void> _open() async {
     setState(() => _initializing = true);
     await _tryOpen();
+    // 起播彻底失败（地址不通 / 演示兜底）：这里立刻给结论，
+    // 别让外部弹窗一直等到 25 秒超时
+    if (_fallback || _demo) _markBootSettled();
     // 画面已挂上（黑幕下完成旋转），稍作停顿揭开，形成"黑 → 画面"的入画感
     if (mounted) {
       await Future.delayed(const Duration(milliseconds: 160));
@@ -317,6 +330,25 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   // ---------------- 起播看护 ----------------
+
+  /// 起播有结论了（首帧出 或 明确失败），通知外部弹窗收起
+  void _markBootSettled() {
+    if (_bootSettled.value) return;
+    _bootSettled.value = true;
+    widget.onBootSettled?.call();
+  }
+
+  /// 供外部（STRM 加载弹窗）强制切到 Exo 内核（v1.7.49）
+  ///
+  /// 比用户自己点顶栏「Exo」更早一步：弹窗里就有这个出口，
+  /// 不用先进播放页、再找按钮、再等一轮。
+  Future<void> switchToExo() async {
+    if (!mounted) return;
+    if (_engine == PlaybackEngine.exo) return;
+    _autoFellBack = true; // 用户手动切了，别再触发自动回退
+    await _switchEngine(silent: true);
+    if (mounted) showToast(context, '已切换到 Exo 内核');
+  }
 
   /// 每 500ms 检查一次首帧：
   /// · 没出来 → 更新「已等待 N 秒」，8 秒后露出「切换 Exo」按钮，25 秒提示插件；
@@ -340,6 +372,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
         t.cancel();
         _bootTimer = null;
         if (!_firstFrame) setState(() => _firstFrame = true);
+        _markBootSettled();
         return;
       }
       final secs =
@@ -374,6 +407,21 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 读取持久化的字幕样式（首次进入为默认值）
   /// 读取设置页里对播放器有实际作用的项：内核、码率上限、MPV 缓存档位。
   /// 全部在 `_open()` 之前完成，避免开了没效果。
+  /// 起播前把该读的设置全部读完，再开播（v1.7.49 修「设置选 MPV 却总是 Exo」）
+  ///
+  /// 顺序强制串行：读设置 → 定字幕轨 → 开播。任一步失败都继续往下，
+  /// 不能让一个 SharedPreferences 异常把整个播放页卡在黑幕里。
+  Future<void> _boot() async {
+    await _applySavedPreferences();
+    if (!mounted) return;
+    // 外部显式传了 subtitle（详情页点某条字幕进入）就不覆盖用户意图
+    if (widget.subtitle == null && !_userPickedSub) {
+      await _autoPickSubtitle();
+      if (!mounted) return;
+    }
+    await _open();
+  }
+
   Future<void> _applySavedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -422,7 +470,7 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final pick = SubtitlePicker.pick(widget.item.subtitles, pref);
     if (!mounted) return;
     setState(() => _subtitle = pick.track);
-    // 已经建好内核（改成异步后才返回的极端情况）：补挂一次
+    // 已经建好内核（切集等场景）：补挂一次
     if (_player != null && pick.track != null) {
       unawaited(_applySubtitle(pick.track, silent: true));
     }
@@ -1247,36 +1295,52 @@ class _PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   // ---------------- 字幕 / 信息 弹层 ----------------
   Future<void> _pickSubtitle() async {
     final tracks = widget.item.subtitles;
-    if (tracks.isEmpty) {
-      // 字幕轨全部来自服务端 MediaStreams。这里一条都没有，说明服务器上
-      // 这部电影既没有内封字幕、也没有扫描到外挂字幕 —— App 侧没有远端
-      // 字幕站可查（没接 OpenSubtitles 之类的源），只能引导用户去解决源头。
-      showToast(
-        context,
-        '该影片没有可用字幕：可在 Emby 装字幕插件后重新扫描，或手动放置外挂字幕',
-        icon: Icons.subtitles_off_rounded,
-      );
-      return;
-    }
+    // v1.7.49：即便这个片子一条字幕都没有，也要让用户能进字幕样式。
+    // 之前是直接 toast 返回，用户压根找不到「字幕样式」在哪 ——
+    // 它被藏在「长按字幕按钮」这个没人会猜到的隐藏手势里。
     final picked = await Navigator.of(context).push<_SubPick>(
       _GlassPanelRoute<_SubPick>(
         builder: (ctx) => _Sheet(
           title: '选择字幕',
           children: [
-            _SheetRow(
-              label: '关闭字幕',
-              selected: _subtitle == null,
-              onTap: () => Navigator.pop(ctx, const _SubPick(null)),
-            ),
-            ...tracks.map(
-              (t) => _SheetRow(
-                label: t.menuLabel,
-                hint: t.displayTitle.isEmpty
-                    ? _shortSubUrl(t.url)
-                    : t.displayTitle,
-                selected: _subtitle?.url == t.url,
-                onTap: () => Navigator.pop(ctx, _SubPick(t)),
+            if (tracks.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 14),
+                child: Text(
+                  '该影片没有可用字幕。可在 Emby 装字幕插件后重新扫描，'
+                  '或手动放置外挂字幕文件。',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.6,
+                    color: Color(0xFF9FB0CC),
+                  ),
+                ),
+              )
+            else ...[
+              _SheetRow(
+                label: '关闭字幕',
+                selected: _subtitle == null,
+                onTap: () => Navigator.pop(ctx, const _SubPick(null)),
               ),
+              ...tracks.map(
+                (t) => _SheetRow(
+                  label: t.menuLabel,
+                  hint: t.displayTitle.isEmpty
+                      ? _shortSubUrl(t.url)
+                      : t.displayTitle,
+                  selected: _subtitle?.url == t.url,
+                  onTap: () => Navigator.pop(ctx, _SubPick(t)),
+                ),
+              ),
+            ],
+            // 字幕样式入口：明确一行，不再依赖长按
+            _SheetRow(
+              label: '字幕样式…',
+              hint: '大小 / 位置 / 描边 / 偏移',
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(_showSubtitleStyle());
+              },
             ),
           ],
         ),
@@ -2411,10 +2475,18 @@ class _GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final h = MediaQuery.sizeOf(context).height;
+    // 横屏播放时屏幕高度只有 ~500px，之前用 0.88 倍高 → 只有 440px，
+    // 播放信息这类长内容直接被切掉（截图里「音频 aac 2ch」下面没了）。
+    // 改成按可用高度尽可能给满，并把标题栏固定在外面、只让内容区滚动。
+    final media = MediaQuery.of(context);
+    final avail = media.size.height - media.padding.vertical;
     return Center(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 470, maxHeight: h * 0.88),
+        constraints: BoxConstraints(
+          maxWidth: 470,
+          // 上下各留 12px，尽量吃满
+          maxHeight: avail - 24,
+        ),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 16),
           clipBehavior: Clip.antiAlias,
@@ -2430,7 +2502,7 @@ class _GlassPanel extends StatelessWidget {
               ),
             ],
           ),
-          child: SingleChildScrollView(child: child),
+          child: child,
         ),
       ),
     );
@@ -2540,8 +2612,10 @@ class _Sheet extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
+          // 标题会压在正文上，截图里就是这个观感）
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
             child: Row(
               children: [
                 Expanded(
@@ -2585,9 +2659,17 @@ class _Sheet extends StatelessWidget {
               ),
             ),
           Divider(height: 1, color: Colors.white.withOpacity(0.07)),
-          const SizedBox(height: 6),
-          ...children,
-          const SizedBox(height: 14),
+          // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
+          // 长内容自己滚，标题始终可见
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(top: 6, bottom: 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: children,
+              ),
+            ),
+          ),
         ],
       ),
     );

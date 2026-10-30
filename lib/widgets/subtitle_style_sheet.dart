@@ -217,11 +217,14 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final h = MediaQuery.sizeOf(context).height;
+    // 与播放页 _GlassPanel 保持同一套尺寸规则：横屏下尽量吃满可用高度，
+    // 标题栏固定、内容区滚动（之前 0.88 倍高会切掉底部按钮）
+    final media = MediaQuery.of(context);
+    final avail = media.size.height - media.padding.vertical;
     // v1.7.32：从底部抽屉改为居中玻璃面板，与播放信息/变速/字幕选择统一
     return Center(
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 470, maxHeight: h * 0.88),
+        constraints: BoxConstraints(maxWidth: 470, maxHeight: avail - 24),
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 16),
           clipBehavior: Clip.antiAlias,
@@ -237,25 +240,40 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               ),
             ],
           ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(18, 12, 18, 6),
-                  child: Row(
-                    children: [
-                      Text(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(18, 16, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
                         '字幕样式',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: Color(0x8CFFFFFF),
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              Divider(height: 1, color: Color(0x14FFFFFF)),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                 // 实时预览
                 Padding(
                   padding: const EdgeInsets.symmetric(
@@ -336,9 +354,35 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                   onLive: (v) => _emit(_style.copyWith(stroke: v)),
                   onCommit: (v) => _commit(_style.copyWith(stroke: v)),
                 ),
-                const SizedBox(height: 12),
-              ],
-            ),
+                    const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+              ),
+              Divider(height: 1, color: Color(0x14FFFFFF)),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _FooterButton(
+                        label: '恢复默认',
+                        primary: false,
+                        onTap: () => _commit(const SubtitleStyle()),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _FooterButton(
+                        label: '完成',
+                        primary: true,
+                        onTap: () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -512,3 +556,45 @@ class _ColorSwatch extends StatelessWidget {
 
 /// 兼容旧 Widget 的小工具：把样式序列化成字符串调试用
 String debugStyleJson(SubtitleStyle s) => jsonEncode(s.toJson());
+
+/// 面板底部按钮（恢复默认 / 完成）
+class _FooterButton extends StatelessWidget {
+  const _FooterButton({
+    required this.label,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(13),
+          color: primary
+              ? AppColors.accent.withOpacity(0.85)
+              : Colors.white.withOpacity(0.08),
+          border: Border.all(
+            color: Colors.white.withOpacity(primary ? 0.16 : 0.10),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: primary ? Colors.white : Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ),
+    );
+  }
+}
