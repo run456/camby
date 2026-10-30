@@ -110,7 +110,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                // v1.7.64：标题区与封面的间距收紧（14→10），与下方
+                // 「夹名 ↔ 新建卡」的节奏一致
+                const SizedBox(height: 10),
                 // 液态玻璃分段控件
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -212,7 +214,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
     return GridView.builder(
       key: const ValueKey('movies'),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 112),
+      // v1.7.64：顶部留白 16 → 6，标题区与封面更紧凑
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 112),
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
@@ -409,7 +412,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
     }
     return GridView.builder(
       key: const ValueKey('actors'),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 112),
+      padding: const EdgeInsets.fromLTRB(18, 6, 18, 112),
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),

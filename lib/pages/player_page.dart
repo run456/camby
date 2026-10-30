@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../app_state.dart';
 import '../models.dart';
@@ -188,6 +189,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   bool _demoPlaying = true;
+  /// v1.7.64：屏幕常亮当前状态（避免每帧重复打平台通道）
+  bool _wakelockOn = false;
   double _demoPosition = 0;
 
   // 字幕 / 分集 / 画面信息
@@ -247,6 +250,13 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       _tickCue();
       _syncPos();
       _checkAutoNext();
+      // v1.7.64：播放中保持屏幕常亮，暂停/退出时解除。
+      // 放在 300ms ticker 里按「状态翻转」触发，避免每帧都打平台通道。
+      final shouldStayOn = _isPlaying;
+      if (shouldStayOn != _wakelockOn) {
+        _wakelockOn = shouldStayOn;
+        unawaited(WakelockPlus.toggle(enable: shouldStayOn));
+      }
     });
     _bufTimer = Timer.periodic(
       const Duration(seconds: 1),
@@ -957,6 +967,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   void dispose() {
     // 退出播放页恢复系统音量条
     VolumeController.instance.showSystemUI = true;
+    // 退出播放页解除播放常亮（v1.7.64）
+    unawaited(WakelockPlus.disable());
     _hideTimer?.cancel();
     _ticker?.cancel();
     _bufTimer?.cancel();
@@ -1764,13 +1776,15 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
               // 亮度 / 音量指示：距屏幕边缘 22dp，不再贴边
               // v1.7.62：指示条显示在手势的**对侧** —— 左半屏上滑调亮度时
               // 指示条在右边、右半屏上滑调音量时指示条在左边，避免被手指挡住
+              // v1.7.64：整体加高（进度条 88→150、宽 62→68），离屏幕边缘
+              // 22dp → 48dp，更醒目也不顶到曲面/挖孔区
               if (_adjustSide != null)
                 Positioned(
                   top: 0,
                   bottom: 0,
-                  left: _adjustSide == 'volume' ? 22 : null,
-                  right: _adjustSide == 'brightness' ? 22 : null,
-                  width: 62,
+                  left: _adjustSide == 'volume' ? 48 : null,
+                  right: _adjustSide == 'brightness' ? 48 : null,
+                  width: 68,
                   child: Center(
                     child: Glass(
                       padding: const EdgeInsets.symmetric(
@@ -1808,7 +1822,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                           ),
                           const SizedBox(height: 7),
                           SizedBox(
-                            height: 88,
+                            height: 150,
                             child: RotatedBox(
                               quarterTurns: -1,
                               child: LinearProgressIndicator(
