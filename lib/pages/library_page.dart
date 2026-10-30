@@ -1,9 +1,12 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
+import '../widgets/glass_toast.dart';
 import '../widgets/media_poster.dart';
 
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
@@ -28,6 +31,7 @@ class LibraryPage extends StatefulWidget {
 
 class _LibraryPageState extends State<LibraryPage> {
   static const _sortNames = ['创建日期', '发行日期', '标题', '播放时长', '评分'];
+
   /// 每个排序字段的默认方向（true = 降序）
   static const _defaultDesc = [true, true, false, true, true];
   static const _resBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
@@ -125,9 +129,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final d = _desc[_sort] ? -1 : 1;
     switch (_sort) {
       case 0: // 创建日期：addedDaysAgo 越小越新
-        list.sort(
-          (a, b) => d * a.addedDaysAgo.compareTo(b.addedDaysAgo),
-        );
+        list.sort((a, b) => d * a.addedDaysAgo.compareTo(b.addedDaysAgo));
       case 1:
         list.sort((a, b) => d * a.year.compareTo(b.year));
       case 2:
@@ -212,23 +214,41 @@ class _LibraryPageState extends State<LibraryPage> {
     final summary = <Widget>[];
     for (final r in _resBuckets) {
       if (_resFilters.contains(r)) {
-        summary.add(_FilterChip('分辨率', r, () => setState(() {
-          _resFilters.remove(r);
-          _cacheKey = '';
-        })));
+        summary.add(
+          _FilterChip(
+            '分辨率',
+            r,
+            () => setState(() {
+              _resFilters.remove(r);
+              _cacheKey = '';
+            }),
+          ),
+        );
       }
     }
     if (_cnOnly) {
-      summary.add(_FilterChip('字幕', '中文字幕', () => setState(() {
-        _cnOnly = false;
-        _cacheKey = '';
-      })));
+      summary.add(
+        _FilterChip(
+          '字幕',
+          '中文字幕',
+          () => setState(() {
+            _cnOnly = false;
+            _cacheKey = '';
+          }),
+        ),
+      );
     }
     for (final t in _tagFilters.toList()..sort()) {
-      summary.add(_FilterChip('标签', t, () => setState(() {
-        _tagFilters.remove(t);
-        _cacheKey = '';
-      })));
+      summary.add(
+        _FilterChip(
+          '标签',
+          t,
+          () => setState(() {
+            _tagFilters.remove(t);
+            _cacheKey = '';
+          }),
+        ),
+      );
     }
 
     return Container(
@@ -291,6 +311,20 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         )
                       else ...[
+                        // 刷新：重新拉取该服务器/媒体库的条目与视图数据
+                        _TopBtn(
+                          onTap: () {
+                            if (state.loading) return;
+                            state.refresh();
+                            showToast(context, '正在刷新媒体库…');
+                          },
+                          child: const Icon(
+                            Icons.refresh_rounded,
+                            size: 18,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         // 排序 + 筛选共用一个入口：方向箭头 + 当前字段 + 筛选条件数角标
                         // （原来这里还有一个漏斗按钮，点开的是同一个抽屉，纯重复）
                         _TopBtn(
@@ -555,9 +589,7 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
           colors: [Color(0xFF171C27), Color(0xFF10141D)],
         ),
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border(
-          top: BorderSide(color: Colors.white12),
-        ),
+        border: Border(top: BorderSide(color: Colors.white12)),
       ),
       child: SafeArea(
         top: false,
@@ -579,10 +611,7 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                 children: [
                   const Text(
                     '排序与筛选',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Text(
@@ -616,14 +645,16 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                   }),
                   _sectionTitle('分辨率', '多选 · 来自视频流真实高度'),
                   _chipWrap(
-                    _resBuckets.map((b) => _fChip(
-                      b,
-                      count: widget.resCounts[b] ?? 0,
-                      on: _res.contains(b),
-                      onTap: () => setState(() {
-                        _res.contains(b) ? _res.remove(b) : _res.add(b);
-                      }),
-                    )),
+                    _resBuckets.map(
+                      (b) => _fChip(
+                        b,
+                        count: widget.resCounts[b] ?? 0,
+                        on: _res.contains(b),
+                        onTap: () => setState(() {
+                          _res.contains(b) ? _res.remove(b) : _res.add(b);
+                        }),
+                      ),
+                    ),
                   ),
                   _sectionTitle('字幕', null),
                   _SwitchRow(
@@ -632,17 +663,16 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
                   ),
                   _sectionTitle('标签', '多选 · 可滚动'),
                   _chipWrap(
-                    (widget.tagCounts.keys.toList()..sort()).map((t) =>
-                        _fChip(
-                          t,
-                          count: widget.tagCounts[t] ?? 0,
-                          on: _tags.contains(t),
-                          onTap: () => setState(() {
-                            _tags.contains(t)
-                                ? _tags.remove(t)
-                                : _tags.add(t);
-                          }),
-                        )),
+                    (widget.tagCounts.keys.toList()..sort()).map(
+                      (t) => _fChip(
+                        t,
+                        count: widget.tagCounts[t] ?? 0,
+                        on: _tags.contains(t),
+                        onTap: () => setState(() {
+                          _tags.contains(t) ? _tags.remove(t) : _tags.add(t);
+                        }),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 6),
                 ],
@@ -765,7 +795,12 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
     return Wrap(spacing: 7, runSpacing: 7, children: chips.toList());
   }
 
-  Widget _fChip(String label, {required int count, required bool on, required VoidCallback onTap}) {
+  Widget _fChip(
+    String label, {
+    required int count,
+    required bool on,
+    required VoidCallback onTap,
+  }) {
     return LiquidPress(
       onTap: onTap,
       radius: 15,
@@ -776,9 +811,7 @@ class _LibraryFilterSheetState extends State<LibraryFilterSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(15),
-          color: on
-              ? const Color(0x334F8CFF)
-              : Colors.white.withOpacity(0.06),
+          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
           border: Border.all(
             color: on
                 ? const Color(0x874F8CFF)
@@ -882,9 +915,7 @@ class _SortRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(7),
-          color: on
-              ? const Color(0x594F8CFF)
-              : Colors.black.withOpacity(0.30),
+          color: on ? const Color(0x594F8CFF) : Colors.black.withOpacity(0.30),
         ),
         child: Text(
           label,
@@ -922,10 +953,7 @@ class _SwitchRow extends StatelessWidget {
               children: [
                 const Text(
                   '仅看有中文字幕',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -947,9 +975,7 @@ class _SwitchRow extends StatelessWidget {
               height: 23,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                color: on
-                    ? AppColors.primary
-                    : Colors.white.withOpacity(0.14),
+                color: on ? AppColors.primary : Colors.white.withOpacity(0.14),
               ),
               child: AnimatedAlign(
                 duration: const Duration(milliseconds: 180),
@@ -989,22 +1015,29 @@ class _TopBtn extends StatelessWidget {
           onTap: onTap,
           radius: 19,
           scale: 0.92,
-          child: Container(
-            height: 38,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(19),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.10),
-                  Colors.white.withOpacity(0.04),
-                ],
+          child: ClipRRect(
+            // 真磨砂玻璃：与首页胶囊（_Pill）、各页圆钮统一
+            borderRadius: BorderRadius.circular(19),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(19),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withOpacity(0.10),
+                      Colors.white.withOpacity(0.04),
+                    ],
+                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.16)),
+                ),
+                child: Center(child: child),
               ),
-              border: Border.all(color: Colors.white.withOpacity(0.16)),
             ),
-            child: Center(child: child),
           ),
         ),
         if (badge > 0)

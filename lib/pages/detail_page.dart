@@ -94,7 +94,8 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
     if (fresh == null) return;
-    final changed = fresh.resumeProgress != _item.resumeProgress ||
+    final changed =
+        fresh.resumeProgress != _item.resumeProgress ||
         fresh.resumeSeconds != _item.resumeSeconds ||
         fresh.userFavorite != _item.userFavorite ||
         fresh.userPlayed != _item.userPlayed ||
@@ -700,7 +701,12 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                         const SizedBox(width: 8),
                         _RoundBtn(
-                          icon: Icons.create_new_folder_outlined,
+                          // 收藏状态钮：已收藏点亮成粉红实心，点开收藏夹弹窗管理
+                          icon: _item.userFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          active: _item.userFavorite,
+                          semanticLabel: _item.userFavorite ? '已收藏' : '收藏',
                           onTap: _openFolders,
                         ),
                       ],
@@ -1062,10 +1068,7 @@ class _DetailPageState extends State<DetailPage> {
             const SizedBox(height: 10),
             Text(
               meta,
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: Color(0xFFD3DEF0),
-              ),
+              style: const TextStyle(fontSize: 11.5, color: Color(0xFFD3DEF0)),
             ),
           ],
         ],
@@ -1468,17 +1471,25 @@ class _ProgressPlayButton extends StatelessWidget {
 }
 
 class _RoundBtn extends StatelessWidget {
-  const _RoundBtn({required this.icon, this.onTap});
+  const _RoundBtn({
+    required this.icon,
+    this.onTap,
+    this.active = false,
+    this.semanticLabel,
+  });
   final IconData icon;
   final VoidCallback? onTap;
 
+  /// 激活态（收藏心形点亮）：粉红渐变 + 描边，与收藏夹弹窗「已收藏」一致
+  final bool active;
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
-    // 顶部按钮不做实时模糊：滚动时每个 BackdropFilter 都要逐帧重采样，
-    // 3 个按钮就是 3 层，改用半透明渐变 + 高光描边（视觉几乎无差）
     return LiquidPress(
       onTap: onTap,
       radius: 20,
+      semanticLabel: semanticLabel,
       shadows: const [
         BoxShadow(
           color: Color(0x33000000),
@@ -1486,32 +1497,41 @@ class _RoundBtn extends StatelessWidget {
           offset: Offset(0, 4),
         ),
       ],
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withOpacity(0.20),
-              Colors.white.withOpacity(0.06),
-            ],
-          ),
-          border: Border.all(color: Colors.white.withOpacity(0.24)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x33000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
+      child: ClipOval(
+        // 真磨砂玻璃：与其他页顶栏圆钮（首页 _GlassCircleBtn 等）统一
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: active
+                    ? const [Color(0x8CFF6B8B), Color(0x59E0355E)]
+                    : [
+                        Colors.white.withOpacity(0.20),
+                        Colors.white.withOpacity(0.06),
+                      ],
+              ),
+              border: Border.all(
+                color: active
+                    ? const Color(0xA6FF8FA6)
+                    : Colors.white.withOpacity(0.24),
+              ),
             ),
-          ],
-        ),
-        child: Icon(
-          icon,
-          size: 17,
-          color: onTap == null ? Colors.white38 : Colors.white,
+            child: Icon(
+              icon,
+              size: 17,
+              color: onTap == null
+                  ? Colors.white38
+                  : active
+                  ? const Color(0xFFFFE1E8)
+                  : Colors.white,
+            ),
+          ),
         ),
       ),
     );

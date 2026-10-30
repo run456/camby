@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
@@ -52,18 +54,33 @@ class TagPage extends StatelessWidget {
                   onTap: () => Navigator.of(context).pop(),
                   radius: 19,
                   semanticLabel: '返回',
-                  child: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.08),
-                      border: Border.all(color: Colors.white.withOpacity(0.14)),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      size: 16,
-                      color: Colors.white,
+                  child: ClipOval(
+                    // 真磨砂玻璃：与各页顶栏圆钮统一
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Colors.white.withOpacity(0.20),
+                              Colors.white.withOpacity(0.06),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.24),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
                 ),

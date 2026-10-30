@@ -198,7 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 18),
           const Center(
             child: Text(
-              'Camby v1.7.51 · arm64 · 隐私政策 · 开源许可',
+              'Camby v1.7.52 · arm64 · 隐私政策 · 开源许可',
               style: TextStyle(fontSize: 10, color: Color(0xFF5D7291)),
             ),
           ),
@@ -601,13 +601,12 @@ class _ServerSheetState extends State<_ServerSheet> {
     if (ip != null) {
       final a = int.parse(ip.group(1)!);
       final b = int.parse(ip.group(2)!);
-      isPrivate = a == 10 ||
-          (a == 192 && b == 168) ||
-          (a == 172 && b >= 16 && b <= 31);
+      isPrivate =
+          a == 10 || (a == 192 && b == 168) || (a == 172 && b >= 16 && b <= 31);
     }
     final hint = isPrivate
         ? '\n\n$host 是局域网地址：请确认手机已连接到与服务器相同的 Wi-Fi'
-            '（当前可能在用移动数据），或改用公网地址/内网穿透。'
+              '（当前可能在用移动数据），或改用公网地址/内网穿透。'
         : '';
     return '连接失败：$reason$hint';
   }
@@ -817,30 +816,34 @@ class _Field extends StatelessWidget {
             style: const TextStyle(fontSize: 11, color: AppColors.muted),
           ),
           const SizedBox(height: 6),
-          TextField(
-            controller: controller,
-            obscureText: obscure,
-            keyboardType: numeric ? TextInputType.number : TextInputType.text,
-            style: const TextStyle(fontSize: 13, color: AppColors.ink),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFF5D7291),
-              ),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.06),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppColors.primary),
+          // 固定 48 高：和「协议」切换器（48）同高，两个控件顶底对齐
+          SizedBox(
+            height: 48,
+            child: TextField(
+              controller: controller,
+              obscureText: obscure,
+              keyboardType: numeric ? TextInputType.number : TextInputType.text,
+              style: const TextStyle(fontSize: 13, color: AppColors.ink),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF5D7291),
+                ),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.06),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: AppColors.primary),
+                ),
               ),
             ),
           ),
@@ -1040,7 +1043,7 @@ class _ProtocolToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 46,
+      height: 48,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(23),

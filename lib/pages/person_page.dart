@@ -42,6 +42,7 @@ class _PersonPageState extends State<PersonPage> {
   /// 排序（与媒体库同一套交互）：0 发行日期 / 1 评分 / 2 标题
   int _sortKey = 0;
   bool _desc = true;
+
   /// 年代筛选：0 不限 / 1 近 3 年 / 2 近 10 年 / 3 更早
   int _decade = 0;
 
@@ -145,10 +146,10 @@ class _PersonPageState extends State<PersonPage> {
       };
     }).toList();
     int cmp(MediaItem a, MediaItem b) => switch (_sortKey) {
-          1 => a.rating.compareTo(b.rating),
-          2 => a.name.compareTo(b.name),
-          _ => a.year.compareTo(b.year),
-        };
+      1 => a.rating.compareTo(b.rating),
+      2 => a.name.compareTo(b.name),
+      _ => a.year.compareTo(b.year),
+    };
     byDecade.sort(_desc ? (a, b) => cmp(b, a) : cmp);
     return byDecade;
   }
@@ -232,7 +233,11 @@ class _PersonPageState extends State<PersonPage> {
                       shaderCallback: (rect) => const LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.white, Colors.white, Colors.transparent],
+                        colors: [
+                          Colors.white,
+                          Colors.white,
+                          Colors.transparent,
+                        ],
                         stops: [0.0, 0.72, 1.0],
                       ).createShader(rect),
                       child: imgUrl != null
@@ -307,8 +312,9 @@ class _PersonPageState extends State<PersonPage> {
                               semanticLabel: '作品排序与筛选',
                               child: Container(
                                 height: 34,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 11),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                ),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(999),
                                   color: Colors.white.withOpacity(0.05),
@@ -381,10 +387,14 @@ class _PersonPageState extends State<PersonPage> {
                   )
                 else
                   SliverPadding(
-                    padding: EdgeInsets.fromLTRB(wide ? 28 : 18, 0, wide ? 28 : 18, 40),
+                    padding: EdgeInsets.fromLTRB(
+                      wide ? 28 : 18,
+                      0,
+                      wide ? 28 : 18,
+                      40,
+                    ),
                     sliver: SliverGrid(
-                      gridDelegate:
-                          SliverGridDelegateWithFixedCrossAxisCount(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: wide ? 6 : 3,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 16,
@@ -476,32 +486,36 @@ class _RoundBtn extends StatelessWidget {
     final btn = LiquidPress(
       onTap: onTap,
       radius: 20,
+      semanticLabel: semanticLabel,
       shadows: const [
-        BoxShadow(color: Color(0x33000000), blurRadius: 12, offset: Offset(0, 4)),
-      ],
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withOpacity(0.20),
-              Colors.white.withOpacity(0.06),
-            ],
-          ),
-          border: Border.all(color: Colors.white.withOpacity(0.24)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x33000000),
-              blurRadius: 12,
-              offset: Offset(0, 4),
-            ),
-          ],
+        BoxShadow(
+          color: Color(0x33000000),
+          blurRadius: 12,
+          offset: Offset(0, 4),
         ),
-        child: Icon(icon, size: 17, color: iconColor ?? Colors.white),
+      ],
+      child: ClipOval(
+        // 真磨砂玻璃：与详情页/首页顶栏圆钮统一
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withOpacity(0.20),
+                  Colors.white.withOpacity(0.06),
+                ],
+              ),
+              border: Border.all(color: Colors.white.withOpacity(0.24)),
+            ),
+            child: Icon(icon, size: 17, color: iconColor ?? Colors.white),
+          ),
+        ),
       ),
     );
     if (semanticLabel == null) return btn;
@@ -579,10 +593,7 @@ class _PersonFilterSheetState extends State<_PersonFilterSheet> {
                 children: [
                   const Text(
                     '排序与筛选',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                   ),
                   const Spacer(),
                   Text(
@@ -747,9 +758,7 @@ class _PersonFilterSheetState extends State<_PersonFilterSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(15),
-          color: on
-              ? const Color(0x334F8CFF)
-              : Colors.white.withOpacity(0.06),
+          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
           border: Border.all(
             color: on
                 ? const Color(0x874F8CFF)
@@ -839,9 +848,7 @@ class _SortRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(7),
-          color: on
-              ? const Color(0x594F8CFF)
-              : Colors.black.withOpacity(0.30),
+          color: on ? const Color(0x594F8CFF) : Colors.black.withOpacity(0.30),
         ),
         child: Text(
           label,
@@ -902,7 +909,9 @@ class _Seg extends StatelessWidget {
                   gradient: const LinearGradient(
                     colors: [Color(0x384F8CFF), Color(0x247B5CFF)],
                   ),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.55)),
+                  border: Border.all(
+                    color: AppColors.primary.withOpacity(0.55),
+                  ),
                 ),
               ),
             ),
@@ -924,8 +933,13 @@ class _Seg extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12.5,
-                            fontWeight: k == i ? FontWeight.w800 : FontWeight.w600,
-                            color: k == i ? Colors.white : AppColors.muted,
+                            fontWeight: k == i
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            // 未选中也要看得清：白色 90%（原来是 muted，偏暗）
+                            color: k == i
+                                ? Colors.white
+                                : Colors.white.withOpacity(0.90),
                           ),
                         ),
                       ),
