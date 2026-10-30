@@ -4,15 +4,12 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_state.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
-import 'widgets/strm_loading_dialog.dart';
-import 'player/playback.dart';
 import 'pages/home_page.dart';
 import 'pages/detail_page.dart';
 import 'pages/player_page.dart';
@@ -211,7 +208,6 @@ class _AppShellState extends State<AppShell>
     // 做法：弹窗 + 播放页同时推入，弹窗在上层。播放页照常起播，
     // 首帧一出来就通过 onBootSettled 把弹窗关掉，用户看到的是
     // 「弹窗（等待中）→ 画面」，中间不会有黑屏空档。
-    final settled = item.isStrm ? ValueNotifier<bool>(false) : null;
 
     Navigator.of(context).push(
       // 不透明纯黑路由 + 淡入淡出：横竖屏切换全程藏在播放页黑幕后面，
@@ -228,7 +224,6 @@ class _AppShellState extends State<AppShell>
             state: _state,
             subtitle: subtitle,
             startSeconds: startAt,
-            onBootSettled: () => settled?.value = true,
           ),
         ),
         transitionsBuilder: (_, anim, __, child) {
@@ -241,52 +236,6 @@ class _AppShellState extends State<AppShell>
         },
       ),
     );
-
-    if (settled != null) {
-      unawaited(_bootWithDialog(item, settled));
-    }
-  }
-
-  /// 在播放页之上盖一层 STRM 加载弹窗，首帧出来就收。
-  ///
-  /// [settled] 由播放页在「首帧出来 / 起播失败」时置 true。
-  Future<void> _bootWithDialog(
-    MediaItem item,
-    ValueNotifier<bool> settled,
-  ) async {
-    // 等播放页这一帧挂上去，否则弹窗会盖在详情页上闪一下
-    await Future<void>.delayed(const Duration(milliseconds: 60));
-    if (!mounted) {
-      settled.dispose();
-      return;
-    }
-    // 与播放页 _applySavedPreferences 同一套规则：设置选了 MPV 就按 MPV 展示，
-    // >8s 时弹窗才提供「切换 Exo」。之前写死 Exo，选 MPV 的用户永远看不到入口。
-    var engine = PlaybackEngine.exo;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if ((prefs.getInt('set_play_engine') ?? 0) == 1) {
-        engine = PlaybackEngine.mpv;
-      }
-    } catch (_) {}
-    if (!mounted) {
-      settled.dispose();
-      return;
-    }
-    try {
-      await showStrmLoading(
-        context: context,
-        item: item,
-        engine: engine,
-        start: () async => true,
-        ready: () => settled.value,
-        // 弹窗里点「切换 Exo 内核」：播放页此刻可能正卡在 MPV 上，
-        // 直接让它切，比重新推一个页面干净（进度、字幕都还在）。
-        onSwitchEngine: _playerKey.currentState?.switchToExo,
-      );
-    } finally {
-      settled.dispose();
-    }
   }
 
   @override

@@ -17,6 +17,7 @@ import '../routes.dart';
 import '../theme.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
+import '../widgets/strm_boot_overlay.dart';
 import '../widgets/subtitle_style_sheet.dart';
 
 /// 全屏播放页：Infuse 式布局 + 全局液态玻璃
@@ -170,6 +171,21 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 进度上报节流
   Timer? _reportTimer;
   DateTime? _lastReportAt;
+
+  bool _bootOverlayDismissed = false;
+
+  /// 起播加载弹窗是否可见（唯一一套：`StrmBootOverlay`）。
+  ///
+  /// 条件：还没出过首帧、不是演示/失败兜底、用户没点「继续等待」收起。
+  /// 切内核时同样要显示 —— 否则点「切换 Exo」后画面会黑着没反应，
+  /// 用户会以为没生效。
+  bool get _bootOverlayVisible =>
+      !_firstFrame && !_demo && !_fallback && !_bootOverlayDismissed;
+
+  void _dismissBootOverlay() {
+    setState(() => _bootOverlayDismissed = true);
+    _resetHideTimer();
+  }
 
   bool _demoPlaying = true;
   double _demoPosition = 0;
@@ -331,22 +347,30 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   // ---------------- 起播看护 ----------------
 
-  /// 起播有结论了（首帧出 或 明确失败），通知外部弹窗收起
+  /// 起播有结论了（首帧出来 / 明确失败），通知外部收起加载 UI
   void _markBootSettled() {
     if (_bootSettled.value) return;
     _bootSettled.value = true;
     widget.onBootSettled?.call();
   }
 
-  /// 供外部（STRM 加载弹窗）强制切到 Exo 内核（v1.7.49）
+  /// 切到 Exo 内核（加载弹窗上的唯一出口）
   ///
-  /// 比用户自己点顶栏「Exo」更早一步：弹窗里就有这个出口，
-  /// 不用先进播放页、再找按钮、再等一轮。
+  /// v1.7.55 修的两个真问题：
+  ///  · 旧实现调 `_switchEngine()` 是**取反**的 —— 当前已经是 Exo 时会切回
+  ///    MPV，点一次等于没切；
+  ///  · 旧实现里 `_switchEngine` 末尾会把 `_autoFellBack` 复位成 false，
+  ///    把「用户手动切了，别再自动回退」的清空，于是 10 秒后又被回退一次。
+  /// 现在这里按目标内核显式切、切完把回退标记锁死，并重新开始计等待时间。
   Future<void> switchToExo() async {
     if (!mounted) return;
-    if (_engine == PlaybackEngine.exo) return;
-    _autoFellBack = true; // 用户手动切了，别再触发自动回退
-    await _switchEngine(silent: true);
+    if (_engine == PlaybackEngine.exo) {
+      // 已经是 Exo：只可能从弹窗点到，给个明确反馈，别让用户以为按钮坏了
+      showToast(context, '当前已是 Exo 内核');
+      return;
+    }
+    _autoFellBack = true;
+    await _switchTo(PlaybackEngine.exo, silent: true);
     if (mounted) showToast(context, '已切换到 Exo 内核');
   }
 
@@ -391,6 +415,10 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   /// MPV 10 秒无首帧 → 自动切 Exo 重开（保留进度）
+  ///
+  /// v1.7.55：这条自动回退原来还挂在「详情页那个弹窗路由」的计时上，改成
+  /// 由播放页自身看护计时驱动，弹窗只是被动显示 —— 所以无论用户有没有看到
+  /// 弹窗、有没有点过按钮，超时都一定会切。
   Future<void> _autoFallbackToExo() async {
     if (!mounted || _engine == PlaybackEngine.exo) return;
     showToast(
@@ -398,7 +426,7 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
       'MPV 10 秒未出画面，已自动切到 Exo',
       icon: Icons.swap_horiz_rounded,
     );
-    await _switchEngine(silent: true);
+    await _switchTo(PlaybackEngine.exo, silent: true);
   }
 
   // ---------------- 字幕样式 / 码率 / 硬解 / 上报 ----------------
@@ -833,6 +861,16 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final target = _engine == PlaybackEngine.exo
         ? PlaybackEngine.mpv
         : PlaybackEngine.exo;
+    await _switchTo(target, silent: silent);
+  }
+
+  /// 切到指定内核（保留进度与播放/暂停状态），切换期间保持加载弹窗可见
+  Future<void> _switchTo(PlaybackEngine target, {bool silent = false}) async {
+    if (!mounted) return;
+    if (_engine == target) {
+      if (!silent) showToast(context, '当前已是 ${target.label}');
+      return;
+    }
     final pos = _positionSeconds;
     final wasPlaying = _isPlaying;
     final url = widget.item.videoUrl;
@@ -843,6 +881,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     setState(() => _initializing = true);
     await _player?.dispose();
     _player = null;
+    // 「继续等待」收起过弹窗的话，切内核要重新亮出来（要有反馈）
+    _bootOverlayDismissed = false;
     final ok = await _start(target, url);
     if (ok && pos > 1) {
       await _player?.seek(pos);
@@ -859,8 +899,11 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     setState(() => _initializing = false);
     if (!silent) showToast(context, '已切换至 ${target.label}');
     _resetHideTimer();
-    // 新内核重新计时：手动切回 MPV 时也允许再自动回退一次
-    _autoFellBack = false;
+    // 新内核重新计时。注意不要复位 _autoFellBack：两个方向的意义不同 ——
+    //  · 用户/自动已经退到 Exo → 不该再自动回退（回退只对 MPV 生效）
+    //  · 用户手动切回 MPV → 由调用方显式放行一次
+    // v1.7.54 之前这里无条件复位，导致在弹窗里切完 Exo 又被回退一次。
+    if (target == PlaybackEngine.mpv) _autoFellBack = false;
     _startBootWatch();
   }
 
@@ -1512,14 +1555,22 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                   ),
                 ),
               ),
-              if (_initializing)
+              if (_initializing && !_bootOverlayVisible)
                 const Center(
                   child: CircularProgressIndicator(color: AppColors.primary),
+                ),
+              // v1.7.55：起播 / 切内核等待期**唯一**的加载弹窗。
+              // 之前上面还盖着一个独立路由的 STRM 弹窗，两套并存；现在只在
+              // 播放页内部渲染这一层，切内核与超时回退都由本页直接执行，
+              // 不会出现「弹窗关了但没人去切」。
+              if (_bootOverlayVisible)
+                StrmBootOverlay(
+                  item: widget.item,
+                  engine: _engine,
+                  waitedSeconds: _bootVN.value,
+                  onSwitchEngine: () => unawaited(switchToExo()),
+                  onCancel: _dismissBootOverlay,
                 )
-              else if (!_demo && !_fallback && !_firstFrame)
-                // A 方案：黑屏期的加载胶囊。原来这里什么都没有，用户只能
-                // 对着纯黑猜「是不是卡了」，8 秒后才敢去试别的内核。
-                _bootOverlay()
               else if (_demo)
                 Positioned(
                   top: 52,
@@ -1750,7 +1801,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                       ),
                       _topBar(context, item),
                       // 拖动进度时隐藏中央按钮，把画面让给大时间提示
-                      if (!_scrubbing) _centerControls(),
+                      if (!_scrubbing && !_bootOverlayVisible)
+                        _centerControls(),
                       _bottomBar(context, total),
                     ],
                   ),
@@ -1807,114 +1859,10 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
 
   /// 起播加载胶囊：片名 + 已等待秒数 + 内核实名；8 秒后给「切 Exo」，
   /// 25 秒后补一句「可能需要服务端插件预热」。
-  Widget _bootOverlay() {
-    final raw = widget.item.filePath;
-    final name = raw.isEmpty ? widget.item.name : raw.split('/').last;
-    return Center(
-      child: ValueListenableBuilder<double>(
-        valueListenable: _bootVN,
-        builder: (_, secs, __) {
-          final slow = BootWatchPolicy.showSwitchButton(
-            engine: _engine,
-            waitedSecs: secs,
-          );
-          final verySlow = BootWatchPolicy.showPluginHint(secs);
-          return Glass(
-            radius: 20,
-            blur: 16,
-            blurEnabled: false,
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 15),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.accent,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      '正在获取媒体信息…',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 9),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 245),
-                  child: Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      color: AppColors.muted,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '已等待 ${secs.toStringAsFixed(0)} 秒 · ${_engine.label}',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    color: AppColors.muted.withOpacity(0.85),
-                  ),
-                ),
-                if (slow) ...[
-                  const SizedBox(height: 12),
-                  LiquidPress(
-                    radius: 14,
-                    scale: 0.96,
-                    onTap: () => unawaited(_switchEngine()),
-                    child: Container(
-                      height: 34,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        color: AppColors.accent.withOpacity(0.20),
-                        border: Border.all(
-                          color: AppColors.accent.withOpacity(0.55),
-                        ),
-                      ),
-                      child: const Text(
-                        '切换到 Exo 内核',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFFBFD4FF),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                if (verySlow) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    '片源仍在探测，可能需要在服务端装预热插件',
-                    style: TextStyle(fontSize: 10, color: AppColors.warn),
-                  ),
-                ],
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Widget _topBar(BuildContext context, MediaItem item) {
+    // 起播加载弹窗显示期间不画控制层：一来画面还没有，控件只会显得杂乱，
+    // 二来顶栏/底栏会盖住弹窗上的「切换 Exo / 继续等待」按钮（v1.7.55）
+    if (_bootOverlayVisible) return const SizedBox.shrink();
     return Positioned(
       top: 0,
       left: 0,
@@ -2052,6 +2000,8 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   Widget _bottomBar(BuildContext context, double total) {
+    // 同 _topBar：加载弹窗期间不画底栏（会压住弹窗的按钮）
+    if (_bootOverlayVisible) return const SizedBox.shrink();
     return Positioned(
       left: 16,
       right: 16,

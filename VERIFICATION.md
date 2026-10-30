@@ -778,3 +778,29 @@ Future<void> _boot() async {
 | `flutter test` | **139 / 139** |
 
 **交付**：`camby-1.7.54-release-arm64.apk`（`cn.camby.camby` / 94 / 1.7.54 / 33M / sha256 `9988a3826ecea8630d954be2be389758a2b5404d446bacd3dd764c2d6022879c`）。
+
+---
+
+## 21. v1.7.55 (95) 起播加载弹窗合并为一套 + 切 Exo / 自动回退修复
+
+| # | 需求 | 根因 | 处理 |
+|---|---|---|---|
+| 1 | STRM 获取媒体信息时出现两种弹窗，统一为 1661104d 的版式 | 两套实现并存：`strm_loading_dialog.dart`（独立路由，盖在播放页之上，片名 + 三阶段 + 切换 Exo + 插件提示）与播放页 `_bootOverlay()`（黑屏期居中胶囊「正在获取媒体信息…」） | 删除旧路由弹窗文件与播放页胶囊层，新增 `lib/widgets/strm_boot_overlay.dart`（版式取 1661104d：片名 / 标题随阶段变化 / 三段进度 / 已等待 N 秒 · 内核 / 切换 Exo / 继续等待 / 25 秒插件提示），由播放页直接渲染 |
+| 2 | 点弹窗里的「切换到 Exo」胶囊没生效 | ① 弹窗是**另一个路由**，`onSwitchEngine` 先 pop 自己再调播放页方法，用户看到的是「窗没了但还在 MPV」；② `_switchEngine()` 是**取反**语义，当前已是 Exo 时会切回 MPV；③ `_switchEngine()` 末尾无条件 `_autoFellBack = false`，把「用户已手动切过」清掉，10 秒后又被回退一次 | 切内核改为显式 `_switchTo(PlaybackEngine.exo)`；`switchToExo()` 已是 Exo 时给 toast 而不是静默 return；只有切到 MPV 才复位 `_autoFellBack`；弹窗不再自己 pop，切完由首帧信号收起 |
+| 3 | 超时自动跳转 Exo 没生效 | 自动回退挂在 `_startBootWatch()`（播放页）上，但只有「出首帧 / 明确失败」才会 `_markBootSettled`；用户看到弹窗的场景恰恰是**等不到首帧**，看护计时到 10 秒确实会切，切完却没有首帧 → 弹窗（另一路由）不关、`ready()` 永远 false，观感就是「没自动跳」 | 弹窗改由播放页托管后，可见性只取决于 `_firstFrame`，切换内核期间保持可见并重新计时，切成功后新内核首帧一到自然收起 |
+
+### 关键代码
+
+- `PlayerPage._bootOverlayVisible`：`!_firstFrame && !_demo && !_fallback && !_bootOverlayDismissed`
+- `PlayerPage._switchTo(target)`：`_switchEngine()` 变成薄封装，两者共用同一段切换逻辑
+- `StrmBootOverlay`：面板内自计时与播放页 `_bootVN` 取较大值，禁止「已等待」倒退
+- 加载弹窗期间不绘制顶栏 / 底栏 / 中央控件（否则会盖住弹窗上的按钮）
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | **149 / 149**（新增 `test/strm_overlay_single_test.dart` 10 条结构守卫：旧弹窗已删、main 不再推载荷弹窗、只渲染一套、切 Exo 非取反、自动回退走 `_switchTo`、切 Exo 后不复位回退标记） |
+
+**交付**：`camby-1.7.55-release-arm64.apk`（`cn.camby.camby` / 95 / 1.7.55 / 33M / sha256 `f3d2ec8dc1e9a6491f7c877910eb9c21d07a145ca27b04f2be575ec28f9cad14`）。
