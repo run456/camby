@@ -246,3 +246,27 @@ $ flutter build apk --release --target-platform=android-arm64
 **交付**：`camby-1.7.44-release-arm64.apk`（`cn.camby.camby` / 84 / 1.7.44 / 33M）。
 
 **附**：`/workspace/08-服务端STRM插件安装指南.md` —— 按 Emby 版本分流（4.8.x → StrmAssistant；4.9/4.10 → MediaInfoKeeper），含 Windows / Docker / Linux / 群晖四种环境的完整命令。
+
+---
+
+## 11. v1.7.45 (85) 启动黑屏修复
+
+**症状**：装 v1.7.44 后点开 App 一片黑，永远进不去。
+
+**排查**：代码静态检查 0 error / 0 warning、`flutter test` 97/97 全过、新增的启动冒烟测试（`test/smoke_boot_test.dart`，pumpWidget 真实 `CambyApp`）也能渲染出首页 —— 说明 Dart 侧逻辑本身没有必崩的错。问题落在「真机渲染管线 / 启动期不可恢复异常」这一类，而这类问题在单测里天然测不出来（单测跑的是测试渲染器，不是 Impeller/Skia + 真实 GLES 驱动）。
+
+于是按「先保命、再定位」处理，做了 5 处加固：
+
+| # | 改动 | 理由 |
+|---|---|---|
+| 1 | **Impeller 改 false**（回退 Skia） | 全站大量 `BackdropFilter` + Hero + 自定义转场，恰是 Impeller 兼容问题高发场景。部分 GPU/驱动组合下表现为整屏黑或闪退 |
+| 2 | **删除 `_ShaderWarmup`** | 它是 Stack 最后一个子节点（压最底层）的隐形 `BackdropFilter`，会为「它下面的全部内容」建离屏图层；Activity theme 背景是黑的，这块离屏合成一旦失败就是纯黑。预热省下的首帧掉帧不值得冒这个险 |
+| 3 | **`main()` 逐个 try** | 原来 `Inspire.warmUp()` / `MediaKit.ensureInitialized()` 是裸调用，任一个抛错 → `runApp` 根本不执行 → 纯黑。现在失败只跳过该补丁并打日志 |
+| 4 | **`restore()` catchError** | 读缓存文件 / 连服务器抛未捕获异常同样会黑屏。现在吞掉只记日志，首页照常显示「未连接」 |
+| 5 | **`ErrorWidget.builder` 可见化** | 真的某个组件构建失败时，原来是一片纯黑；现在直接把异常文字画在屏幕上，并且 `FlutterError.onError` 统一打 `[fatal]` 日志 |
+
+> 第 5 条是这轮最有用的：如果 v1.7.45 仍然黑屏，**请把屏幕上的红字拍照发我**，那就是精确的出错组件和行号，一步到位。如果连红字都没有（纯黑），说明是引擎级渲染问题，那第 1、2 条应该已经解决；若仍未解决，请告诉我机型 + 系统版本，我改推 `--no-tree-shake-icons` / x86/arm32 变体进一步定位。
+
+**质量门**：`flutter analyze` 0 error / 0 warning；`flutter test` **98/98**（新增启动冒烟 1 组）。
+
+**交付**：`camby-1.7.45-release-arm64.apk`（`cn.camby.camby` / 85 / 1.7.45 / 33M / sha256 `66e8ea64…`）。

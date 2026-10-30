@@ -28,12 +28,16 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-            <!-- v1.7.39：显式开启 Impeller。
-                 Impeller 在构建期预编译着色器，避免首次 Hero 转场 / 首次弹出
-                 毛玻璃面板时的着色器首编掉帧。默认值随版本变化，写死更稳。 -->
+            <!-- v1.7.45：Impeller 改为 **false**（回退 Skia）。
+                 v1.7.39 曾显式开启以消除首次转场的着色器首编掉帧，但 Impeller 在
+                 部分机型/驱动组合上（尤其老 GPU、部分国产 ROM 的 GLES 驱动）
+                 会导致整屏黑屏或直接闪退 —— 症状就是「点开 App 一片黑，进不去」。
+                 本项目用了大量 BackdropFilter（全站液态玻璃）+ Hero + 自定义转场，
+                 这些恰好是 Impeller 兼容问题的高发场景。
+                 关掉后仍是官方支持的渲染后端，视觉差异只有个别模糊边缘的细腻度。 -->
             <meta-data
               android:name="io.flutter.embedding.android.EnableImpeller"
-              android:value="true"
+              android:value="false"
               />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

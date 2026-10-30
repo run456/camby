@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -18,17 +19,47 @@ import 'pages/favorites_page.dart';
 import 'pages/settings_page.dart';
 
 void main() {
+  // ErrorWidget 兜底：正常情况下永远不会看到它；
+  // 但如果真的某个组件构建失败，原来是一片纯黑（用户只会说「App 打不开」），
+  // 现在至少能看见是哪个组件出错、错在哪一行。
+  //
+  // 必须放在 main 里而不是 build 里：放进 build 的话，每次重建都赋一次新匿名
+  // 函数，会一直覆盖自己。
+  ErrorWidget.builder = _errorWidget;
+  // 未捕获的异步异常也记一条，否则只会在控制台刷一行、真机上什么都看不到
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('[fatal] ${details.exceptionAsString()}');
+  };
+  // 启动阶段任何一步抛异常，都必须在 runApp **之前**兜住。
+  // 这里原本是裸调用：`Inspire.warmUp()` / `MediaKit.ensureInitialized()`
+  // 只要有一个抛错（shader 资源缺失、libmpv 在个别机型上加载失败），
+  // runApp 就根本不会执行 —— 表现是「点开 App 一片黑，永远进不去」。
+  // 现在改成逐个 try：启动补丁失败最多损失一点动效/播 MPV 的能力，不能连首页都打不开。
   WidgetsFlutterBinding.ensureInitialized();
-  // 预加载模糊着色器，避免首次上滑时掉帧
-  Inspire.warmUp();
-  // 图片内存缓存：千部库滚动时减少「解码→淘汰→再解码」抖动
-  PaintingBinding.instance.imageCache
-    ..maximumSize = 1200
-    ..maximumSizeBytes = 192 << 20;
-  // 初始化 MPV 内核（libmpv + FFmpeg）
-  MediaKit.ensureInitialized();
+  _guard('Inspire.warmUp', Inspire.warmUp);
+  _guard('imageCache', () {
+    // 图片内存缓存：千部库滚动时减少「解码→淘汰→再解码」抖动
+    PaintingBinding.instance.imageCache
+      ..maximumSize = 1200
+      ..maximumSizeBytes = 192 << 20;
+  });
+  _guard('MediaKit', MediaKit.ensureInitialized);
   runApp(const CambyApp());
 }
+
+/// 启动补丁的统一保护壳：单独失败不影响其余初始化，也不阻断 runApp。
+void _guard(String name, void Function() body) {
+  try {
+    body();
+  } catch (error, stack) {
+    debugPrint('[boot] $name 初始化失败，已跳过：$error\n$stack');
+    _bootIssues.add(name);
+  }
+}
+
+/// 启动期被跳过的补丁名（诊断用，目前只写日志）
+final List<String> _bootIssues = <String>[];
 
 class CambyApp extends StatelessWidget {
   const CambyApp({super.key});
@@ -69,7 +100,14 @@ class _AppShellState extends State<AppShell>
   void initState() {
     super.initState();
     _state = AppState();
-    _state.restore();
+    // restore() 内部要读文件、连服务器。任何一步抛未捕获异常都会变成
+    // 「启动即黑屏」，所以这里吞掉并只记日志 —— 首页该显示什么显示什么，
+    // 大不了是「未连接」状态，用户还能进设置页重新连。
+    unawaited(
+      _state.restore().catchError((Object e, StackTrace st) {
+        debugPrint('[boot] restore 失败：$e\n$st');
+      }),
+    );
     _tabAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 340),
@@ -209,8 +247,12 @@ class _AppShellState extends State<AppShell>
           backgroundColor: AppColors.bg,
           body: Stack(
             children: [
-              // 压在栈最底层：启动时跑一遍毛玻璃/裁剪/缩放/淡入的 shader
-              const _ShaderWarmup(),
+              // 注意：这里以前还挂着一个 `_ShaderWarmup`（隐形 2×2 BackdropFilter）。
+              // BackdropFilter 会为它**下面**的所有内容建立离屏图层，而它是 Stack
+              // 的最后一个子节点（压在最底层）——等于要求把各平台 view 下面的
+              // 全部内容先渲进一张离屏纹理。加上 Activity 的 theme 背景是黑的，
+              // 一旦这块离屏合成失败，整屏就是纯黑。预热省下的那点首帧掉帧
+              // 不值得冒「App 进不去」的风险，已移除。
               Positioned.fill(
                 // 保活：切 Tab 不再销毁重建整页（图片不重解码、滚动位置保留）
                 // 未访问过的页面先放占位，避免启动时一次性构建 5 页
@@ -438,58 +480,20 @@ class _GlassNavBar extends StatelessWidget {
   }
 }
 
-/// 首帧着色器预热（v1.7.39）。
-///
-/// 毛玻璃（BackdropFilter）、圆角裁剪（ClipRRect）、缩放与淡入各自对应一段
-/// GPU shader，第一次用到时才会即时编译 —— 表现就是「第一次进详情页/第一次
-/// 弹面板卡一下」。这里在启动后用 2×2 的隐形控件把这四类先画一遍，两帧后
-/// 自行移除，常驻开销为零（不是常驻的动画，只是让 shader 进缓存）。
-class _ShaderWarmup extends StatefulWidget {
-  const _ShaderWarmup();
-
-  @override
-  State<_ShaderWarmup> createState() => _ShaderWarmupState();
-}
-
-class _ShaderWarmupState extends State<_ShaderWarmup> {
-  bool _done = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // 第一帧画完后，再等一帧确认已上屏，然后把自己拆掉
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _done = true);
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_done) return const SizedBox.shrink();
-    return IgnorePointer(
-      child: Align(
-        alignment: Alignment.topLeft,
-        child: SizedBox(
-          width: 2,
-          height: 2,
-          child: Transform.scale(
-            scale: 1,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(1),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 1, sigmaY: 1),
-                child: const FadeTransition(
-                  opacity: AlwaysStoppedAnimation<double>(0.02),
-                  child: ColoredBox(color: Color(0xFFFFFFFF)),
-                ),
-              ),
-            ),
-          ),
-        ),
+/// 构建失败时的可见替代品：把异常直接画在屏幕上。
+Widget _errorWidget(FlutterErrorDetails details) => Container(
+  color: const Color(0xFF06080E),
+  padding: const EdgeInsets.all(18),
+  alignment: Alignment.center,
+  child: SingleChildScrollView(
+    child: Text(
+      '界面渲染出错\n\n${details.exceptionAsString()}',
+      textAlign: TextAlign.center,
+      style: const TextStyle(
+        fontSize: 12,
+        height: 1.5,
+        color: Color(0xFFFF8FA3),
       ),
-    );
-  }
-}
+    ),
+  ),
+);
