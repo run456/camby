@@ -261,6 +261,9 @@ class AppState extends ChangeNotifier {
   /// 当前还有多少进度待上报（设置页/调试用）
   int get pendingProgressCount => _pendingProgress.length;
 
+  /// 当前还有多少收藏夹上云待重试（pendingSync 标记）
+  int get pendingSyncCount => _folders.where((f) => f.pendingSync).length;
+
   Future<void> _persistPendingProgress() async {
     if (disablePersistence) return;
     try {
@@ -342,12 +345,18 @@ class AppState extends ChangeNotifier {
     _folders = [..._folders, f];
     notifyListeners();
     await _saveFolders();
-    // 上云：映射到服务端播放列表（失败不影响本地）
+    // 上云：映射到服务端播放列表（失败标记 pending，下次同步重试）
     if (_server != null) {
       final pid = await _server!.createPlaylist(f.name, const []);
       if (pid != null) {
         _folders = _folders
-            .map((e) => e.id == f.id ? e.copyWith(playlistId: pid) : e)
+            .map((e) => e.id == f.id ? e.copyWith(playlistId: pid, pendingSync: false) : e)
+            .toList();
+        await _saveFolders();
+        notifyListeners();
+      } else {
+        _folders = _folders
+            .map((e) => e.id == f.id ? e.copyWith(pendingSync: true) : e)
             .toList();
         await _saveFolders();
         notifyListeners();
@@ -366,7 +375,14 @@ class AppState extends ChangeNotifier {
     await _saveFolders();
     final pid = folderById(id)?.playlistId;
     if (pid != null && _server != null) {
-      await _server!.renamePlaylist(pid, t);
+      final ok = await _server!.renamePlaylist(pid, t);
+      if (!ok) {
+        _folders = _folders
+            .map((e) => e.id == id ? e.copyWith(pendingSync: true) : e)
+            .toList();
+        await _saveFolders();
+        notifyListeners();
+      }
     }
   }
 
@@ -401,13 +417,29 @@ class AppState extends ChangeNotifier {
     await _saveFolders();
     if (!changed || _server == null) return;
     // 计算增减并同步到对应服务端播放列表
+    final failedFids = <String>{};
     for (final f in _folders) {
       final pid = f.playlistId;
       if (pid == null) continue;
       final oldHas = oldById[f.id]?.itemIds.contains(itemId) ?? false;
       final newHas = f.itemIds.contains(itemId);
-      if (newHas && !oldHas) await _server!.addToPlaylist(pid, [itemId]);
-      if (!newHas && oldHas) await _server!.removeFromPlaylist(pid, [itemId]);
+      if (newHas && !oldHas) {
+        if (!await _server!.addToPlaylist(pid, [itemId])) failedFids.add(f.id);
+      }
+      if (!newHas && oldHas) {
+        if (!await _server!.removeFromPlaylist(pid, [itemId])) {
+          failedFids.add(f.id);
+        }
+      }
+    }
+    if (failedFids.isNotEmpty) {
+      _folders = _folders
+          .map((e) => failedFids.contains(e.id)
+              ? e.copyWith(pendingSync: true)
+              : e)
+          .toList();
+      await _saveFolders();
+      notifyListeners();
     }
   }
 
@@ -434,10 +466,12 @@ class AppState extends ChangeNotifier {
 
   /// 把服务端播放列表与本地收藏夹合并（纯函数，便于单测）。
   ///
-  /// 规则：
-  /// - 以 playlistId 为主键。服务端有、本地也有的 → 用服务端成员为准做并集
-  ///   （服务端是跨设备真源，离线时本地新增也不会丢）；
+  /// 这是**下行模式**（本地无内容 / 新装）的合并规则，服务端为准：
+  /// - 以 playlistId 为主键。服务端有、本地也有的 → 名称仅在**服务端非空**时
+  ///   覆盖本地（v1.7.68 决策①：空名是脏数据，不能把本地好名字冲掉）；
+  /// - 影片取并集（v1.7.65 起）；
   /// - 服务端有、本地没有的 → 在本地新建一个收藏夹（**自动恢复**场景）；
+  ///   但**服务端空名**播放列表一律跳过（v1.7.68 决策②：那是事故脏数据，不该建成本地收藏夹）；
   /// - 本地有 playlistId、服务端已删除的 → 本地一并移除（保持两端一致）；
   /// - 本地纯本地（playlistId==null）的收藏夹一律保留，不动。
   static List<FavoriteFolder> reconcileFolders(
@@ -458,10 +492,14 @@ class AppState extends ChangeNotifier {
       final p = byPlaylist.remove(f.playlistId);
       if (p == null) continue; // 服务端已删，本地移除
       final merged = <String>{...p.itemIds, ...f.itemIds}.toList();
-      result.add(f.copyWith(name: p.name, itemIds: merged));
+      // 决策①：仅服务端名非空才覆盖本地
+      final name = p.name.isNotEmpty ? p.name : f.name;
+      result.add(f.copyWith(name: name, itemIds: merged));
     }
     // 服务端新增、本地未匹配的播放列表 → 建本地收藏夹
+    // 决策②：空名播放列表是脏数据，跳过（真正的清理在 syncFoldersFromServer）
     for (final p in byPlaylist.values) {
+      if (p.name.isEmpty) continue;
       result.add(
         FavoriteFolder(
           id: 'pl_${p.id}',
@@ -477,10 +515,17 @@ class AppState extends ChangeNotifier {
 
   /// 从服务端拉回播放列表并与本地收藏夹双向同步。
   ///
-  /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」/ 收藏页刷新按钮时调用：
-  /// 1. 把归属当前服务器、但还没上云的旧版本地收藏夹推上去（兼容升级前的收藏夹）；
-  /// 2. 用 reconcileFolders 合并。
+  /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」/ 收藏页刷新按钮时调用。
   ///
+  /// v1.7.68 同步策略（按"以谁为准"决策③）：
+  /// - **上行模式（APP 为准）**：本地对该服务器已有收藏夹 → 把本地名称、片单
+  ///   全部推到服务端（改名 + 增删条目），本地未上云的先建播放列表；服务端独
+  ///   有的**非空名**播放列表（多半来自另一台设备）拉回本地，避免丢数据；
+  ///   服务端独有的**空名**播放列表（事故脏数据）删除。
+  /// - **下行模式（服务端为准）**：本地对该服务器没有任何收藏夹（新装 / 已清空）
+  ///   → 用 reconcileFolders 把服务端播放列表拉回本地做自动恢复。
+  ///
+  /// 两种模式结束后都会清理服务端空名播放列表。
   /// 返回同步完成后当前服务器名下的收藏夹数量（供 UI 提示用）。
   Future<int> syncFoldersFromServer() async {
     final s = _server;
@@ -492,27 +537,117 @@ class AppState extends ChangeNotifier {
           .map((f) => f.serverId == null ? f.copyWith(serverId: sid) : f)
           .toList();
     }
-    // 把当前服务器下、尚未上云的收藏夹推到服务端
-    for (final f in _folders) {
-      if (f.serverId == sid && f.playlistId == null && _server != null) {
-        final pid = await _server!.createPlaylist(f.name, f.itemIds);
-        if (pid != null) {
-          _folders = _folders
-              .map((e) => e.id == f.id ? e.copyWith(playlistId: pid) : e)
-              .toList();
-        }
-      }
-    }
     List<ServerPlaylist> remote;
     try {
       remote = await s.listPlaylists();
     } catch (_) {
       remote = const [];
     }
-    _folders = reconcileFolders(_folders, remote, sid);
+
+    final localForServer = _folders.where((f) => f.serverId == sid).toList();
+    if (localForServer.isNotEmpty) {
+      // 上行模式（APP 为准）
+      _folders = await _reconcileUpload(sid, remote);
+    } else {
+      // 下行模式（服务端为准，新装自动恢复）
+      _folders = reconcileFolders(_folders, remote, sid);
+    }
+
+    // 清理服务端空名播放列表（v1.7.67 事故遗留 + 其它脏数据）
+    await _deleteJunkPlaylists(s, remote, sid);
+
     notifyListeners();
     await _saveFolders();
     return _folders.where((f) => f.serverId == sid).length;
+  }
+
+  /// 上行模式：把本地收藏夹的状态推到服务端（APP 为准）。
+  ///
+  /// - 未上云（playlistId==null）→ 创建播放列表；
+  /// - 已上云 → 名称不一致就改名，片单以本地为准做并集（补服务端缺的、删服务端多出的）；
+  /// - 服务端独有名非空播放列表 → 拉回本地（另一台设备新建的，保数据）；
+  ///   空名 → 留给 [_deleteJunkPlaylists] 删除。
+  Future<List<FavoriteFolder>> _reconcileUpload(
+    String sid,
+    List<ServerPlaylist> remote,
+  ) async {
+    final s = _server!;
+    final remoteById = <String, ServerPlaylist>{};
+    for (final p in remote) remoteById[p.id] = p;
+    final out = <FavoriteFolder>[];
+    final matchedRemote = <String>{};
+
+    for (final f in _folders) {
+      // 归属其它服务器的收藏夹：原样保留，不参与本次合并
+      if (f.serverId != sid) {
+        out.add(f);
+        continue;
+      }
+      // 纯本地（未上云）：尝试创建到服务端
+      if (f.playlistId == null) {
+        final pid = await s.createPlaylist(f.name, f.itemIds);
+        if (pid != null) {
+          matchedRemote.add(pid);
+          out.add(f.copyWith(playlistId: pid, pendingSync: false));
+        } else {
+          out.add(f.copyWith(pendingSync: true));
+        }
+        continue;
+      }
+      // 已上云：把本地名称与片单推上去（APP 为准）
+      matchedRemote.add(f.playlistId!);
+      final p = remoteById[f.playlistId];
+      if (p != null) {
+        if (p.name != f.name) await s.renamePlaylist(f.playlistId!, f.name);
+        final serverSet = Set<String>.from(p.itemIds);
+        final localSet = Set<String>.from(f.itemIds);
+        final toAdd = f.itemIds.where((e) => !serverSet.contains(e)).toList();
+        final toRemove =
+            p.itemIds.where((e) => !localSet.contains(e)).toList();
+        if (toAdd.isNotEmpty) await s.addToPlaylist(f.playlistId!, toAdd);
+        if (toRemove.isNotEmpty) {
+          await s.removeFromPlaylist(f.playlistId!, toRemove);
+        }
+      }
+      // 服务端已没这个播放列表：保留本地，下次同步会重试创建
+      out.add(f.copyWith(pendingSync: p == null));
+    }
+
+    // 服务端独有播放列表
+    for (final p in remote) {
+      if (matchedRemote.contains(p.id)) continue;
+      if (p.name.isEmpty) continue; // 空名脏数据，留给统一清理
+      // 非空名（多半来自另一台设备）：拉回本地，避免丢数据
+      out.add(
+        FavoriteFolder(
+          id: 'pl_${p.id}',
+          name: p.name,
+          itemIds: p.itemIds,
+          serverId: sid,
+          playlistId: p.id,
+        ),
+      );
+    }
+    return out;
+  }
+
+  /// 删除服务端上"空名且本地无对应"的播放列表（事故脏数据清理）。
+  Future<void> _deleteJunkPlaylists(
+    EmbyServer s,
+    List<ServerPlaylist> remote,
+    String sid,
+  ) async {
+    final liveIds = <String>{};
+    for (final f in _folders) {
+      if (f.serverId == sid && f.playlistId != null) {
+        liveIds.add(f.playlistId!);
+      }
+    }
+    for (final p in remote) {
+      if (p.name.isEmpty && !liveIds.contains(p.id)) {
+        await s.deletePlaylist(p.id);
+      }
+    }
   }
 
   bool isPersonFavorite(String? id) =>
@@ -897,6 +1032,19 @@ class AppState extends ChangeNotifier {
   /// 打开后只改内存、不碰磁盘（生产代码从不设置它）。
   @visibleForTesting
   static bool disablePersistence = false;
+
+  /// 测试专用：注入假服务端 + 当前服务器 + 初始收藏夹列表，
+  /// 便于不连真实 Emby 也能驱动 syncFoldersFromServer / _reconcileUpload。
+  @visibleForTesting
+  void installTestServer(
+    EmbyServer s,
+    String sid,
+    List<FavoriteFolder> folders,
+  ) {
+    _server = s;
+    _activeServerId = sid;
+    _folders = folders;
+  }
 
   Future<File> _foldersFile() async {
     final dir = await getApplicationSupportDirectory();

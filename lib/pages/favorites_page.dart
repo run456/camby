@@ -784,10 +784,16 @@ class _SyncButtonState extends State<_SyncButton> {
     try {
       final n = await widget.state.syncFoldersFromServer();
       if (!mounted) return;
+      final pending = widget.state.pendingSyncCount;
+      final msg = pending > 0
+          ? '已同步 · $n 个收藏夹（$pending 个待重试）'
+          : '已同步 · $n 个收藏夹与服务器一致';
       showToast(
         context,
-        '已同步 · $n 个收藏夹与服务器一致',
-        icon: Icons.check_circle_outline_rounded,
+        msg,
+        icon: pending > 0
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline_rounded,
       );
     } catch (_) {
       if (!mounted) return;

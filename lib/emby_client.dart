@@ -847,24 +847,24 @@ class EmbyServer {
 
   /// 创建播放列表，返回服务端 Id（失败返回 null）
   ///
-  /// v1.7.66 修复：Emby 的 `Ids` 参数是**逗号分隔字符串**（query/model 绑定
-  /// 风格），传 JSON 数组会被 400 拒绝 —— 之前收藏夹映射到服务端播放列表
-  /// 全部静默失败就是这个原因。空列表则干脆不带 Ids 字段。
+  /// v1.7.68 关键修正：**Emby 创建播放列表的参数在 URL query 上，不在 JSON body**。
+  /// 之前把 `Name`/`Ids` 放进 body，服务端读不到 → 创建出"成功但空名空片"的播放列表，
+  /// 并返合法 Id，最终把本地好名字用空壳覆盖掉（v1.7.67 事故根因）。
+  /// 现在改为 `POST /Playlists?Name=..&Ids=..&UserId=..`（body 留空）。
   Future<String?> createPlaylist(String name, List<String> itemIds) async {
     final uid = _userId;
     if (_token == null || uid == null) return null;
-    final body = <String, dynamic>{
+    final query = <String, String>{
       'Name': name,
       'UserId': uid,
-      'MediaType': 'Video',
     };
-    if (itemIds.isNotEmpty) body['Ids'] = itemIds.join(',');
+    if (itemIds.isNotEmpty) query['Ids'] = itemIds.join(',');
     for (final path in [
       '$baseUrl/Users/$uid/Playlists',
       '$baseUrl/Playlists',
     ]) {
       try {
-        final json = await _postJsonReturning(path, body);
+        final json = await _postQueryReturning(path, query);
         final id = (json['Id'] ?? json['ItemId'])?.toString();
         if (id != null && id.isNotEmpty) return id;
       } catch (_) {
@@ -872,6 +872,34 @@ class EmbyServer {
       }
     }
     return null;
+  }
+
+  /// POST 带 query 参数、body 留空（Emby 部分端点如创建播放列表只认 query）。
+  Future<Map<String, dynamic>> _postQueryReturning(
+    String path,
+    Map<String, String> query,
+  ) async {
+    final qp = <String, String>{...query, 'X-Emby-Token': _token!};
+    final uri = Uri.parse(path).replace(queryParameters: qp);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..badCertificateCallback = (_, __, ___) => true;
+    try {
+      final req = await client.postUrl(uri);
+      req.headers.set(
+        'Authorization',
+        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+      );
+      final res = await req.close();
+      final text = await res.transform(utf8.decoder).join();
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw EmbyException('请求失败 (${res.statusCode})');
+      }
+      if (text.isEmpty) return const {};
+      return jsonDecode(text) as Map<String, dynamic>;
+    } finally {
+      client.close();
+    }
   }
 
   /// 向播放列表追加条目（失败返回 false，调用方保留本地状态）
@@ -906,14 +934,17 @@ class EmbyServer {
     }
   }
 
-  /// 重命名播放列表（Emby 把播放列表当 Item，直接改 Name 字段）
+  /// 重命名播放列表（Emby 把播放列表当 Item）
+  ///
+  /// v1.7.68：先 `GET /Users/{uid}/Items/{id}` 取完整对象，只改 `Name` 再
+  /// `POST /Items/{id}` 写回——避免只发 `{Id,Name}` 把其它字段（如
+  /// PlaylistItems 的引用）整包覆盖导致丢片。
   Future<bool> renamePlaylist(String playlistId, String name) async {
     if (_token == null) return false;
     try {
-      await _postJsonReturning(
-        '$baseUrl/Items/$playlistId',
-        {'Id': playlistId, 'Name': name},
-      );
+      final m = await _getJson('$baseUrl/Users/$_userId/Items/$playlistId');
+      m['Name'] = name;
+      await _postJsonReturning('$baseUrl/Items/$playlistId', m);
       return true;
     } catch (_) {
       return false;

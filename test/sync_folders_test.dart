@@ -74,4 +74,32 @@ void main() {
     final f = out.firstWhere((e) => e.id == 'f4');
     expect(f.itemIds, ['m1']); // 不被远程覆盖
   });
+
+  test('决策①：服务端空名不能冲掉本地好名字（v1.7.68）', () {
+    final local = [
+      FavoriteFolder(
+        id: 'f5',
+        name: '本机好名字',
+        itemIds: ['m1'],
+        playlistId: 'pid1',
+        serverId: 's1',
+      ),
+    ];
+    final rem = [
+      ServerPlaylist('pid1', '', ['m1']), // 服务端空名脏数据
+    ];
+    final out = AppState.reconcileFolders(local, rem, 's1');
+    expect(out.firstWhere((f) => f.id == 'f5').name, '本机好名字');
+  });
+
+  test('决策②：服务端空名播放列表在下行模式不建成本地收藏夹（v1.7.68）', () {
+    final local = <FavoriteFolder>[];
+    final rem = [
+      ServerPlaylist('pidJunk', '', const []), // 空名脏数据
+      ServerPlaylist('pidOK', '正常收藏', ['m1']),
+    ];
+    final out = AppState.reconcileFolders(local, rem, 's1');
+    expect(out.any((f) => f.playlistId == 'pidJunk'), isFalse);
+    expect(out.any((f) => f.playlistId == 'pidOK'), isTrue);
+  });
 }

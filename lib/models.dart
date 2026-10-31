@@ -121,6 +121,7 @@ class FavoriteFolder {
     this.createdAt = 0,
     this.serverId,
     this.playlistId,
+    this.pendingSync = false,
   });
 
   final String id;
@@ -133,12 +134,16 @@ class FavoriteFolder {
   final String? serverId;
   /// 同步到的服务端播放列表 Id（null = 仅本地，未上云）
   final String? playlistId;
+  /// 上行标记：本收藏夹的「创建/改名/增删影片」上云失败时置位，
+  /// 下次同步会重试并清除（v1.7.68，避免静默丢失）。
+  final bool pendingSync;
 
   FavoriteFolder copyWith({
     String? name,
     List<String>? itemIds,
     String? serverId,
     String? playlistId,
+    bool? pendingSync,
   }) =>
       FavoriteFolder(
         id: id,
@@ -147,6 +152,7 @@ class FavoriteFolder {
         createdAt: createdAt,
         serverId: serverId ?? this.serverId,
         playlistId: playlistId ?? this.playlistId,
+        pendingSync: pendingSync ?? this.pendingSync,
       );
 
   Map<String, dynamic> toJson() => {
@@ -156,6 +162,7 @@ class FavoriteFolder {
     'createdAt': createdAt,
     if (serverId != null) 'serverId': serverId,
     if (playlistId != null) 'playlistId': playlistId,
+    if (pendingSync) 'pendingSync': true,
   };
 
   factory FavoriteFolder.fromJson(Map<String, dynamic> j) => FavoriteFolder(
@@ -167,6 +174,7 @@ class FavoriteFolder {
     createdAt: j['createdAt'] as int? ?? 0,
     serverId: j['serverId'] as String?,
     playlistId: j['playlistId'] as String?,
+    pendingSync: j['pendingSync'] as bool? ?? false,
   );
 }
 

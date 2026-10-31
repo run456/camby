@@ -1080,3 +1080,39 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.67-release-arm64.apk`（`cn.camby.camby` / 107 / 1.7.67 / 34.5M / sha256 `2adf98286ce3bdef730efdbf56805eb4a5ffc5a70726090b4e6eaea0aba94412`）。
 
 > 发布节奏：未推送 GitHub（v1.7.67 为累计窗口第 3 版）。
+
+---
+
+## 34. v1.7.68 (108) 收藏夹同步机制修复（治本 + 权威口径落地）
+
+### 事故链（v1.7.67 实测）
+
+新建收藏夹「测试」点同步后：服务器多出 3 个**空名**播放列表、APP 里收藏夹名字变空、影片从未上云。
+
+| 环节 | 事实 | 后果 |
+|---|---|---|
+| ① 创建 | `POST /Playlists` 的 `Name/Ids` 写在 **JSON body** 里，而 Emby 只读 **URL query** | 服务端创建出「空名空片」播放列表，并返回**合法 Id** |
+| ② 本地 | 拿到 Id 即视为"已上云"，本地留有名字与片单 | 表面同步成功，实际服务端是空壳 |
+| ③ 拉回 | `reconcileFolders` 无条件用服务端名覆盖本地名 | **空名覆盖好名字**，APP 名称被清空 |
+
+### 修复
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 创建播放列表（根因） | 新增 `_postQueryReturning`，改 `POST /Playlists?Name=&Ids=&UserId=`（body 空） |
+| 2 | 重命名 | 先 `GET /Users/{uid}/Items/{id}` 取完整对象 → 改 `Name` → `POST /Items/{id}`，避免整包覆盖丢片 |
+| 3 | 权威口径（决策③） | 本地已有收藏夹 → **上行模式 `_reconcileUpload`**（APP 为准：改名 + 增删条目全推服务端；服务端独有非空名拉回本地）；本地无内容 → **下行 `reconcileFolders`**（服务端为准，新装恢复） |
+| 4 | 名称规则（决策①） | 仅服务端名**非空**才覆盖本地 |
+| 5 | 空名脏数据（决策②） | `_deleteJunkPlaylists` 删除「服务端空名且本地无对应」的播放列表；下行模式也不把它建成本地收藏夹 |
+| 6 | 上行失败静默 | `FavoriteFolder.pendingSync`（持久化）：创建/改名/增删影片失败置位，下次同步重试；同步 toast 显示「N 个收藏夹（M 个待重试）」 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze lib` | 编辑文件 0 error / 0 warning（其余为历史 `withOpacity` info） |
+| `flutter test test/sync_folders*.dart` | **12 / 12 全绿**（新增 `sync_folders_upload_test.dart`：上行改名+补片、纯本地创建、空名删除+非空拉回、下行新装恢复、pending 标记；`sync_folders_test.dart` 补决策①②） |
+
+**交付**：`camby-1.7.68-release-arm64.apk`（`cn.camby.camby` / 108 / 1.7.68 / 33M / sha256 `f290d1d59accc775eeea16447d37a7a9e5ace6156652578ba2c6cac0db88b479`）。
+
+> 发布节奏：未推送 GitHub（v1.7.68 为累计窗口第 4 版）。
