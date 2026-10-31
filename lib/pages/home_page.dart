@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../reco.dart';
 import '../widgets/liquid_press.dart';
@@ -367,8 +368,11 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final hero = _hero;
-    // 每日推荐：按海报原始比例完整展示（与详情页一致），不再裁切
+    // 平板（≥840，外壳已把内容区宽注入 MediaQuery）：按设计稿走卡片化布局
+    final tablet = context.isTablet;
+    // 内容区宽（手机 = 屏宽；平板 = 注入后的去 Rail 宽度）
+    final cw = MediaQuery.of(context).size.width;
+    // 手机：每日推荐按海报原始比例完整展示（与详情页一致），不再裁切
     final heroAspect =
         (_heroPool.isNotEmpty ? _heroPool.first.posterAspect : 0.6667).clamp(
           0.55,
@@ -456,9 +460,35 @@ class _HomePageState extends State<HomePage> {
                     parent: BouncingScrollPhysics(),
                   ),
                   slivers: [
-                    // 每日推荐：整版竖图（原始比例）+ PageView 横滑，滑动时缩放淡入
+                    // 每日推荐：
+                    // 手机：整版竖图（原始比例）+ PageView 横滑，滑动时缩放淡入
+                    // 平板：设计稿 .hero 卡片 —— 定高 300、圆角 18、左信息右横版
+                    //       （800/538 零裁切），保留 PageView 翻页与「换一批」
                     SliverToBoxAdapter(
-                      child: AspectRatio(
+                      child: tablet
+                          ? Padding(
+                              padding: const EdgeInsets.fromLTRB(30, 12, 30, 0),
+                              child: SizedBox(
+                                height: 300,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(18),
+                                  child: PageView.builder(
+                                    controller: _heroController,
+                                    physics: const PageScrollPhysics(),
+                                    itemCount: _heroPool.isEmpty
+                                        ? 1
+                                        : _heroPool.length,
+                                    onPageChanged: _onHeroChanged,
+                                    itemBuilder: (c, i) => _tabletHeroPage(
+                                      _heroPool.isEmpty
+                                          ? _hero
+                                          : _heroPool[i % _heroPool.length],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : AspectRatio(
                         aspectRatio: heroAspect,
                         child: Stack(
                           fit: StackFit.expand,
@@ -486,7 +516,7 @@ class _HomePageState extends State<HomePage> {
                                 onPageChanged: _onHeroChanged,
                                 itemBuilder: (c, i) {
                                   final item = _heroPool.isEmpty
-                                      ? hero
+                                      ? _hero
                                       : _heroPool[i % _heroPool.length];
                                   final url =
                                       item.posterUrlFor(_heroDecodeWidth) ??
@@ -545,51 +575,61 @@ class _HomePageState extends State<HomePage> {
                     ),
 
                     // 继续观看
+                    // 平板：设计稿 .hrow 一屏 7 张，横版卡（800/538 零裁切）
                     if (state.continueWatching.isNotEmpty)
                       SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 20),
-                            _RowHeader(
-                              title: '继续观看',
-                              action: '${state.continueWatching.length} 部',
-                              onAction: widget.onOpenAll,
-                            ),
-                            SizedBox(
-                              // 全宽大卡：封面完整展示（16:9）
-                              height:
-                                  (MediaQuery.of(context).size.width - 32) *
-                                      9 /
-                                      16 +
-                                  2,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
+                        child: Builder(
+                          builder: (context) {
+                            final pad = tablet ? 24.0 : 16.0;
+                            final gap = tablet ? 12.0 : 12.0;
+                            // 手机保持原全宽大卡（16:9）；平板一屏 7 张横版
+                            final cardW = tablet
+                                ? (cw - pad * 2 - 6 * gap) / 7
+                                : cw - 32;
+                            final cardAspect = tablet
+                                ? 800.0 / 538.0
+                                : 16.0 / 9.0;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 20),
+                                _RowHeader(
+                                  title: '继续观看',
+                                  action: '${state.continueWatching.length} 部',
+                                  onAction: widget.onOpenAll,
                                 ),
-                                itemCount: state.continueWatching.length,
-                                itemBuilder: (c, i) => Padding(
-                                  padding: const EdgeInsets.only(right: 12),
-                                  child: ContinueCard(
-                                    item: state.continueWatching[i],
-                                    width:
-                                        MediaQuery.of(context).size.width - 32,
-                                    onTap: () => widget.onOpenDetail(
-                                      state.continueWatching[i],
-                                      heroTag:
-                                          'home-continue-${state.continueWatching[i].id}',
+                                SizedBox(
+                                  height: cardW / cardAspect + 2,
+                                  child: ListView.builder(
+                                    scrollDirection: Axis.horizontal,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: pad,
+                                    ),
+                                    itemCount: state.continueWatching.length,
+                                    itemBuilder: (c, i) => Padding(
+                                      padding: EdgeInsets.only(right: gap),
+                                      child: ContinueCard(
+                                        item: state.continueWatching[i],
+                                        width: cardW,
+                                        aspect: cardAspect,
+                                        onTap: () => widget.onOpenDetail(
+                                          state.continueWatching[i],
+                                          heroTag:
+                                              'home-continue-${state.continueWatching[i].id}',
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
+                                const SizedBox(height: 16),
+                              ],
+                            );
+                          },
                         ),
                       ),
 
-                    // 最近添加（3×3 网格，最近 9 部）
+                    // 最近添加：手机 3×3 网格；平板一屏 9 张竖版横排行
+                    //（设计稿 .hrow-hp，容器比例与海报原生 1599/2275 一致零裁切）
                     if (state.items.isNotEmpty)
                       SliverToBoxAdapter(
                         child: _RowHeader(
@@ -598,7 +638,42 @@ class _HomePageState extends State<HomePage> {
                           onAction: widget.onOpenAll,
                         ),
                       ),
-                    if (state.items.isNotEmpty)
+                    if (state.items.isNotEmpty && tablet)
+                      SliverToBoxAdapter(
+                        child: Builder(
+                          builder: (context) {
+                            // PosterCard 海报高 = 宽×1.45（≈0.69，贴近 0.703）
+                            // + 标题/元信息约 44dp
+                            final w = (cw - 48 - 8 * 12) / 9;
+                            return SizedBox(
+                              height: w * 1.45 + 44,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                itemCount: state.recentlyAdded.take(9).length,
+                                itemBuilder: (c, i) {
+                                  final e = state.recentlyAdded[i];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 12),
+                                    child: PosterCard(
+                                      item: e,
+                                      width: w,
+                                      heroTag: 'home-grid-${e.id}',
+                                      onTap: () => widget.onOpenDetail(
+                                        e,
+                                        heroTag: 'home-grid-${e.id}',
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    if (state.items.isNotEmpty && !tablet)
                       SliverPadding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         sliver: SliverGrid.builder(
@@ -627,9 +702,11 @@ class _HomePageState extends State<HomePage> {
                     const SliverToBoxAdapter(child: SizedBox(height: 20)),
 
                     // 按媒体库分组
+                    // 平板：设计稿「横向滚动行一屏 7 张」，卡片随内容区宽自适应
                     if (state.views.isNotEmpty)
                       ...state.views.map((v) {
                         final row = _rows[v.id] ?? const <MediaItem>[];
+                        final rowW = tablet ? (cw - 48 - 6 * 12) / 7 : 118.0;
                         return SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -640,7 +717,7 @@ class _HomePageState extends State<HomePage> {
                                 onAction: () => widget.onOpenLibrary(v),
                               ),
                               SizedBox(
-                                height: 216,
+                                height: tablet ? rowW * 1.45 + 44 : 216,
                                 child: row.isEmpty
                                     ? LiquidPress(
                                         // 空行可点重试：只重拉这一个库，不再靠整页刷新
@@ -696,7 +773,7 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                           child: PosterCard(
                                             item: row[i],
-                                            width: 118,
+                                            width: rowW,
                                             heroTag:
                                                 'home-row-${v.id}-${row[i].id}',
                                             onTap: () => widget.onOpenDetail(
@@ -769,6 +846,215 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 平板每日推荐页（设计稿 .hero）：定高 300 卡片，
+  /// 背景横版封面整卡铺满 + 左侧压暗渐变 + 信息列（对齐 .hero .info）。
+  Widget _tabletHeroPage(MediaItem item) {
+    final bg = item.backdropUrl ?? item.posterUrlFor(_heroDecodeWidth);
+    return RepaintBoundary(
+      child: LiquidPress(
+        onTap: () => widget.onOpenDetail(item, heroTag: 'home-hero-${item.id}'),
+        radius: 18,
+        scale: 0.99,
+        glow: 0.16,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (bg != null)
+              CachedImage(url: bg, fit: BoxFit.cover, memWidth: 1200)
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [item.colors.first, AppColors.bg],
+                  ),
+                ),
+              ),
+            // 设计稿 .hero .scrim：左→右压暗，保证信息可读、右侧露封面
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      const Color(0xE604080E),
+                      const Color(0xCC04080E),
+                      Colors.black.withOpacity(0.55),
+                      Colors.black.withOpacity(0.12),
+                    ],
+                    stops: const [0.0, 0.32, 0.56, 0.82],
+                  ),
+                ),
+              ),
+            ),
+            // 左侧信息列（.hero .info）
+            Positioned(
+              left: 36,
+              top: 0,
+              bottom: 0,
+              right: 420,
+              child: Center(
+                child: ValueListenableBuilder<MediaItem>(
+                  valueListenable: _heroVN,
+                  builder: (context, h, _) => _tabletHeroInfo(h),
+                ),
+              ),
+            ),
+            // 右下页码点（.hero .dots）
+            Positioned(
+              right: 16,
+              bottom: 14,
+              child: ValueListenableBuilder<MediaItem>(
+                valueListenable: _heroVN,
+                builder: (context, h, _) {
+                  final n = _heroPool.length.clamp(1, 6);
+                  final cur = _heroPool.isEmpty
+                      ? 0
+                      : _heroPool.indexOf(h) % n;
+                  return Row(
+                    children: [
+                      for (var i = 0; i < n; i++)
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 260),
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          width: i == cur ? 18 : 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: i == cur
+                                ? Colors.white
+                                : Colors.white.withOpacity(0.32),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            // 换一批（.hero .acts）
+            Positioned(left: 36, bottom: 14, child: _shuffleButton()),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 平板 Hero 信息列：徽章 / 标题 / 元信息 / 简介
+  Widget _tabletHeroInfo(MediaItem item) {
+    final genre = _displayGenre(item);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IgnorePointer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  if (item.rating > 0)
+                    _Badge(
+                      icon: Icons.star_rounded,
+                      label: item.rating.toStringAsFixed(1),
+                      gold: true,
+                    ),
+                  if (item.isTrue4K) _Badge(icon: Icons.hd_rounded, label: '2160p'),
+                  _Badge(
+                    icon: Icons.movie_creation_outlined,
+                    label: item.videoCodec,
+                  ),
+                  if (item.audioChannels >= 6)
+                    _Badge(
+                      icon: Icons.graphic_eq_rounded,
+                      label: '${item.audioChannels}ch',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                item.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                  height: 1.12,
+                  letterSpacing: -0.4,
+                  color: Colors.white,
+                  shadows: [Shadow(color: Color(0xE6000000), blurRadius: 18)],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                [
+                  if (item.year > 0) '${item.year}',
+                  if (item.isTrue4K) '2160P' else '1080P',
+                  if (genre != null) genre,
+                ].join('  ·  '),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFFD3DEF0),
+                ),
+              ),
+              if (item.overview.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  item.overview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    height: 1.55,
+                    color: Color(0xFFDCE6F5),
+                    shadows: [Shadow(color: Color(0xCC000000), blurRadius: 10)],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 「换一批」按钮（手机叠在海报内 / 平板放 Hero 卡左下）
+  Widget _shuffleButton() {
+    return LiquidPress(
+      onTap: () => unawaited(_shuffleReco()),
+      radius: 999,
+      scale: 0.94,
+      semanticLabel: '换一批推荐',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: Colors.white.withOpacity(0.16),
+          border: Border.all(color: Colors.white.withOpacity(0.22)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shuffle_rounded, size: 13, color: Colors.white),
+            SizedBox(width: 4),
+            Text(
+              '换一批',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1049,22 +1335,25 @@ class _RowHeader extends StatelessWidget {
   }
 }
 
-/// 继续观看：全宽大卡（封面完整展示 + 播放钮 + 标题 + 播放百分比）
+/// 继续观看：大卡（封面完整展示 + 播放钮 + 标题 + 播放百分比）
+/// [aspect] 手机 16:9 全宽；平板设计稿横版 800/538（零裁切）
 class ContinueCard extends StatelessWidget {
   const ContinueCard({
     super.key,
     required this.item,
     this.onTap,
     this.width = 244,
+    this.aspect = 16.0 / 9.0,
   });
   final MediaItem item;
   final VoidCallback? onTap;
   final double width;
+  final double aspect;
 
   @override
   Widget build(BuildContext context) {
     final progress = item.resumeProgress ?? 0;
-    final imgH = width * 9 / 16;
+    final imgH = width / aspect;
     return LiquidPress(
       onTap: onTap,
       radius: 14,

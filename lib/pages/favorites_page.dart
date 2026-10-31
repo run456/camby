@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../routes.dart';
@@ -224,9 +225,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         // v1.7.70：一行 2 个 → 3 个（间距与宽高比同步收窄，标题/片数不挤压）
-        crossAxisCount: 3,
+        // 平板：设计稿 .collection 收藏 5 列
+        crossAxisCount: context.isTablet ? 5 : 3,
         crossAxisSpacing: 12,
         mainAxisSpacing: 18,
         childAspectRatio: 0.54,
@@ -422,8 +424,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: context.isTablet ? 6 : 3,
         crossAxisSpacing: 12,
         mainAxisSpacing: 18,
         childAspectRatio: 0.72,
@@ -549,7 +551,13 @@ class _StackTile extends StatelessWidget {
                   alignment: Alignment.bottomCenter,
                   children: [
                     for (var depth = maxDepth; depth >= 0; depth--)
-                      _layer(depth, w, h),
+                      _layer(
+                        depth,
+                        w,
+                        h,
+                        tablet: MediaQuery.of(context).size.width >=
+                            kTabletBreakpoint,
+                      ),
                     if (count > 0)
                       Positioned(
                         top: 8,
@@ -606,7 +614,7 @@ class _StackTile extends StatelessWidget {
   ///
   /// v1.7.63：幅度改用「方案 B · 更克制」—— 后卡只约 ±2.5°、探出 2%，
   /// 扇形整体收在格内（约 6dp 余量），相邻收藏夹不再互相压盖。
-  Widget _layer(int depth, double w, double h) {
+  Widget _layer(int depth, double w, double h, {bool tablet = false}) {
     // 角度 / 位移（相对卡片尺寸）：前卡微倾，后卡 ±2.5° 向两侧、向上探出
     final (angle, dxr, dyr) = switch (depth) {
       2 => (0.040, 0.020, -0.024),
@@ -615,7 +623,9 @@ class _StackTile extends StatelessWidget {
     };
     const scale = 0.85;
     final cw = w * scale;
-    final ch = h * scale;
+    // 平板（≥840）：5 列瓦片高远大于海报自然高，改按海报原生比例
+    // （与 PosterCard 一致取 宽×1.45）约束卡高，避免 cover 上下裁切封面
+    final ch = tablet ? math.min(h * scale, cw * 1.45) : h * scale;
 
     // 后层也用真实海报（依次取夹内第 2、3 张）；空夹才退到占位渐变
     MediaItem? item;

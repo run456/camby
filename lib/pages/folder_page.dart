@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
@@ -120,8 +121,9 @@ class _FolderPageState extends State<FolderPage> {
                             parent: AlwaysScrollableScrollPhysics(),
                           ),
                           gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                // 平板（≥840）：与媒体库网格一致升到 6 列
+                                crossAxisCount: context.isTablet ? 6 : 3,
                                 crossAxisSpacing: 11,
                                 mainAxisSpacing: 16,
                                 childAspectRatio: 0.55,
