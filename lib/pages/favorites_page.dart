@@ -544,6 +544,14 @@ class _StackTile extends StatelessWidget {
                 final maxDepth = covers.isEmpty
                     ? 0
                     : math.min(2, covers.length - 1);
+                // v2.0.10：角标贴到**封面**右上角 —— 此前固定在瓦片 top:8，
+                // 平板上封面按原生比例贴底后上边留白很大，角标悬在半空
+                const scale = 0.85;
+                final cw2 = w * scale;
+                final ch2 = MediaQuery.of(context).size.width >=
+                        kTabletBreakpoint
+                    ? math.min(h * scale, cw2 * 1.45)
+                    : h * scale;
                 return Stack(
                   clipBehavior: Clip.none,
                   // v1.7.66：卡片贴底对齐 —— 之前 Center 让 0.85 缩放的
@@ -560,8 +568,8 @@ class _StackTile extends StatelessWidget {
                       ),
                     if (count > 0)
                       Positioned(
-                        top: 8,
-                        right: 8,
+                        top: math.max(8.0, h - ch2 + 8),
+                        right: (w - cw2) / 2 + 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
@@ -840,12 +848,21 @@ class _NewFolderTile extends StatelessWidget {
           Expanded(
             // v1.7.67：虚线外框缩到与海报堆叠卡一致（0.85 缩放 + 贴底），
             // 看起来和其他收藏夹一样大；内部按钮/文字还原 v1.7.63 尺寸
+            // v2.0.10：平板下封面高按原生比例（宽×1.45）收窄，虚线框同款
+            // 收窄 —— 此前固定 0.85 高，比旁边的收藏夹封面高出一大截
             child: Align(
               alignment: Alignment.bottomCenter,
-              child: FractionallySizedBox(
-                widthFactor: 0.85,
-                heightFactor: 0.85,
-                child: CustomPaint(
+              child: LayoutBuilder(
+                builder: (c, cons) {
+                  final tablet = MediaQuery.of(context).size.width >=
+                      kTabletBreakpoint;
+                  final w = cons.maxWidth;
+                  final h = cons.maxHeight;
+                  final cw = w * 0.85;
+                  final ch = tablet
+                      ? math.min(h * 0.85, cw * 1.45)
+                      : h * 0.85;
+                  final box = CustomPaint(
                   painter: _DashedRRectPainter(
                     radius: 14,
                     color: Colors.white.withOpacity(0.26),
@@ -882,7 +899,16 @@ class _NewFolderTile extends StatelessWidget {
                       ],
                     ),
                   ),
-                ),
+                  ); // CustomPaint
+                  if (tablet) {
+                    return SizedBox(width: cw, height: ch, child: box);
+                  }
+                  return FractionallySizedBox(
+                    widthFactor: 0.85,
+                    heightFactor: 0.85,
+                    child: box,
+                  );
+                },
               ),
             ),
           ),

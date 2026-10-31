@@ -855,9 +855,11 @@ class _HomePageState extends State<HomePage> {
   /// 平板每日推荐页（设计稿 .hero）：定高 300 卡片，
   /// 背景横版封面整卡铺满 + 左侧压暗渐变 + 信息列（对齐 .hero .info）。
   Widget _tabletHeroPage(MediaItem item) {
-    // v2.0.9 实测反馈：改用**竖版海报**为主题铺满整卡（设计稿方案），
-    // 横版 backdrop 仅作兜底；左→右压暗 scrim 保证信息列可读
-    final bg = item.posterUrlFor(1200) ?? item.backdropUrl;
+    // v2.0.10 实测反馈：采用设计稿**方案 C** —— 竖版海报为主 + 横图虚化铺底：
+    // 横版剧照高斯模糊铺满整卡做氛围底，左侧一张清晰的竖版海报做识别主体，
+    // 右侧信息列（徽章/标题/元信息/简介/换一批），整卡可点进详情
+    final poster = item.posterUrlFor(800);
+    final backdrop = item.backdropUrl;
     return RepaintBoundary(
       child: LiquidPress(
         onTap: () => widget.onOpenDetail(item, heroTag: 'home-hero-${item.id}'),
@@ -867,8 +869,23 @@ class _HomePageState extends State<HomePage> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (bg != null)
-              CachedImage(url: bg, fit: BoxFit.cover, memWidth: 1200)
+            // ① 横图虚化铺底（无横图退渐变色块）
+            if (backdrop != null)
+              RepaintBoundary(
+                child: ClipRect(
+                  child: ImageFiltered(
+                    imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                    child: Transform.scale(
+                      scale: 1.15, // 放大遮住模糊产生的边缘透底
+                      child: CachedImage(
+                        url: backdrop,
+                        fit: BoxFit.cover,
+                        memWidth: 900,
+                      ),
+                    ),
+                  ),
+                ),
+              )
             else
               DecoratedBox(
                 decoration: BoxDecoration(
@@ -879,7 +896,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-            // 设计稿 .hero .scrim：左→右压暗，保证信息可读、右侧露封面
+            // ② 全局压暗：左重右轻（信息区可读、氛围底透气）
             Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -887,30 +904,46 @@ class _HomePageState extends State<HomePage> {
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      const Color(0xE604080E),
-                      const Color(0xCC04080E),
-                      Colors.black.withOpacity(0.55),
-                      Colors.black.withOpacity(0.12),
+                      const Color(0xD904080E),
+                      const Color(0x8C04080E),
+                      Colors.black.withOpacity(0.30),
                     ],
-                    stops: const [0.0, 0.32, 0.56, 0.82],
                   ),
                 ),
               ),
             ),
-            // 左侧信息列（.hero .info）
-            Positioned(
-              left: 36,
-              top: 0,
-              bottom: 0,
-              right: 420,
-              child: Center(
-                child: ValueListenableBuilder<MediaItem>(
-                  valueListenable: _heroVN,
-                  builder: (context, h, _) => _tabletHeroInfo(h),
-                ),
+            // ③ 竖版海报（识别主体）+ 右侧信息列
+            Padding(
+              padding: const EdgeInsets.fromLTRB(36, 22, 36, 22),
+              child: Row(
+                children: [
+                  if (poster != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: AspectRatio(
+                        aspectRatio: 1 / 1.45,
+                        child: CachedImage(
+                          url: poster,
+                          fit: BoxFit.cover,
+                          memWidth: 500,
+                        ),
+                      ),
+                    ),
+                  if (poster != null) const SizedBox(width: 26),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ValueListenableBuilder<MediaItem>(
+                        valueListenable: _heroVN,
+                        builder: (context, h, _) =>
+                            _tabletHeroInfo(h, withShuffle: true),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            // 右下页码点（.hero .dots）
+            // ④ 右下页码点（.hero .dots）
             Positioned(
               right: 16,
               bottom: 14,
@@ -941,16 +974,14 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
             ),
-            // 换一批（.hero .acts）
-            Positioned(left: 36, bottom: 14, child: _shuffleButton()),
           ],
         ),
       ),
     );
   }
 
-  /// 平板 Hero 信息列：徽章 / 标题 / 元信息 / 简介
-  Widget _tabletHeroInfo(MediaItem item) {
+  /// 平板 Hero 信息列：徽章 / 标题 / 元信息 / 简介 /（可选）换一批
+  Widget _tabletHeroInfo(MediaItem item, {bool withShuffle = false}) {
     final genre = _displayGenre(item);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1026,11 +1057,16 @@ class _HomePageState extends State<HomePage> {
             ],
           ),
         ),
+        // v2.0.10：换一批从卡左下（会被海报挡住）挪进信息列底部
+        if (withShuffle) ...[
+          const SizedBox(height: 12),
+          _shuffleButton(),
+        ],
       ],
     );
   }
 
-  /// 「换一批」按钮（手机叠在海报内 / 平板放 Hero 卡左下）
+  /// 「换一批」按钮（手机叠在海报内 / 平板放 Hero 信息列底部）
   Widget _shuffleButton() {
     return LiquidPress(
       onTap: () => unawaited(_shuffleReco()),

@@ -440,40 +440,9 @@ class _AppShellState extends State<AppShell>
       ),
       child: Column(
         children: [
-          const SizedBox(height: 16),
-          const Padding(
-            padding: EdgeInsets.only(bottom: 10),
-            child: Icon(
-              Icons.play_circle_fill_rounded,
-              size: 28,
-              color: Color(0xEBFFFFFF),
-            ),
-          ),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // v2.0.9：弃用 NavigationRail（按钮 21dp 太小），
-                // 改为液态玻璃按钮（选中项玻璃胶囊高亮 + 实时模糊）
-                for (final (i, it) in GlassNavBar._items.indexed)
-                  _RailButton(
-                    icon: it.$1,
-                    label: it.$2,
-                    selected: _tab == i,
-                    expanded: expanded,
-                    onTap: () {
-                      setState(() {
-                        _tab = i;
-                        _visited.add(i);
-                      });
-                      _tabAnim.forward(from: 0);
-                      _blur.value = false;
-                    },
-                  ),
-              ],
-            ),
-          ),
-          // v2.0.9：搜索升级为 Rail 上的独立按钮
+          const SizedBox(height: 14),
+          // v2.0.10 实测反馈：顶部 Logo（播放圆钮）与状态栏叠在一起观感不对，
+          // 去掉；搜索从底部挪到**最上面**（首页上方），Tab 组随之上移贴顶
           _RailButton(
             icon: Icons.search_rounded,
             label: '搜索',
@@ -482,6 +451,24 @@ class _AppShellState extends State<AppShell>
             onTap: _openSearch,
           ),
           const SizedBox(height: 14),
+          // v2.0.9：弃用 NavigationRail（按钮 21dp 太小），
+          // 改为液态玻璃按钮（选中项玻璃胶囊高亮 + 实时模糊）
+          for (final (i, it) in GlassNavBar._items.indexed)
+            _RailButton(
+              icon: it.$1,
+              label: it.$2,
+              selected: _tab == i,
+              expanded: expanded,
+              onTap: () {
+                setState(() {
+                  _tab = i;
+                  _visited.add(i);
+                });
+                _tabAnim.forward(from: 0);
+                _blur.value = false;
+              },
+            ),
+          const Spacer(),
         ],
       ),
     );

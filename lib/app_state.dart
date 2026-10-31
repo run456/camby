@@ -101,23 +101,39 @@ class AppState extends ChangeNotifier {
       return;
     }
     _playbackLoading = true;
+    // v2.0.10：四项请求各自独立 try —— 以前串在一个 try 里，插件接口
+    // （playbackReport）一失败，活动日志/最近播放/已看历史全被连坐置空，
+    // 统计页「每日观看时长 / 播放时段 / 最常看作品」整版没数据（实测反馈）。
+    // Playback Reporting 插件不可用是常态（普通 Emby 没装），不该影响
+    // 任何用户权限都能访问的活动日志与已看历史。
     try {
       _playback = await s.playbackReport(days: 30);
+    } catch (_) {
+      _playback = null;
+    }
+    try {
       // 内置活动日志：条目级播放次数 + 小时分布（插件不可用时兜底）
       _activity = await s.activityLog();
       // v1.7.72：活动日志里出现、但不在当前库列表的条目（被删除/其它类型），
       // 向服务器反查片名；查不到的 UI 显示「库外影片」而不是裸 Id
       await _resolveActivityNames();
+    } catch (_) {
+      _activity = null;
+    }
+    try {
       // 最近播放 10 部（普通用户权限即可，用于完成率卡名单）
       _recentPlayedItems = await s.recentPlayed(limit: 10);
+    } catch (_) {
+      _recentPlayedItems = const [];
+    }
+    try {
       // v2.0.2：服务器「已看」历史（/Users/{id}/PlayedItems，任何客户端写过
       // Played=true 都会出现在这里）。首页「继续观看」原本只看本地库条目的
       // resumeProgress —— 片源播放离开本机 App 后一无所知；补上这份列表，
       // 就有了不依赖活动日志的跨端播放历史。
       _playedHistory = await s.playedHistory(limit: 30);
     } catch (_) {
-      _playback = null;
-      _activity = null;
+      _playedHistory = const [];
     }
     _playbackLoading = false;
     notifyListeners();

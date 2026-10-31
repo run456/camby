@@ -363,7 +363,10 @@ class _DetailPageState extends State<DetailPage> {
   /// ② .detailBody 主从分栏 1fr / 380px：左 = 分集/主演/标签/剧照/相似推荐，
   ///    右 = 剧情简介 + 媒体信息
   List<Widget> _tabletChildren(MediaItem item) {
-    final bgUrl = item.backdropUrl ?? item.posterUrlFor(1200);
+    // v2.0.10 实测反馈：头部效果与首页推荐位一致（方案 C）——
+    // 横图虚化铺底做氛围，竖版海报悬浮做识别主体
+    final bgUrl = item.backdropUrl;
+    final posterUrl = item.posterUrlFor(800);
     final tags = _tagList(item);
     return [
       // ---- 头部 ----
@@ -377,7 +380,21 @@ class _DetailPageState extends State<DetailPage> {
               fit: StackFit.expand,
               children: [
                 if (bgUrl != null)
-                  CachedImage(url: bgUrl, fit: BoxFit.cover, memWidth: 1200)
+                  RepaintBoundary(
+                    child: ClipRect(
+                      child: ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+                        child: Transform.scale(
+                          scale: 1.15, // 放大遮住模糊边缘透底
+                          child: CachedImage(
+                            url: bgUrl,
+                            fit: BoxFit.cover,
+                            memWidth: 900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
                 else
                   DecoratedBox(
                     decoration: BoxDecoration(
@@ -406,16 +423,31 @@ class _DetailPageState extends State<DetailPage> {
                     ),
                   ),
                 ),
-                // 左侧信息列（.detailHead .info）
-                Positioned(
-                  left: 36,
-                  top: 0,
-                  bottom: 0,
-                  right: 430,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // v2.0.10：竖版海报（识别主体）+ 右侧信息列
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(32, 20, 32, 20),
+                  child: Row(
                     children: [
+                      if (posterUrl != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: AspectRatio(
+                            aspectRatio: 1 / 1.45,
+                            child: CachedImage(
+                              url: posterUrl,
+                              fit: BoxFit.cover,
+                              memWidth: 500,
+                            ),
+                          ),
+                        ),
+                      if (posterUrl != null) const SizedBox(width: 26),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                       Text(
                         item.name,
                         maxLines: 2,
@@ -487,7 +519,11 @@ class _DetailPageState extends State<DetailPage> {
                           ],
                         ),
                       ],
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
