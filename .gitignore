@@ -56,3 +56,6 @@ app.*.map.json
 .flutter-plugins
 .flutter-plugins-dependencies
 /android/build
+
+# 构建产物不入库（真机安装包在 releases/ 单独分发）
+*.apk
