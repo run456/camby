@@ -21,15 +21,25 @@ class _FakeServer extends EmbyServer {
   final List<(String, List<String>)> removed = [];
   final List<String> deleted = [];
   List<ServerPlaylist> playlists = const [];
+  bool failRename = false;
+  bool failCreate = false;
 
   @override
   Future<String?> createPlaylist(String name, List<String> ids) async {
+    if (failCreate) {
+      lastPlaylistError = '请求失败 (500)';
+      return null;
+    }
     createdNames.add(name);
     return 'pl_$name';
   }
 
   @override
   Future<bool> renamePlaylist(String id, String name) async {
+    if (failRename) {
+      lastPlaylistError = '改名失败: 请求失败 (500)';
+      return false;
+    }
     renamed[id] = name;
     return true;
   }
@@ -152,8 +162,58 @@ void main() {
     expect(s.deleted, contains('plJunk'));
   });
 
-  test('上云失败时标记 pendingSync，同步结果如实反映', () async {
-    final s = _FailingCreateServer(); // createPlaylist 永远返回 null
+  test('上行模式：服务端播放列表已消失 → 用本地名称与片单重新创建（v1.7.69）', () async {
+    final s = _FakeServer();
+    s.playlists = const []; // 服务端空（脏数据已被清理），本地还带着旧 playlistId
+    final st = _state(
+      s,
+      [
+        FavoriteFolder(
+          id: 'f5',
+          name: '哈哈',
+          itemIds: ['m1'],
+          serverId: 's1',
+          playlistId: 'plStale', // 服务端已不存在
+        ),
+      ],
+    );
+    final n = await st.syncFoldersFromServer();
+    expect(s.createdNames, contains('哈哈'), reason: '必须重新创建，不能只标 pending');
+    final f = st.folders.first;
+    expect(f.playlistId, 'pl_哈哈');
+    expect(f.pendingSync, isFalse);
+    expect(st.pendingSyncCount, 0);
+    expect(n, 1);
+  });
+
+  test('上行模式：改名失败 → pendingSync 置位且诊断带原因（v1.7.69）', () async {
+    final s = _FakeServer();
+    s.failRename = true;
+    s.playlists = [ServerPlaylist('pl1', '云端旧名', ['m1'])];
+    final st = _state(
+      s,
+      [
+        FavoriteFolder(
+          id: 'f6',
+          name: '本机新名',
+          itemIds: ['m1'],
+          serverId: 's1',
+          playlistId: 'pl1',
+        ),
+      ],
+    );
+    await st.syncFoldersFromServer();
+    expect(st.folders.first.pendingSync, isTrue);
+    expect(st.pendingSyncCount, 1);
+    expect(st.folderSyncDiag, contains('改名失败'));
+    expect(st.folderSyncDiag, contains('本机新名'));
+    // 改名失败不应阻断片单同步
+    expect(s.added, isEmpty, reason: '本地与服务端片单一致时无需加片');
+  });
+
+  test('上云失败时标记 pendingSync，诊断带具体原因', () async {
+    final s = _FakeServer();
+    s.failCreate = true; // createPlaylist 永远失败
     s.playlists = const [];
     final st = _state(
       s,
@@ -169,11 +229,6 @@ void main() {
     await st.syncFoldersFromServer();
     expect(st.folders.first.pendingSync, isTrue);
     expect(st.pendingSyncCount, 1);
+    expect(st.folderSyncDiag, contains('创建失败'));
   });
-}
-
-/// createPlaylist 永远失败的假服务端（用于验证 pending 标记）
-class _FailingCreateServer extends _FakeServer {
-  @override
-  Future<String?> createPlaylist(String name, List<String> ids) async => null;
 }

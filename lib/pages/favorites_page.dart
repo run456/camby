@@ -785,16 +785,22 @@ class _SyncButtonState extends State<_SyncButton> {
       final n = await widget.state.syncFoldersFromServer();
       if (!mounted) return;
       final pending = widget.state.pendingSyncCount;
-      final msg = pending > 0
-          ? '已同步 · $n 个收藏夹（$pending 个待重试）'
-          : '已同步 · $n 个收藏夹与服务器一致';
-      showToast(
-        context,
-        msg,
-        icon: pending > 0
-            ? Icons.warning_amber_rounded
-            : Icons.check_circle_outline_rounded,
-      );
+      if (pending > 0) {
+        // 失败诊断：把服务端返回的具体错误带给用户，不再只说"待重试"
+        final d = widget.state.folderSyncDiag;
+        final detail = d.isEmpty ? '' : '：${d.length > 42 ? '${d.substring(0, 42)}…' : d}';
+        showToast(
+          context,
+          '已同步 · $n 个收藏夹（$pending 个待重试）$detail',
+          icon: Icons.warning_amber_rounded,
+        );
+      } else {
+        showToast(
+          context,
+          '已同步 · $n 个收藏夹与服务器一致',
+          icon: Icons.check_circle_outline_rounded,
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       showToast(context, '同步失败，请检查网络后重试', icon: Icons.error_outline_rounded);

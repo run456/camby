@@ -1116,3 +1116,39 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.68-release-arm64.apk`（`cn.camby.camby` / 108 / 1.7.68 / 33M / sha256 `f290d1d59accc775eeea16447d37a7a9e5ace6156652578ba2c6cac0db88b479`）。
 
 > 发布节奏：未推送 GitHub（v1.7.68 为累计窗口第 4 版）。
+
+---
+
+## 35. v1.7.69 (109) 同步仍失败修复：重建消失的播放列表 + 失败原因可见
+
+### 现象（v1.7.68 真机实测）
+
+收藏页同步 toast「已同步 · 3 个收藏夹（**3 个待重试**）」，Emby 网页端播放列表为空——
+即 3 个收藏夹全部上云失败，但 APP 说不出原因。
+
+### 根因
+
+| # | 问题 | 说明 |
+|---|---|---|
+| 1 | **v1.7.68 逻辑漏洞** | 收藏夹带着旧 playlistId、但服务端对应播放列表已不在（`_reconcileUpload` 中 `p == null`）时，只置 `pendingSync` 却**从不重新创建** → 永远卡「待重试」，服务端永远是空的 |
+| 2 | **失败原因被吞** | 创建/改名/加片失败全部静默，真机上服务端返回的具体错误（400/500/…）无法看到 |
+
+### 修复
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 重建消失的播放列表 | `p == null` → 走与纯本地相同的 `createOnServer`（用本地名称+片单重建，成功即更新 playlistId 并清 pending） |
+| 2 | 失败原因可见 | `EmbyServer.lastPlaylistError` 记录最近一次错误；`_reconcileUpload` 收集 diag → `AppState.folderSyncDiag` → toast「N 个待重试：「夹名」创建失败：请求失败 (500)」 |
+| 3 | 创建兼容性 | 补 `MediaType=Video`；2xx 空 body 不回 Id 时按名字重新拉列表兜底（`_findPlaylistIdByName`） |
+| 4 | 真网络验证 | 新增本地假 Emby HTTP 服务测试：验证 Name/Ids/UserId 确实走 query、body 为空、空 body 兜底、rename 先 GET 全对象再 POST |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning（改动文件） |
+| `flutter test`（全量） | **196 / 196 全绿**（含 4 条真 HTTP 假服务端用例） |
+
+**交付**：`camby-1.7.69-release-arm64.apk`（`cn.camby.camby` / 109 / 1.7.69 / 34M / sha256 `a87c8de1f4b075df55887d71e260fccc66c798011fe0cbb1eddcecc5e93f0781`）。
+
+> 发布节奏：未推送 GitHub（v1.7.69 为累计窗口第 5 版，达到推送窗口，随下版一起推）。

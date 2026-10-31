@@ -845,20 +845,34 @@ class EmbyServer {
   // 两种基址、/Items 与 /Items/Add 两种追加路由），这里逐个端点探测，任一环节
   // 失败都**静默回退为「仅本地收藏夹」**，绝不影响正常播放。
 
-  /// 创建播放列表，返回服务端 Id（失败返回 null）
+  /// 最近一次播放列表操作（创建/改名/增删条目）的失败原因。
+  /// 空字符串 = 没有失败或未发生过操作。同步流程读取它给用户提示（v1.7.69）。
+  String lastPlaylistError = '';
+
+  /// 创建播放列表，返回服务端 Id（失败返回 null，具体原因见 [lastPlaylistError]）
   ///
   /// v1.7.68 关键修正：**Emby 创建播放列表的参数在 URL query 上，不在 JSON body**。
   /// 之前把 `Name`/`Ids` 放进 body，服务端读不到 → 创建出"成功但空名空片"的播放列表，
   /// 并返合法 Id，最终把本地好名字用空壳覆盖掉（v1.7.67 事故根因）。
   /// 现在改为 `POST /Playlists?Name=..&Ids=..&UserId=..`（body 留空）。
+  ///
+  /// v1.7.69：① 补 `MediaType=Video`；② 部分 Emby 版本 2xx 但**空 body 不回 Id**——
+  /// 此时重新拉播放列表按名字匹配兜底；③ 失败原因写入 [lastPlaylistError]，
+  /// 不再"静默失败只说待重试"。
   Future<String?> createPlaylist(String name, List<String> itemIds) async {
     final uid = _userId;
-    if (_token == null || uid == null) return null;
+    if (_token == null || uid == null) {
+      lastPlaylistError = '未登录';
+      return null;
+    }
+    lastPlaylistError = '';
     final query = <String, String>{
       'Name': name,
       'UserId': uid,
+      'MediaType': 'Video',
     };
     if (itemIds.isNotEmpty) query['Ids'] = itemIds.join(',');
+    Object? lastErr;
     for (final path in [
       '$baseUrl/Users/$uid/Playlists',
       '$baseUrl/Playlists',
@@ -867,10 +881,25 @@ class EmbyServer {
         final json = await _postQueryReturning(path, query);
         final id = (json['Id'] ?? json['ItemId'])?.toString();
         if (id != null && id.isNotEmpty) return id;
-      } catch (_) {
-        /* 端点不存在或参数不被接受，试下一个基址 */
+        // 2xx 但没回 Id：可能已创建（空 body 版本），按名字找一遍
+        final byName = await _findPlaylistIdByName(name);
+        if (byName != null) return byName;
+        lastErr = EmbyException('服务端已响应但未返回播放列表 Id');
+      } catch (e) {
+        lastErr = e;
       }
     }
+    lastPlaylistError = lastErr?.toString() ?? '未知错误';
+    return null;
+  }
+
+  /// 按名字查找服务端播放列表 Id（找不到返回 null）
+  Future<String?> _findPlaylistIdByName(String name) async {
+    try {
+      for (final p in await listPlaylists()) {
+        if (p.name == name) return p.id;
+      }
+    } catch (_) {}
     return null;
   }
 
@@ -902,7 +931,7 @@ class EmbyServer {
     }
   }
 
-  /// 向播放列表追加条目（失败返回 false，调用方保留本地状态）
+  /// 向播放列表追加条目（失败返回 false，原因见 [lastPlaylistError]）
   Future<bool> addToPlaylist(String playlistId, List<String> itemIds) async {
     if (_token == null || itemIds.isEmpty) return false;
     final ids = itemIds.join(',');
@@ -913,7 +942,9 @@ class EmbyServer {
       try {
         await _postJsonReturning(path, {'Ids': ids});
         return true;
-      } catch (_) {}
+      } catch (e) {
+        lastPlaylistError = '加片失败: $e';
+      }
     }
     return false;
   }
@@ -929,7 +960,8 @@ class EmbyServer {
       await _request('$baseUrl/Playlists/$playlistId/Items?Ids=$ids',
           method: 'DELETE');
       return true;
-    } catch (_) {
+    } catch (e) {
+      lastPlaylistError = '移片失败: $e';
       return false;
     }
   }
@@ -946,7 +978,8 @@ class EmbyServer {
       m['Name'] = name;
       await _postJsonReturning('$baseUrl/Items/$playlistId', m);
       return true;
-    } catch (_) {
+    } catch (e) {
+      lastPlaylistError = '改名失败: $e';
       return false;
     }
   }
@@ -957,7 +990,8 @@ class EmbyServer {
     try {
       await _request('$baseUrl/Items/$playlistId', method: 'DELETE');
       return true;
-    } catch (_) {
+    } catch (e) {
+      lastPlaylistError = '删除失败: $e';
       return false;
     }
   }
