@@ -1819,41 +1819,42 @@ class PlayerPageState extends State<PlayerPage>
                   ),
                 ),
 
-              // 双击快进提示：v1.7.22 起中央的「上一部/下一部」已移除，
-              // 提示改到中央按钮组的**正上方**。
-              // v2.0.2：原先放在同一水平线上、距中心 148dp 处，窄屏（如
-              // 1092×525 的横屏）上 148dp 恰好落在快进按钮上，出现「+10秒」
-              // 气泡压住按钮的重叠。改为垂直上移一档，按钮组整高 66dp、
-              // 半高 33dp，气泡半高约 20dp → 上移 60dp 即留出 7dp 间隔；
-              // 同时横向朝点击的那半边轻微偏移，保留「左退右进」的方向感。
+              // 双击 ±10 秒提示（v2.0.3）：
+              // 紧贴对应按钮的**同一水平线**上，而不是堆在按钮组正上方 ——
+              //   · +10 秒 → 快进按钮**右侧**，与其水平对齐，间距 = 快进↔播放 的 26dp
+              //   · -10 秒 → 快退按钮**左侧**，与其水平对齐，间距 = 快退↔播放 的 26dp
+              // 几何（相对屏幕水平中心 x=0，与 _centerControls 严格一致）：
+              //   播放钮半宽 33、按钮间隔 26、快进退钮半宽 25
+              //   → 快进钮右缘 = 33+26+25 = 109；快退钮左缘 = -109
+              //   气泡固定宽 _tipW=92（见下），半宽 46
+              //   +10 秒：气泡左缘 = 109+26 = 135 → 中心 135+46 = 181
+              //   -10 秒：气泡右缘 = -109-26 = -135 → 中心 -135-46 = -181
+              // 故不论左右，translate 的水平位移都是 ±181，纵向为 0（同屏心）。
               if (_doubleTip != null)
                 Align(
                   alignment: Alignment.center,
-                  child: Builder(
-                    builder: (ctx) {
-                      final w = MediaQuery.sizeOf(ctx).width;
-                      final dx = _doubleTipLeft ? -34.0 : 34.0;
-                      final dy = -(w < 480 ? 46.0 : 60.0);
-                      return Transform.translate(
-                        offset: Offset(dx, dy),
-                        child: Glass(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 12,
-                          ),
-                          radius: 16,
-                          blur: 20,
-                          blurEnabled: false,
-                          child: Text(
-                            _doubleTip!,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                  child: Transform.translate(
+                    // _doubleTipLeft = true 是「-10秒」(快退，在左)；false 是「+10秒」(快进，在右)
+                    offset: Offset(_doubleTipLeft ? -181.0 : 181.0, 0),
+                    child: Glass(
+                      // 固定宽高便于上面的位移精确对应 26dp 间距；内容居中不换行
+                      width: 92,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      radius: 16,
+                      blur: 20,
+                      blurEnabled: false,
+                      child: Text(
+                        _doubleTip!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
 
