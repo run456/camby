@@ -39,12 +39,18 @@ void main() {
   testWidgets('平板端（1194dp）：左侧 Rail 导航，无底部 Tab', (tester) async {
     await _pumpShell(tester, _tabletSize);
 
-    expect(find.byType(NavigationRail), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    // Rail 宽度 = 96（设计稿 .rail{width:96px}）
-    final railRect = tester.getRect(find.byType(NavigationRail).first);
-    expect(railRect.width, lessThanOrEqualTo(96));
+    // v2.0.9：Rail 弃用 NavigationRail，改为自定义玻璃按钮条
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byType(GlassNavBar), findsNothing,
+        reason: '平板不得出现底部 Tab 栏');
+    expect(find.byIcon(Icons.search_rounded), findsOneWidget,
+        reason: 'v2.0.9：搜索必须是 Rail 上的独立按钮');
+    // 1194 是中等档：纯图标（无文字标签），5 个 Tab + 1 个搜索 = 6 个玻璃按钮
+    expect(find.byIcon(Icons.home_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
   });
 
   testWidgets('手机端首页 Hero 仍是满幅海报（非 300 定高卡片）',

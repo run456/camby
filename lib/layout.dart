@@ -54,11 +54,13 @@ extension CambyLayout on BuildContext {
   /// 是否启用左侧导航栏（替代底部 Tab）。
   bool get useRail => isTablet;
 
-  /// 媒体栅格列数（设计稿 §断点）：扩展 6 列 / 中等 4 列 / 手机 3 列。
-  int get mediaGridColumns => isExpanded ? 6 : (isTablet ? 4 : 3);
+  /// 媒体栅格列数：扩展 7 列 / 中等 5 列 / 手机 3 列。
+  /// v2.0.9 实测反馈：平板 6/4 列封面偏大，加密到 7/5（对齐「全部收藏」观感）。
+  int get mediaGridColumns => isExpanded ? 7 : (isTablet ? 5 : 3);
 
-  /// 收藏栅格列数（设计稿 .collection）：扩展 5 列 / 中等 4 列 / 手机 3 列。
-  int get favoriteGridColumns => isExpanded ? 5 : (isTablet ? 4 : 3);
+  /// 收藏栅格列数：扩展 6 列 / 中等 5 列 / 手机 3 列。
+  /// v2.0.9 实测反馈：一排 4 个浪费空间 → 中等 5、扩展 6。
+  int get favoriteGridColumns => isExpanded ? 6 : (isTablet ? 5 : 3);
 }
 
 /// 播放页控件度量（手机 / 平板两套）

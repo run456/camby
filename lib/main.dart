@@ -440,50 +440,117 @@ class _AppShellState extends State<AppShell>
       ),
       child: Column(
         children: [
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+          const SizedBox(height: 16),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
             child: Icon(
               Icons.play_circle_fill_rounded,
-              size: 26,
-              color: Colors.white.withOpacity(0.92),
+              size: 28,
+              color: Color(0xEBFFFFFF),
             ),
           ),
           Expanded(
-            child: NavigationRail(
-              backgroundColor: Colors.transparent,
-              selectedIndex: _tab,
-              onDestinationSelected: (i) {
-                setState(() {
-                  _tab = i;
-                  _visited.add(i);
-                });
-                _tabAnim.forward(from: 0);
-                _blur.value = false;
-              },
-              labelType: expanded
-                  ? NavigationRailLabelType.all
-                  : NavigationRailLabelType.none,
-              selectedIconTheme: const IconThemeData(size: 21),
-              unselectedIconTheme: const IconThemeData(size: 21),
-              selectedLabelTextStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-              unselectedLabelTextStyle: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-              ),
-              destinations: [
-                for (final it in GlassNavBar._items)
-                  NavigationRailDestination(
-                    icon: Icon(it.$1),
-                    label: Text(it.$2),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // v2.0.9：弃用 NavigationRail（按钮 21dp 太小），
+                // 改为液态玻璃按钮（选中项玻璃胶囊高亮 + 实时模糊）
+                for (final (i, it) in GlassNavBar._items.indexed)
+                  _RailButton(
+                    icon: it.$1,
+                    label: it.$2,
+                    selected: _tab == i,
+                    expanded: expanded,
+                    onTap: () {
+                      setState(() {
+                        _tab = i;
+                        _visited.add(i);
+                      });
+                      _tabAnim.forward(from: 0);
+                      _blur.value = false;
+                    },
                   ),
               ],
             ),
           ),
+          // v2.0.9：搜索升级为 Rail 上的独立按钮
+          _RailButton(
+            icon: Icons.search_rounded,
+            label: '搜索',
+            selected: false,
+            expanded: expanded,
+            onTap: _openSearch,
+          ),
+          const SizedBox(height: 14),
         ],
+      ),
+    );
+  }
+}
+
+/// Rail 上的单个玻璃按钮：选中项玻璃胶囊高亮（实时模糊），未选中半透明。
+/// 触控目标 ≥ 56dp 高（v2.0.9：旧 NavigationRail 图标 21dp 太小）。
+class _RailButton extends StatelessWidget {
+  const _RailButton({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 14),
+      child: Glass(
+        onTap: onTap,
+        radius: 16,
+        blur: 20,
+        // 仅选中项开实时模糊：Rail 常驻屏幕，未选中项省一次逐帧重采样
+        blurEnabled: selected,
+        tint: selected ? 0.16 : 0.05,
+        padding: EdgeInsets.symmetric(
+          vertical: expanded ? 10 : 8,
+          horizontal: 0,
+        ),
+        child: SizedBox(
+          width: 66,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: expanded ? 24 : 23,
+                color: selected
+                    ? Colors.white
+                    : Colors.white.withOpacity(0.62),
+              ),
+              if (expanded) ...[
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    height: 1.1,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected
+                        ? Colors.white
+                        : Colors.white.withOpacity(0.62),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camby 平板详情页重设计方案（v2.1.0 提案）</title>
+<style>
+  :root{
+    --bg:#04080e; --card:rgba(255,255,255,.06); --line:rgba(255,255,255,.10);
+    --blue:#4f8cff; --muted:#8b94a7; --txt:#e8eefb;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0a0f18;color:var(--txt);font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:28px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:22px}
+  h2{font-size:15px;margin:26px 0 10px;color:#9cc2ff}
+  /* 模拟平板横屏 1194×834 */
+  .tablet{width:1194px;max-width:100%;height:834px;background:var(--bg);border-radius:18px;border:1px solid var(--line);overflow:hidden;display:flex;position:relative;margin-bottom:8px}
+  .rail{width:96px;flex:none;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:18px 0;gap:8px;background:rgba(255,255,255,.02)}
+  .rail .logo{font-size:24px;margin-bottom:10px}
+  .rbtn{width:66px;padding:9px 0;border-radius:16px;display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,.62);font-size:10.5px;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+  .rbtn.on{color:#fff;background:linear-gradient(135deg,rgba(79,140,255,.35),rgba(123,92,255,.22));border-color:rgba(120,170,255,.45);box-shadow:0 4px 18px rgba(79,140,255,.25)}
+  .main{flex:1;overflow:hidden;position:relative}
+  /* ① 头部横幅 */
+  .banner{position:relative;height:330px;background:
+    linear-gradient(180deg,rgba(4,8,14,0) 30%,rgba(4,8,14,.55) 78%,var(--bg) 100%),
+    linear-gradient(90deg,rgba(4,8,14,.72) 0%,rgba(4,8,14,.25) 55%,rgba(4,8,14,.05) 100%),
+    radial-gradient(120% 160% at 78% 30%,#31415e 0%,#141c2c 55%,#0a1120 100%)}
+  .banner .fakeimg{position:absolute;inset:0;background:
+    radial-gradient(60% 90% at 70% 45%,rgba(196,150,120,.35),transparent 60%),
+    radial-gradient(40% 60% at 30% 60%,rgba(90,120,200,.25),transparent 65%);
+    opacity:.9}
+  .poster{position:absolute;left:30px;top:56px;width:180px;height:262px;border-radius:16px;border:1px solid rgba(255,255,255,.18);box-shadow:0 18px 44px rgba(0,0,0,.6);
+    background:linear-gradient(160deg,#c9927a 0%,#7d5a68 45%,#2a3350 100%);display:flex;align-items:flex-end;padding:10px;color:#fff;font-weight:700;font-size:13px;text-shadow:0 1px 4px #000}
+  .hinfo{position:absolute;left:238px;right:36px;bottom:26px}
+  .hbadges{display:flex;gap:8px;margin-bottom:10px}
+  .chip{padding:3px 10px;border-radius:20px;font-size:11px;background:rgba(79,140,255,.18);border:1px solid rgba(79,140,255,.45);color:#bcd4ff}
+  .chip.g{background:rgba(255,255,255,.08);border-color:var(--line);color:#cfd8ea}
+  .htitle{font-size:30px;font-weight:800;letter-spacing:.5px;line-height:1.2}
+  .hmeta{color:#aab7cf;font-size:12.5px;margin:8px 0 14px}
+  .hacts{display:flex;gap:12px;align-items:center}
+  .play{display:flex;align-items:center;gap:8px;padding:11px 26px;border-radius:26px;font-weight:800;font-size:14px;color:#fff;
+    background:linear-gradient(135deg,#3f7ef0,#6b5df3);box-shadow:0 8px 24px rgba(79,140,255,.4)}
+  .ghost{display:flex;align-items:center;gap:7px;padding:11px 18px;border-radius:26px;font-size:13px;color:#dfe7f5;background:rgba(255,255,255,.08);border:1px solid var(--line)}
+  .prog{position:absolute;right:36px;bottom:30px;width:280px;font-size:11px;color:var(--muted)}
+  .prog .bar{height:5px;border-radius:3px;background:rgba(255,255,255,.15);margin-top:6px;overflow:hidden}
+  .prog .bar i{display:block;height:100%;width:62%;background:linear-gradient(90deg,#2f7fe8,#4f9cff);border-radius:3px}
+  /* ② 双栏内容 */
+  .body{display:flex;gap:24px;padding:20px 36px 0}
+  .col-l{flex:1;min-width:0}
+  .col-r{width:340px;flex:none}
+  .sec{margin-bottom:18px}
+  .sec h3{font-size:14.5px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .sec h3 small{color:var(--muted);font-weight:500;font-size:11px}
+  .row{display:flex;gap:10px;overflow:hidden}
+  .mini{flex:none;width:110px}
+  .mini .ph{height:160px;border-radius:10px;background:linear-gradient(160deg,#43507a,#1d2438);border:1px solid var(--line)}
+  .mini .t{font-size:11px;color:#c7d2e6;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .person{width:76px;text-align:center}
+  .person .ph{width:76px;height:76px;border-radius:50%;background:linear-gradient(160deg,#6a5a7a,#232c44);border:1px solid var(--line)}
+  .person .t{font-size:11px;color:#c7d2e6;margin-top:6px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+  .panel h4{font-size:13px;margin-bottom:8px;color:#bcd2ff}
+  .panel p{font-size:12.5px;color:#c3cddf}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:12px;margin-top:10px}
+  .kv b{color:var(--muted);font-weight:500}
+  .kv span{color:#d5deee;text-align:right}
+  .tags{display:flex;flex-wrap:wrap;gap:8px}
+  .note{max-width:1194px;font-size:12.5px;color:var(--muted);border-left:3px solid var(--blue);padding:10px 14px;background:rgba(79,140,255,.07);border-radius:0 10px 10px 0;margin-top:10px}
+  .taglab{font-size:11px;color:#8fb4ff;background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.35);border-radius:14px;padding:2px 10px}
+</style>
+</head>
+<body>
+<h1>Camby 平板详情页 · 重设计方案</h1>
+<div class="sub">v2.1.0 提案 · 横屏 ≥840 生效，手机端保持现状零改动 · 确认后开始实施</div>
+
+<div class="tablet">
+  <div class="rail">
+    <div class="logo">▶</div>
+    <div class="rbtn">🏠<span>首页</span></div>
+    <div class="rbtn">▦</div>
+    <div class="rbtn on">♥</div>
+    <div class="rbtn">📊</div>
+    <div class="rbtn">👤</div>
+    <div style="flex:1"></div>
+    <div class="rbtn">🔍<span>搜索</span></div>
+  </div>
+  <div class="main">
+    <!-- ① 头部横幅：backdrop 全宽铺底 + 竖版海报悬浮 + 信息压在左下 -->
+    <div class="banner">
+      <div class="fakeimg"></div>
+      <div class="poster">MNGS-067</div>
+      <div class="hinfo">
+        <div class="hbadges">
+          <span class="chip">1080P</span><span class="chip">AAC</span>
+          <span class="chip g">2026</span><span class="chip g">剧情</span><span class="chip g">中日字幕</span>
+        </div>
+        <div class="htitle">MNGS-067 合宿×欲望 憧憬の女子マネージャーが絶倫部員に達した件</div>
+        <div class="hmeta">2026 · 122 分钟 · 4.5★ · 已看 62%&nbsp;&nbsp;|&nbsp;&nbsp;主演：夏目彩春 · 相泽南</div>
+        <div class="hacts">
+          <div class="play">▶ 立即播放</div>
+          <div class="ghost">⟳ 从 01:15:32 续播</div>
+          <div class="ghost">＋ 收藏</div>
+          <div class="ghost">✓ 已看</div>
+        </div>
+      </div>
+      <div class="prog">观看进度 62% · 剩余 46 分钟<div class="bar"><i></i></div></div>
+    </div>
+    <!-- ② 双栏内容 -->
+    <div class="body">
+      <div class="col-l">
+        <div class="sec">
+          <h3>分集 <small>第 1 季 · 共 1 集</small></h3>
+          <div class="row">
+            <div class="mini"><div class="ph" style="height:64px"></div><div class="t">E01 正片 122分钟</div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3>演员</h3>
+          <div class="row">
+            <div class="person"><div class="ph"></div><div class="t">夏目彩春</div></div>
+            <div class="person"><div class="ph"></div><div class="t">相泽南</div></div>
+            <div class="person"><div class="ph"></div><div class="t">天使もえ</div></div>
+            <div class="person"><div class="ph"></div><div class="t">新名あみ</div></div>
+            <div class="person"><div class="ph"></div><div class="t">水稀少子</div></div>
+            <div class="person"><div class="ph"></div><div class="t">小邻沙树</div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3>标签</h3>
+          <div class="tags">
+            <span class="taglab">中出 · 舞台</span><span class="taglab">女子学生</span><span class="taglab">巨乳</span>
+            <span class="taglab">淫乱・ハード系</span><span class="taglab">单体作品</span><span class="taglab">数字马赛克</span>
+          </div>
+        </div>
+        <div class="sec">
+          <h3>剧照</h3>
+          <div class="row">
+            <div class="mini"><div class="ph" style="height:62px;width:160px"></div></div>
+            <div class="mini"><div class="ph" style="height:62px;width:160px"></div></div>
+            <div class="mini"><div class="ph" style="height:62px;width:160px"></div></div>
+            <div class="mini"><div class="ph" style="height:62px;width:160px"></div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3>相似推荐 <small>同系列 · 同演员</small></h3>
+          <div class="row">
+            <div class="mini"><div class="ph"></div><div class="t">MVSD-696</div></div>
+            <div class="mini"><div class="ph"></div><div class="t">MMGS-071</div></div>
+            <div class="mini"><div class="ph"></div><div class="t">MMGS-066</div></div>
+            <div class="mini"><div class="ph"></div><div class="t">START-593</div></div>
+            <div class="mini"><div class="ph"></div><div class="t">JUR-429</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-r">
+        <div class="panel" style="margin-bottom:14px">
+          <h4>剧情简介</h4>
+          <p>住着初交易渴望被_text 理想中一直憧憬的马诺雅拉与后辈部员们共度两天一夜的合宿训练营。被精神 Stand-By…（简介全文，此处省略）</p>
+        </div>
+        <div class="panel">
+          <h4>媒体信息</h4>
+          <div class="kv">
+            <b>视频</b><span>1080P · H.264 · 12.5 Mbps</span>
+            <b>音频</b><span>AAC 2.0ch 日语</span>
+            <b>字幕</b><span>中文（外挂 SRT）</span>
+            <b>容器</b><span>MP4 · 9.2 GB</span>
+            <b>服务器</b><span>STINE · 2025/12/09 入库</span>
+            <b>文件</b><span>MNGS-067.mp4</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note"><b>设计要点：</b>
+① 头部横幅（高约 330dp）：横版 backdrop 全宽铺底 + 底部/左侧双向渐变压暗，<b>竖版海报悬浮在左</b>（180×270，圆角 16，投影），标题/徽章/元信息/操作按钮全部压在横幅左下，右下角放观看进度条 —— 一进页面就能按播放；
+② 内容双栏：左栏 = 分集 / 演员 / 标签 / 剧照 / 相似推荐（全部横向滚动行），右栏固定 340dp = 剧情简介 + 媒体信息（玻璃卡片）；
+③ 中等档（840–1199）：横幅同款，右栏并入左栏改为限宽居中单列，不再出现你截图里「手机版式拉满整屏」的观感；
+④ 手机端（&lt;840）完全不动。</div>
+</body>
+</html>

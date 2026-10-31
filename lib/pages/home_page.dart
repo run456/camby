@@ -575,16 +575,17 @@ class _HomePageState extends State<HomePage> {
                     ),
 
                     // 继续观看
-                    // 平板：设计稿 .hrow 一屏 7 张，横版卡（800/538 零裁切）
+                    // 平板：一屏 5 张横版大卡（800/538 零裁切；v2.0.9 由 7 调大）
                     if (state.continueWatching.isNotEmpty)
                       SliverToBoxAdapter(
                         child: Builder(
                           builder: (context) {
                             final pad = tablet ? 24.0 : 16.0;
                             final gap = tablet ? 12.0 : 12.0;
-                            // 手机保持原全宽大卡（16:9）；平板一屏 7 张横版
+                            // 手机保持原全宽大卡（16:9）
+                            // v2.0.9 实测反馈：一屏 7 张封面太小 → 5 张
                             final cardW = tablet
-                                ? (cw - pad * 2 - 6 * gap) / 7
+                                ? (cw - pad * 2 - 4 * gap) / 5
                                 : cw - 32;
                             final cardAspect = tablet
                                 ? 800.0 / 538.0
@@ -628,8 +629,8 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
 
-                    // 最近添加：手机 3×3 网格；平板一屏 9 张竖版横排行
-                    //（设计稿 .hrow-hp，容器比例与海报原生 1599/2275 一致零裁切）
+                    // 最近添加：手机 3×3 网格；平板一屏 7 张 + 露头横排行
+                    //（与按媒体库行同款样式，v2.0.9 统一）
                     if (state.items.isNotEmpty)
                       SliverToBoxAdapter(
                         child: _RowHeader(
@@ -642,9 +643,9 @@ class _HomePageState extends State<HomePage> {
                       SliverToBoxAdapter(
                         child: Builder(
                           builder: (context) {
-                            // PosterCard 海报高 = 宽×1.45（≈0.69，贴近 0.703）
-                            // + 标题/元信息约 44dp
-                            final w = (cw - 48 - 8 * 12) / 9;
+                            // v2.0.9 实测反馈：与「按媒体库」行统一 ——
+                            // 一屏 7 张整卡 + 露出下一张一小截（peek 0.35）
+                            final w = (cw - 48 - 8 * 12) / 7.35;
                             return SizedBox(
                               height: w * 1.45 + 44,
                               child: ListView.builder(
@@ -652,7 +653,7 @@ class _HomePageState extends State<HomePage> {
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 24,
                                 ),
-                                itemCount: state.recentlyAdded.take(9).length,
+                                itemCount: state.recentlyAdded.take(20).length,
                                 itemBuilder: (c, i) {
                                   final e = state.recentlyAdded[i];
                                   return Padding(
@@ -706,7 +707,8 @@ class _HomePageState extends State<HomePage> {
                     if (state.views.isNotEmpty)
                       ...state.views.map((v) {
                         final row = _rows[v.id] ?? const <MediaItem>[];
-                        final rowW = tablet ? (cw - 48 - 6 * 12) / 7 : 118.0;
+                        // 一屏 7 张整卡 + 露出下一张一小截（v2.0.9 与最近添加统一）
+                        final rowW = tablet ? (cw - 48 - 7 * 12) / 7.35 : 118.0;
                         return SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -853,7 +855,9 @@ class _HomePageState extends State<HomePage> {
   /// 平板每日推荐页（设计稿 .hero）：定高 300 卡片，
   /// 背景横版封面整卡铺满 + 左侧压暗渐变 + 信息列（对齐 .hero .info）。
   Widget _tabletHeroPage(MediaItem item) {
-    final bg = item.backdropUrl ?? item.posterUrlFor(_heroDecodeWidth);
+    // v2.0.9 实测反馈：改用**竖版海报**为主题铺满整卡（设计稿方案），
+    // 横版 backdrop 仅作兜底；左→右压暗 scrim 保证信息列可读
+    final bg = item.posterUrlFor(1200) ?? item.backdropUrl;
     return RepaintBoundary(
       child: LiquidPress(
         onTap: () => widget.onOpenDetail(item, heroTag: 'home-hero-${item.id}'),

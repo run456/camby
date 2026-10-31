@@ -274,58 +274,54 @@ class _StatsPageState extends State<StatsPage> {
   }
 }
 
-/// 平板双栏布局：卡片两两并排，分隔用 SizedBox 与分区标题/页头保持整行。
+/// 平板双栏布局（v2.0.9 重写）：两条**独立流式**纵列，不再两两强制同行。
 ///
-/// 规则：SizedBox 间距丢弃；`_SectionHead` 保持整行；其余卡片按顺序两两并排，
-/// 落单的一张占半宽（右侧留空），保证手机端原有顺序与内容完全不变。
+/// 旧实现把卡片按顺序两两塞进同一个 Row —— Row 高度取两者较大者，
+/// 矮的那张下面留洞，左右列相互错位（实测反馈 #2）。
+/// 新规则：页头/分区标题/概览网格保持整行；`_SectionCard` 按顺序
+/// 左右交替进两条独立 Column，各列内部自然流式排布，高度互不影响。
 List<Widget> _tabletColumns(bool wide, List<Widget> children) {
   if (!wide) return children;
   const gap = 14.0;
-  final out = <Widget>[];
-  var pending = <Widget>[];
-
-  void flush() {
-    if (pending.isEmpty) return;
-    if (pending.length == 1) {
-      out.add(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: pending.first),
-            const Spacer(),
-          ],
-        ),
-      );
-    } else {
-      out.add(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: pending[0]),
-            const SizedBox(width: gap),
-            Expanded(child: pending[1]),
-          ],
-        ),
-      );
-      out.add(const SizedBox(height: gap));
-    }
-    pending = <Widget>[];
-  }
+  final head = <Widget>[];
+  final left = <Widget>[];
+  final right = <Widget>[];
+  var putLeft = true;
 
   for (final w in children) {
-    if (w is SizedBox) continue; // 竖向间距在双栏下无意义
-    // 页头（数据总结 + 来源）与「概览」网格保持整行，不参与并排
-    if (w is _SectionHead || w is Padding || w is _OverviewGrid) {
-      flush();
-      out.add(w);
-      out.add(const SizedBox(height: gap));
-      continue;
+    if (w is SizedBox) continue; // 竖向间距由栏内 gap 接管
+    if (w is _SectionCard) {
+      (putLeft ? left : right).add(w);
+      putLeft = !putLeft;
+    } else {
+      // 页头（数据总结 + 来源）、分区标题、概览网格 → 整行
+      head.add(w);
+      head.add(const SizedBox(height: gap));
     }
-    pending.add(w);
-    if (pending.length == 2) flush();
   }
-  flush();
-  return out;
+
+  Widget col(List<Widget> list) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (var i = 0; i < list.length; i++) ...[
+        if (i > 0) const SizedBox(height: 12),
+        list[i],
+      ],
+    ],
+  );
+
+  if (head.isNotEmpty) head.add(const SizedBox(height: 4));
+  return [
+    ...head,
+    Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: col(left)),
+        const SizedBox(width: gap),
+        Expanded(child: col(right)),
+      ],
+    ),
+  ];
 }
 
 /// 来源小标签
