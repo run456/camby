@@ -1167,7 +1167,7 @@ class LibraryStats {
       ..sort((a, b) => b.value.compareTo(a.value));
     final maxP = topP.isEmpty ? 1 : topP.first.value;
     final topPeople = topP
-        .take(4)
+        .take(5)
         .map((e) => {'name': e.key, 'count': e.value, 'weight': e.value / maxP})
         .toList();
 

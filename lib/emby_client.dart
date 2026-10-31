@@ -1240,6 +1240,40 @@ class EmbyServer {
     return _parseItems(json);
   }
 
+  /// 按 Id 批量反查片名（活动日志里的条目不在当前库列表时兜底显示用）。
+  ///
+  /// 返回 {id → name}；已从服务器删除的条目不会出现在结果里。
+  /// v1.7.72：修「常看作品 Top 显示裸 Id（如 34847）」——那些 Id 对应的影片
+  /// 多半已被删除或不在 APP 拉取的库范围内，原来直接把 Id 当名字显示。
+  Future<Map<String, String>> itemNamesByIds(List<String> ids) async {
+    if (_token == null || _userId == null || ids.isEmpty) return const {};
+    try {
+      final json = await _getJson(
+        '$baseUrl/Users/$_userId/Items',
+        query: {
+          'Ids': ids.take(50).join(','),
+          'Fields': 'Name',
+          'Limit': '${ids.length.clamp(1, 50)}',
+        },
+      );
+      final out = <String, String>{};
+      if (json is Map && json['Items'] is List) {
+        for (final it in (json['Items'] as List)) {
+          if (it is Map) {
+            final id = it['Id']?.toString();
+            final nm = it['Name']?.toString();
+            if (id != null && id.isNotEmpty && nm != null && nm.isNotEmpty) {
+              out[id] = nm;
+            }
+          }
+        }
+      }
+      return out;
+    } catch (_) {
+      return const {};
+    }
+  }
+
   /// 播放报告（需 Playback Reporting 插件）
   ///
   /// GET /emby/user_usage_stats/PlayActivity?days=&end_date=&data_type=time|count
@@ -1390,6 +1424,10 @@ class EmbyServer {
         if (r is! Map) continue;
         final type = (r['Type'] ?? '').toString().toLowerCase();
         if (!type.contains('playback')) continue;
+        // v1.7.72：只统计本人账号的播放。管理员账号拉到的日志包含
+        // 全家所有用户，不按 UserId 过滤会把别人的播放算进自己的统计
+        final uid = (r['UserId'] ?? '').toString();
+        if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
         final d = DateTime.tryParse((r['Date'] ?? '').toString());
         final itemId = (r['ItemId'] ?? '').toString();
         if (type.contains('start')) {

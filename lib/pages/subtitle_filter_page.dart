@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../models.dart';
-import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/sort_chip_row.dart';
 
 /// 字幕筛选页：本地筛选含中文字幕的条目（数据来自内存全量 items）
+///
+/// v1.7.72：与标签页统一排序控件——年份/标题/评分，点选倒序、再点切正序。
 class SubtitleFilterPage extends StatefulWidget {
   const SubtitleFilterPage({
     super.key,
@@ -25,7 +27,8 @@ class SubtitleFilterPage extends StatefulWidget {
 
 class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
   late List<MediaItem> _items;
-  int _sort = 0; // 0 最近添加 1 评分 2 年份
+  SortField _field = SortField.year;
+  bool _asc = false;
 
   @override
   void initState() {
@@ -35,16 +38,7 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
 
   void _compute() {
     final list = widget.state.items.where(itemHasChineseSubtitle).toList();
-    switch (_sort) {
-      case 1:
-        list.sort((a, b) => b.rating.compareTo(a.rating));
-        break;
-      case 2:
-        list.sort((a, b) => b.year.compareTo(a.year));
-        break;
-      default:
-        list.sort((a, b) => a.addedDaysAgo.compareTo(b.addedDaysAgo));
-    }
+    sortItemsBy(list, _field, _asc);
     _items = list;
   }
 
@@ -103,18 +97,15 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
                 ],
               ),
             ),
-            // 排序
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  _sortChip('最近添加', 0),
-                  const SizedBox(width: 8),
-                  _sortChip('评分', 1),
-                  const SizedBox(width: 8),
-                  _sortChip('年份', 2),
-                ],
-              ),
+            // 排序（与标签页共用同一控件）
+            SortChipRow(
+              field: _field,
+              ascending: _asc,
+              onChanged: (f, asc) => setState(() {
+                _field = f;
+                _asc = asc;
+                _compute();
+              }),
             ),
             Expanded(
               child: _items.isEmpty
@@ -176,43 +167,4 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
     );
   }
 
-  Widget _sortChip(String label, int idx) {
-    final on = _sort == idx;
-    return LiquidPress(
-      radius: 999,
-      scale: 0.95,
-      onTap: () => setState(() {
-        _sort = idx;
-        _compute();
-      }),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          gradient: on
-              ? const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0x3D4F8CFF), Color(0x1A5F8CFF)],
-                )
-              : null,
-          color: on ? null : Colors.white.withOpacity(0.05),
-          border: Border.all(
-            color: on
-                ? const Color(0x884F8CFF)
-                : Colors.white.withOpacity(0.12),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-            color: on ? const Color(0xFFCFE0FF) : AppColors.muted,
-          ),
-        ),
-      ),
-    );
-  }
 }

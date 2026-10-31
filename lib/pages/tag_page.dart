@@ -7,9 +7,13 @@ import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/sort_chip_row.dart';
 
 /// 标签筛选页：列出包含该标签（或分辨率）的影片
-class TagPage extends StatelessWidget {
+///
+/// v1.7.72：与「中文字幕」页统一——同款 年份/标题/评分 排序胶囊，
+/// 点选倒序、再点同字段切正序。
+class TagPage extends StatefulWidget {
   const TagPage({
     super.key,
     required this.tag,
@@ -21,12 +25,21 @@ class TagPage extends StatelessWidget {
   final AppState state;
   final OpenDetail onOpenDetail;
 
+  @override
+  State<TagPage> createState() => _TagPageState();
+}
+
+class _TagPageState extends State<TagPage> {
+  SortField _field = SortField.year;
+  bool _asc = false; // 默认倒序（新年份在前）
+
   static final RegExp _res = RegExp(r'^(2160|1080|720|480|360)[pP]$');
 
   List<MediaItem> get _items {
+    final tag = widget.tag;
     final key = tag.trim().toUpperCase();
     final isRes = _res.hasMatch(tag.trim());
-    return state.items.where((e) {
+    final list = widget.state.items.where((e) {
       if (isRes) {
         if (!e.resolutionKnown) return false;
         final r = e.isTrue4K ? '2160P' : '${e.videoHeight}P';
@@ -36,10 +49,13 @@ class TagPage extends StatelessWidget {
       bool hit(String v) => v.trim().toUpperCase() == key;
       return e.tags.any(hit) || e.genres.any(hit);
     }).toList();
+    sortItemsBy(list, _field, _asc);
+    return list;
   }
 
   @override
   Widget build(BuildContext context) {
+    final state = widget.state;
     final items = _items;
     final top = MediaQuery.of(context).padding.top;
     return Scaffold(
@@ -87,7 +103,7 @@ class TagPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    '#$tag',
+                    '#${widget.tag}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -102,6 +118,14 @@ class TagPage extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          SortChipRow(
+            field: _field,
+            ascending: _asc,
+            onChanged: (f, asc) => setState(() {
+              _field = f;
+              _asc = asc;
+            }),
           ),
           Expanded(
             child: items.isEmpty
@@ -124,12 +148,12 @@ class TagPage extends StatelessWidget {
                     itemBuilder: (c, i) => PosterCard(
                       item: items[i],
                       width: double.infinity,
-                      heroTag: 'tag-${tag}-${items[i].id}',
+                      heroTag: 'tag-${widget.tag}-${items[i].id}',
                       onTap: () {
                         Navigator.of(context).pop();
-                        onOpenDetail(
+                        widget.onOpenDetail(
                           items[i],
-                          heroTag: 'tag-${tag}-${items[i].id}',
+                          heroTag: 'tag-${widget.tag}-${items[i].id}',
                         );
                       },
                     ),

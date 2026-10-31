@@ -51,6 +51,32 @@ class AppState extends ChangeNotifier {
   List<MediaItem> get recentPlayedItems => _recentPlayedItems;
   bool get playbackLoading => _playbackLoading;
 
+  /// 活动日志条目 Id → 片名（不在库列表里的条目，服务器反查结果）
+  Map<String, String> _activityNames = const {};
+  Map<String, String> get activityItemNames => _activityNames;
+
+  /// 反查活动日志里、当前库列表中找不到的条目名
+  Future<void> _resolveActivityNames() async {
+    final items = _items;
+    if (_activity == null || items.isEmpty) {
+      _activityNames = const {};
+      return;
+    }
+    final known = {for (final e in items) e.id};
+    final missing = _activity!.itemPlays.keys
+        .where((id) => !known.contains(id))
+        .toList();
+    if (missing.isEmpty) {
+      _activityNames = const {};
+      return;
+    }
+    try {
+      _activityNames = await _server!.itemNamesByIds(missing);
+    } catch (_) {
+      _activityNames = const {};
+    }
+  }
+
   Future<void> _loadPlayback() async {
     final s = _server;
     if (s == null) {
@@ -64,6 +90,9 @@ class AppState extends ChangeNotifier {
       _playback = await s.playbackReport(days: 30);
       // 内置活动日志：条目级播放次数 + 小时分布（插件不可用时兜底）
       _activity = await s.activityLog();
+      // v1.7.72：活动日志里出现、但不在当前库列表的条目（被删除/其它类型），
+      // 向服务器反查片名；查不到的 UI 显示「库外影片」而不是裸 Id
+      await _resolveActivityNames();
       // 最近播放 10 部（普通用户权限即可，用于完成率卡名单）
       _recentPlayedItems = await s.recentPlayed(limit: 10);
     } catch (_) {

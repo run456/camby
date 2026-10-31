@@ -65,7 +65,10 @@ class _StatsPageState extends State<StatsPage> {
     final hpad = wide ? 24.0 : 14.0;
 
     // 常看作品：优先活动日志的条目级次数，其次 UserData.PlayCount
+    // v1.7.72：库列表没有的条目先反查服务器片名（activityItemNames），
+    // 仍查不到的显示「库外影片」（多半已从服务器删除），不再显示裸 Id
     final itemById = {for (final e in items) e.id: e};
+    final resolvedNames = widget.state.activityItemNames;
     final topWatched = <(String, int)>[];
     if (activity != null && activity.itemPlays.isNotEmpty) {
       final entries = activity.itemPlays.entries.toList()
@@ -73,7 +76,8 @@ class _StatsPageState extends State<StatsPage> {
       for (final e in entries.take(5)) {
         final nm =
             itemById[e.key]?.name ??
-            (e.key.length > 8 ? e.key.substring(0, 8) : e.key);
+            resolvedNames[e.key] ??
+            '库外影片（已删除）';
         topWatched.add((nm, e.value));
       }
     } else {
