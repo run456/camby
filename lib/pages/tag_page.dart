@@ -55,7 +55,6 @@ class _TagPageState extends State<TagPage> {
 
   @override
   Widget build(BuildContext context) {
-    final state = widget.state;
     final items = _items;
     final top = MediaQuery.of(context).padding.top;
     return Scaffold(

@@ -33,6 +33,9 @@ class AppState extends ChangeNotifier {
   PlaybackReport? _playback;
   ActivitySummary? _activity;
   List<MediaItem> _recentPlayedItems = const [];
+
+  /// 服务器「已看」历史（/Users/{id}/PlayedItems），跨端、不依赖活动日志权限
+  List<MediaItem> _playedHistory = const [];
   bool _playbackLoading = false;
 
   /// 是否处于「离线（使用本地缓存）」状态
@@ -57,6 +60,9 @@ class AppState extends ChangeNotifier {
 
   /// 最近播放的条目（服务端 DatePlayed 倒序）
   List<MediaItem> get recentPlayedItems => _recentPlayedItems;
+
+  /// 服务器标记为「已看了」的历史条目（v2.0.2）
+  List<MediaItem> get playedHistory => _playedHistory;
   bool get playbackLoading => _playbackLoading;
 
   /// 活动日志条目 Id → 片名（不在库列表里的条目，服务器反查结果）
@@ -91,6 +97,7 @@ class AppState extends ChangeNotifier {
       _playback = null;
       _activity = null;
       _recentPlayedItems = const [];
+      _playedHistory = const [];
       return;
     }
     _playbackLoading = true;
@@ -103,6 +110,11 @@ class AppState extends ChangeNotifier {
       await _resolveActivityNames();
       // 最近播放 10 部（普通用户权限即可，用于完成率卡名单）
       _recentPlayedItems = await s.recentPlayed(limit: 10);
+      // v2.0.2：服务器「已看」历史（/Users/{id}/PlayedItems，任何客户端写过
+      // Played=true 都会出现在这里）。首页「继续观看」原本只看本地库条目的
+      // resumeProgress —— 片源播放离开本机 App 后一无所知；补上这份列表，
+      // 就有了不依赖活动日志的跨端播放历史。
+      _playedHistory = await s.playedHistory(limit: 30);
     } catch (_) {
       _playback = null;
       _activity = null;
@@ -142,12 +154,10 @@ class AppState extends ChangeNotifier {
 
   // 派生列表缓存：上千部影片时避免每次 build 重新排序
   List<MediaItem>? _recentCache;
-  List<MediaItem>? _continueCache;
   LibraryStats? _statsCache;
 
   void _invalidateDerived() {
     _recentCache = null;
-    _continueCache = null;
     _statsCache = null;
   }
 
@@ -179,8 +189,7 @@ class AppState extends ChangeNotifier {
   }
 
   List<MediaItem> get continueWatching {
-    final cached = _continueCache;
-    if (cached != null) return cached;
+    // 不做长期缓存：重拉库 / 播放完一部之后要立刻反映，缓存按构建好了
     final list =
         _items
             .where(
@@ -194,7 +203,12 @@ class AppState extends ChangeNotifier {
           ..sort(
             (a, b) => (b.lastPlayedAt ?? 0).compareTo(a.lastPlayedAt ?? 0),
           );
-    _continueCache = list;
+    // 2) v2.0.2：本地库没有续播点、但服务端「已看」历史里有的，补在后面。
+    //    本 APP 重装/换设备后，库条目的 UserData 还没重拉时，这一步能立刻
+    //    找回跨端的播放记录，不至于整块「继续观看」空着。
+    final seen = {for (final e in list) e.id};
+    final extra = _playedHistory.where((e) => !seen.contains(e.id)).take(6);
+    if (extra.isNotEmpty) list.addAll(extra);
     return list;
   }
 
@@ -271,8 +285,10 @@ class AppState extends ChangeNotifier {
     final ok = await s.reportProgress(itemId, positionTicks, played: played);
     // v1.7.73：UserData 直写之外同步发一次会话心跳，让服务器活动日志
     // 记录本 APP 的播放事件（统计页「每日观看时长/播放时段」的数据源）。
-    // 失败静默：会话事件是尽力而为，不进重试队列。
-    if (ok) unawaited(s.reportPlaybackProgress(itemId, positionTicks));
+    // v2.0.2：**不再依赖 UserData 是否成功** —— 两条链路互相独立，
+    // UserData 被服务端拒绝（比如权限/条目不可写）时，会话事件照样要发，
+    // 否则活动日志永远空白。失败只是尽力而为，不进重试队列。
+    unawaited(s.reportPlaybackProgress(itemId, positionTicks));
     if (ok) {
       if (_pendingProgress.remove(itemId) != null) _persistPendingProgress();
     } else {
@@ -615,11 +631,17 @@ class AppState extends ChangeNotifier {
           .map((f) => f.serverId == null ? f.copyWith(serverId: sid) : f)
           .toList();
     }
+    // v2.0.2：拉列表失败必须**中止**同步，不能当成「服务端没有播放列表」——
+    // 否则上行模式会把每个收藏夹都判成「服务器上已被删」→ 逐个重建，
+    // 网络一抖就产生一堆重复播放列表，本地 playlistId 也被换成新的。
+    // 旧实现在 catch 里塞 const []，是同步反复出问题的隐患之一。
     List<ServerPlaylist> remote;
     try {
       remote = await s.listPlaylists();
-    } catch (_) {
-      remote = const [];
+    } catch (e) {
+      folderSyncDiag = '拉取服务端播放列表失败：${s.lastPlaylistError.isNotEmpty ? s.lastPlaylistError : e}';
+      notifyListeners();
+      return _folders.where((f) => f.serverId == sid).length;
     }
 
     final localForServer = _folders.where((f) => f.serverId == sid).toList();
@@ -640,6 +662,8 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
     await _saveFolders();
+    // 本地可能有刚建立的续播位置变化：清掉「继续观看」缓存，页面立刻反映
+    _invalidateDerived();
     return _folders.where((f) => f.serverId == sid).length;
   }
 
@@ -1021,6 +1045,7 @@ class AppState extends ChangeNotifier {
     _playback = null;
     _activity = null;
     _recentPlayedItems = const [];
+    _playedHistory = const [];
     _invalidateDerived();
     notifyListeners();
   }
@@ -1038,6 +1063,7 @@ class AppState extends ChangeNotifier {
     _playback = null;
     _activity = null;
     _recentPlayedItems = const [];
+    _playedHistory = const [];
     _invalidateDerived();
     notifyListeners();
   }

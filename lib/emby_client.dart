@@ -310,20 +310,18 @@ class EmbyServer {
     String itemId, {
     int positionTicks = 0,
   }) async {
-    try {
-      _playSessionId = 'camby_${DateTime.now().microsecondsSinceEpoch}';
-      await _postJson('$baseUrl/Sessions/Playing', {
-        'ItemId': itemId,
-        'PlaySessionId': _playSessionId,
+    _playSessionId = 'camby_${DateTime.now().microsecondsSinceEpoch}';
+    _sessionItemId = itemId;
+    await _postSession(
+      itemId,
+      'Playing',
+      label: '开始播放上报',
+      extra: {
         'PositionTicks': positionTicks,
         'PlayMethod': 'DirectPlay',
         'CanSeek': true,
-      });
-      lastSessionError = '';
-    } catch (e) {
-      lastSessionError = '开始播放上报失败：$e';
-      debugPrint('reportPlaybackStart failed: $e');
-    }
+      },
+    );
   }
 
   /// 播放中心跳（POST /Sessions/Playing/Progress）
@@ -332,19 +330,21 @@ class EmbyServer {
     int positionTicks, {
     bool paused = false,
   }) async {
-    try {
-      await _postJson('$baseUrl/Sessions/Playing/Progress', {
-        'ItemId': itemId,
-        if (_playSessionId != null) 'PlaySessionId': _playSessionId,
+    // 会话还没建立（例如起播事件丢失）时补发一次 Playing，避免服务端
+    // 收到孤立心跳而忽略；PlaySessionId 保持一致才能算同一段播放。
+    if (_playSessionId == null) {
+      await reportPlaybackStart(itemId, positionTicks: positionTicks);
+    }
+    await _postSession(
+      itemId,
+      'Playing/Progress',
+      label: '播放进度上报',
+      extra: {
         'PositionTicks': positionTicks,
         'IsPaused': paused,
         'CanSeek': true,
-      });
-      lastSessionError = '';
-    } catch (e) {
-      lastSessionError = '播放进度上报失败：$e';
-      debugPrint('reportPlaybackProgress failed: $e');
-    }
+      },
+    );
   }
 
   /// 退出播放时上报（POST /Sessions/Stopped）
@@ -353,19 +353,75 @@ class EmbyServer {
     int positionTicks, {
     bool played = false,
   }) async {
-    try {
-      await _postJson('$baseUrl/Sessions/Stopped', {
-        'ItemId': itemId,
-        if (_playSessionId != null) 'PlaySessionId': _playSessionId,
+    // 停止事件依赖已建立的会话：没有 PlaySessionId 时服务端会直接忽略，
+    // 活动日志里就只剩「开始」没有「停止」，观看时长永远算不出来。
+    if (_playSessionId == null) {
+      await reportPlaybackStart(itemId, positionTicks: positionTicks);
+    }
+    await _postSession(
+      itemId,
+      'Stopped',
+      label: '停止播放上报',
+      extra: {
         'PositionTicks': positionTicks,
         if (played) 'Played': true,
+      },
+    );
+    _playSessionId = null;
+    _sessionItemId = null;
+  }
+
+  /// 会话事件的统一发送：**先按 query 发，再按 JSON body 兜底**。
+  ///
+  /// v2.0.2：Emby 10.9 起这些接口用 `[FromQuery]` 绑定模型，只认 query 参数，
+  /// body JSON 会被忽略 → ItemId 为空 → 大概率 400/204 但不落活动日志
+  /// （和 addToPlaylist 踩的是同一个坑）。Jellyfin 与旧版 Emby 则习惯 body。
+  /// 两种都试一遍，任一成功即算成功，并把失败原因写进 [lastSessionError]。
+  Future<void> _postSession(
+    String itemId,
+    String action, {
+    required String label,
+    required Map<String, dynamic> extra,
+  }) async {
+    final path = '$baseUrl/Sessions/$action';
+    final errors = <String>[];
+
+    // ① query 形态（Emby 10.9+）
+    try {
+      await _postQueryReturning(path, {
+        'ItemId': itemId,
+        if (_playSessionId != null) 'PlaySessionId': _playSessionId!,
+        ...extra.map((k, v) => MapEntry(k, '$v')),
       });
-      _playSessionId = null;
       lastSessionError = '';
+      return;
     } catch (e) {
-      lastSessionError = '停止播放上报失败：$e';
-      debugPrint('reportPlaybackStop failed: $e');
+      errors.add('query: $e');
     }
+
+    // ② body 形态（Jellyfin / 旧版 Emby）
+    try {
+      await _postJson(path, {
+        'ItemId': itemId,
+        if (_playSessionId != null) 'PlaySessionId': _playSessionId,
+        ...extra,
+      });
+      lastSessionError = '';
+      return;
+    } catch (e) {
+      errors.add('body: $e');
+    }
+
+    lastSessionError = '$label失败（${errors.join(' / ')}）';
+    debugPrint('$label failed: ${errors.join(' / ')}');
+  }
+
+  /// 会话最后一拍的兜底：应用退出 / 播放页被系统回收时也要把 Stopped 发出去，
+  /// 否则活动日志里只有「开始播放」，统计页的观看时长永远配不上对。
+  Future<void> flushPlaybackStop(int positionTicks, {bool played = false}) async {
+    final id = _sessionItemId;
+    if (id == null || _playSessionId == null) return;
+    await reportPlaybackStop(id, positionTicks, played: played);
   }
 
   /// 带鉴权头的 JSON POST，并返回解码后的响应体（播放列表等写操作后拿回 Id）
@@ -942,6 +998,9 @@ class EmbyServer {
   /// 本次播放的会话 Id（Emby 用它把 Start/Progress/Stop 串成同一次播放）
   String? _playSessionId;
 
+  /// 当前会话正在播的条目 Id（Stopped 事件与应用退出时的兜底上报用）
+  String? _sessionItemId;
+
   /// 创建播放列表，返回服务端 Id（失败返回 null，具体原因见 [lastPlaylistError]）
   ///
   /// v1.7.68 关键修正：**Emby 创建播放列表的参数在 URL query 上，不在 JSON body**。
@@ -1343,6 +1402,27 @@ class EmbyServer {
     return _parseItems(json);
   }
 
+  /// 服务器「已看」历史（v2.0.2）
+  ///
+  /// `GET /Users/{UserId}/Items?Filters=IsPlayed&SortBy=DatePlayed` —— 各客户端
+  /// 通用的已看标记，**不依赖活动日志权限**（普通用户也能读），用于在活动日志
+  /// 不可用时给「继续观看 / 播放记录」兜底。
+  Future<List<MediaItem>> playedHistory({int limit = 30}) async {
+    final json = await _getJson(
+      '$baseUrl/Users/$_userId/Items',
+      query: {
+        'Recursive': 'true',
+        'IncludeItemTypes': 'Movie,Episode,Video',
+        'Fields': _kItemFields,
+        'SortBy': 'DatePlayed',
+        'SortOrder': 'Descending',
+        'Limit': '$limit',
+        'Filters': 'IsPlayed',
+      },
+    );
+    return _parseItems(json);
+  }
+
   /// 按 Id 批量反查片名（活动日志里的条目不在当前库列表时兜底显示用）。
   ///
   /// 返回 {id → name}；已从服务器删除的条目不会出现在结果里。
@@ -1360,8 +1440,9 @@ class EmbyServer {
         },
       );
       final out = <String, String>{};
-      if (json is Map && json['Items'] is List) {
-        for (final it in (json['Items'] as List)) {
+      final rawItems = (json as Map)['Items'];
+      if (rawItems is List) {
+        for (final it in rawItems) {
           if (it is Map) {
             final id = it['Id']?.toString();
             final nm = it['Name']?.toString();

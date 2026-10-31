@@ -1366,3 +1366,42 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 | 新增守卫 | `playlist_add_http_test.dart`：`Ids=a1,a2`/`UserId` 必须在 query 且 body 为空；500 时返回 false 且写 `lastPlaylistError` |
 
 **交付**：`camby-2.0.1-release-arm64.apk`（versionCode **201** / **2.0.1**）。
+
+## 42. v2.0.2 (202) 会话上报 query 双形态 / 播放历史兜底 / 双击提示错位
+
+### 用户反馈
+
+1. 收藏同步已正常；
+2. 播放记录仍未同步、服务端活动记录里仍无 APP 信息（真机 2.0.1）；
+3. 播放页快进/快退时，提示气泡与按钮重叠（截图：`+10秒` 压在快进按钮上）。
+
+### 根因
+
+| # | 问题 | 根因 |
+|---|---|---|
+| 1 | 活动日志无 APP 条目 | Emby 10.9 起会话接口按 `[FromQuery]` 绑定模型，只认 query；旧实现全放 JSON body → ItemId 为空 → 服务端 204 但不落日志。与 v2.0.1 修的 `addToPlaylist` 属同一类错误 |
+| 2 | 心跳可能整段消失 | 心跳挂在 `reportProgress`（UserData）成功分支下，UserData 被拒时会话事件一次都不发 |
+| 3 | 只有 Start 没有 Stop | 直接上滑杀 App 不走 `dispose()`，`Stopped` 永远发不出去，观看时长对不上 |
+| 4 | 提示与按钮重叠 | 提示气泡与中央按钮同一条水平线（距中心 148dp），窄横屏下正好落在快进按钮上 |
+
+### 修复
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 传输形态 | 新增 `_postSession()`：先 query（`_postQueryReturning`）再 body（`_postJson`）兜底，任一成功即成功，失败写 `lastSessionError` |
+| 2 | 解耦 | `reportServerProgress` 里会话心跳独立发出，不再以 UserData 成功为前提 |
+| 3 | 顺序兜底 | `reportPlaybackProgress/Stop` 发现无 `PlaySessionId` 时先补发 `Playing` |
+| 4 | 生命周期 | `WidgetsBindingObserver`：`paused/detached` 补发 `Stopped`，`resumed` 重新起会话 |
+| 5 | 播放历史 | `playedHistory()`（`Filters=IsPlayed`）参与「继续观看」兜底，不依赖活动日志权限 |
+| 6 | 同步加固 | `listPlaylists` 失败中止同步；同步后清派生缓存 |
+| 7 | 提示位置 | 按钮组正上方：常规 60dp / 窄屏 46dp，横向 34dp 方向感偏移 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | **0 error / 0 warning**（顺手清掉 3 处历史告警） |
+| `flutter test` | **216 / 216 全绿**（新增 7 条：会话双形态 4 条 + 播放历史 1 条 + 提示布局 3 条中的 2 条与生命周期 1 条） |
+| 新增守卫 | `session_report_transport_test.dart`（query 优先 / body 兜底 / 失败可见 / 缺失会话补 Playing / playedHistory 查询契约）；`player_double_tip_layout_test.dart`（禁止 148dp 水平排布、上移量下限、生命周期观察者配对） |
+
+**交付**：`camby-2.0.2-release-arm64.apk`（versionCode **202** / **2.0.2**）。

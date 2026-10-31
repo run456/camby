@@ -50,7 +50,8 @@ class PlayerPage extends StatefulWidget {
   State<PlayerPage> createState() => PlayerPageState();
 }
 
-class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
+class PlayerPageState extends State<PlayerPage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   PlaybackController? _player;
 
   /// 起播内核。设置页「默认播放内核」0=Exo / 1=MPV —— 之前在 initState 里
@@ -213,6 +214,10 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    // v2.0.2：监听前后台切换 —— 用户直接上滑杀掉 App（或切到后台很久）
+    // 时不会走 dispose，服务端就永远收不到 Stopped，活动日志里只剩
+    // 「开始播放」，观看时长对不上。退到后台时补发一次 Stopped。
+    WidgetsBinding.instance.addObserver(this);
     _subtitle = widget.subtitle;
     // 屏蔽系统自带音量条，只保留 App 内的玻璃音量指示
     VolumeController.instance.showSystemUI = false;
@@ -985,7 +990,48 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   }
 
   @override
+  /// 退到后台 / 被系统回收前补发一次 Stopped（v2.0.2）。
+  ///
+  /// 直接上滑杀 App 不会走 dispose，服务端只能看到 Start 看不到 Stop，
+  /// 统计页的观看时长永远配不上对；这里在后台切换时兜一次。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && _sessionEnded) {
+      _sessionEnded = false;
+      if (!_demo && _recordHistory) {
+        unawaited(
+          widget.state.reportServerPlaybackStart(
+            widget.item.id,
+            positionTicks: (_positionSeconds * 10000000).round(),
+          ),
+        );
+      }
+      return;
+    }
+    if (state != AppLifecycleState.paused &&
+        state != AppLifecycleState.detached) {
+      return;
+    }
+    if (_demo || !_recordHistory) return;
+    final pos = _positionSeconds;
+    final total = _totalSeconds;
+    unawaited(
+      widget.state.reportServerPlaybackStop(
+        widget.item.id,
+        (pos * 10000000).round(),
+        played: total > 0 && pos >= total * 0.95,
+      ),
+    );
+    // 会话已结束，回到前台要重新起一段（否则后续心跳都成了孤立事件）
+    _sessionEnded = true;
+  }
+
+  /// 后台补发过 Stopped：回到前台时重新发一次 Playing 续上会话
+  bool _sessionEnded = false;
+
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // 退出播放页恢复系统音量条
     VolumeController.instance.showSystemUI = true;
     // 退出播放页解除播放常亮（v1.7.64）
@@ -1774,18 +1820,22 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
                 ),
 
               // 双击快进提示：v1.7.22 起中央的「上一部/下一部」已移除，
-              // 提示直接占回它们腾出的位置 —— 距屏幕中心 148dp 处。
-              // 窄屏按可用宽度内收，避免贴边。
+              // 提示改到中央按钮组的**正上方**。
+              // v2.0.2：原先放在同一水平线上、距中心 148dp 处，窄屏（如
+              // 1092×525 的横屏）上 148dp 恰好落在快进按钮上，出现「+10秒」
+              // 气泡压住按钮的重叠。改为垂直上移一档，按钮组整高 66dp、
+              // 半高 33dp，气泡半高约 20dp → 上移 60dp 即留出 7dp 间隔；
+              // 同时横向朝点击的那半边轻微偏移，保留「左退右进」的方向感。
               if (_doubleTip != null)
                 Align(
                   alignment: Alignment.center,
                   child: Builder(
                     builder: (ctx) {
                       final w = MediaQuery.sizeOf(ctx).width;
-                      // 148dp 是设计值；屏宽不够时留 76dp 边距（玻璃气泡半宽）
-                      final dx = (w / 2 - 76).clamp(0.0, 148.0);
+                      final dx = _doubleTipLeft ? -34.0 : 34.0;
+                      final dy = -(w < 480 ? 46.0 : 60.0);
                       return Transform.translate(
-                        offset: Offset(_doubleTipLeft ? -dx : dx, 0),
+                        offset: Offset(dx, dy),
                         child: Glass(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 22,

@@ -58,12 +58,15 @@ void main() {
         return;
       }
       final p = req.uri.path;
+      // v2.0.2：参数优先走 query（Emby 10.9+），body 只是兜底形态。
+      // 这里把两者拼起来做断言，契约是「参数必须完整出现在请求里」。
+      final payload = '${req.uri.query} ${await _readBody(req)}';
       if (p.endsWith('/Sessions/Playing')) {
-        hits['start'] = await _readBody(req);
+        hits['start'] = payload;
       } else if (p.endsWith('/Sessions/Playing/Progress')) {
-        hits['progress'] = await _readBody(req);
+        hits['progress'] = payload;
       } else if (p.endsWith('/Sessions/Stopped')) {
-        hits['stop'] = await _readBody(req);
+        hits['stop'] = payload;
       }
       req.response.statusCode = 204;
       await req.response.close();
@@ -75,15 +78,15 @@ void main() {
     await emby.reportPlaybackProgress('item1', 600000000);
     await emby.reportPlaybackStop('item1', 900000000, played: true);
 
-    expect(hits['start'], contains('"ItemId":"item1"'));
+    expect(hits['start'], contains('ItemId=item1'));
     // v2.0.1：必须带 PlaySessionId（部分 Emby 版本缺失会 400）
-    expect(hits['start'], contains('"PlaySessionId"'));
+    expect(hits['start'], contains('PlaySessionId='));
     // 起播位置必须原样带上，否则会把服务端续播位置重置为 0
-    expect(hits['start'], contains('"PositionTicks":50000000'));
-    expect(hits['progress'], contains('"PositionTicks":600000000'));
-    expect(hits['stop'], contains('"ItemId":"item1"'));
-    expect(hits['stop'], contains('"PositionTicks":900000000'));
-    expect(hits['stop'], contains('"Played":true'));
+    expect(hits['start'], contains('PositionTicks=50000000'));
+    expect(hits['progress'], contains('PositionTicks=600000000'));
+    expect(hits['stop'], contains('ItemId=item1'));
+    expect(hits['stop'], contains('PositionTicks=900000000'));
+    expect(hits['stop'], contains('Played=true'));
     await srv.close();
   });
 
