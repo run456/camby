@@ -51,6 +51,10 @@ class AppState extends ChangeNotifier {
   /// 统计页空态直接展示，用于区分「确实没数据」与「账号/权限没匹配上」。
   String get activityDiag => _server?.lastActivityDiag ?? '';
 
+  /// 会话型播放上报的失败原因（v2.0.1）：空字符串 = 上报正常。
+  /// 统计页空态展示，避免再出现「服务端没 APP 记录」却查不到原因。
+  String get sessionDiag => _server?.lastSessionError ?? '';
+
   /// 最近播放的条目（服务端 DatePlayed 倒序）
   List<MediaItem> get recentPlayedItems => _recentPlayedItems;
   bool get playbackLoading => _playbackLoading;
@@ -305,8 +309,18 @@ class AppState extends ChangeNotifier {
   // 播放时段统计、常看作品 Top」从此有本账号的真实数据。
 
   /// 起播上报：POST /Sessions/Playing（活动日志出现「开始播放」条目）
-  Future<void> reportServerPlaybackStart(String itemId) {
-    return _server?.reportPlaybackStart(itemId) ?? Future.value();
+  ///
+  /// [positionTicks] 必须带当前续播位置，否则服务端可能把进度重置为 0，
+  /// 「继续观看」在别的设备上就没了。
+  Future<void> reportServerPlaybackStart(
+    String itemId, {
+    int positionTicks = 0,
+  }) {
+    return _server?.reportPlaybackStart(
+          itemId,
+          positionTicks: positionTicks,
+        ) ??
+        Future.value();
   }
 
   /// 退出播放上报：POST /Sessions/Stopped（活动日志出现「停止播放」条目，

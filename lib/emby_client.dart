@@ -70,7 +70,7 @@ class EmbyServer {
     final uri = Uri.parse('$baseUrl/Users/AuthenticateByName').replace(
       queryParameters: const {
         'X-Emby-Client': 'Camby',
-        'X-Emby-Device-Name': 'Android',
+        'X-Emby-Device-Name': 'Camby',
         'X-Emby-Device-Id': 'camby01',
         'X-Emby-Client-Version': '1.0.0',
       },
@@ -116,7 +116,7 @@ class EmbyServer {
     ContentType contentType,
   ) async {
     const auth =
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", '
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
         'Version="1.0.0"';
     final req = await client.postUrl(uri);
     req.headers.contentType = contentType;
@@ -273,7 +273,7 @@ class EmbyServer {
       final req = await client.postUrl(Uri.parse(url));
       req.headers.set(
         'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
       );
       req.headers.contentType = ContentType.json;
       req.write(jsonEncode(body));
@@ -300,25 +300,51 @@ class EmbyServer {
   // 全部尽力而为（失败静默），不影响播放本身，也不进重试队列。
 
   /// 起播时上报（POST /Sessions/Playing）
-  Future<void> reportPlaybackStart(String itemId) async {
+  ///
+  /// 必须带上 `PlaySessionId` 与**当前续播位置**：
+  /// - 不带 PlaySessionId 时，部分 Emby 版本会直接 400（参数不能为空），
+  ///   而旧实现把异常静默吞掉 → 活动日志里始终没有 APP 的记录；
+  /// - 不带 PositionTicks 时按 0 处理，会把服务端已有续播位置**重置为 0**，
+  ///   导致「继续观看」在别的设备上消失。
+  Future<void> reportPlaybackStart(
+    String itemId, {
+    int positionTicks = 0,
+  }) async {
     try {
+      _playSessionId = 'camby_${DateTime.now().microsecondsSinceEpoch}';
       await _postJson('$baseUrl/Sessions/Playing', {
         'ItemId': itemId,
+        'PlaySessionId': _playSessionId,
+        'PositionTicks': positionTicks,
         'PlayMethod': 'DirectPlay',
+        'CanSeek': true,
       });
-    } catch (_) {
-      // 会话事件不关键，失败不打扰用户
+      lastSessionError = '';
+    } catch (e) {
+      lastSessionError = '开始播放上报失败：$e';
+      debugPrint('reportPlaybackStart failed: $e');
     }
   }
 
   /// 播放中心跳（POST /Sessions/Playing/Progress）
-  Future<void> reportPlaybackProgress(String itemId, int positionTicks) async {
+  Future<void> reportPlaybackProgress(
+    String itemId,
+    int positionTicks, {
+    bool paused = false,
+  }) async {
     try {
       await _postJson('$baseUrl/Sessions/Playing/Progress', {
         'ItemId': itemId,
+        if (_playSessionId != null) 'PlaySessionId': _playSessionId,
         'PositionTicks': positionTicks,
+        'IsPaused': paused,
+        'CanSeek': true,
       });
-    } catch (_) {}
+      lastSessionError = '';
+    } catch (e) {
+      lastSessionError = '播放进度上报失败：$e';
+      debugPrint('reportPlaybackProgress failed: $e');
+    }
   }
 
   /// 退出播放时上报（POST /Sessions/Stopped）
@@ -330,10 +356,16 @@ class EmbyServer {
     try {
       await _postJson('$baseUrl/Sessions/Stopped', {
         'ItemId': itemId,
+        if (_playSessionId != null) 'PlaySessionId': _playSessionId,
         'PositionTicks': positionTicks,
         if (played) 'Played': true,
       });
-    } catch (_) {}
+      _playSessionId = null;
+      lastSessionError = '';
+    } catch (e) {
+      lastSessionError = '停止播放上报失败：$e';
+      debugPrint('reportPlaybackStop failed: $e');
+    }
   }
 
   /// 带鉴权头的 JSON POST，并返回解码后的响应体（播放列表等写操作后拿回 Id）
@@ -348,7 +380,7 @@ class EmbyServer {
       final req = await client.postUrl(Uri.parse(url));
       req.headers.set(
         'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
       );
       req.headers.contentType = ContentType.json;
       req.write(jsonEncode(body));
@@ -902,6 +934,14 @@ class EmbyServer {
   /// 便于确认是权限、日志保留期还是账号格式问题。
   String lastActivityDiag = '';
 
+  /// 最近一次会话型播放上报的失败原因（v2.0.1）。
+  /// 空字符串 = 没有失败。会话事件是尽力而为的，但失败要让用户看得见，
+  /// 否则又会出现「活动日志里没有 APP 记录」却无从排查的情况。
+  String lastSessionError = '';
+
+  /// 本次播放的会话 Id（Emby 用它把 Start/Progress/Stop 串成同一次播放）
+  String? _playSessionId;
+
   /// 创建播放列表，返回服务端 Id（失败返回 null，具体原因见 [lastPlaylistError]）
   ///
   /// v1.7.68 关键修正：**Emby 创建播放列表的参数在 URL query 上，不在 JSON body**。
@@ -970,7 +1010,7 @@ class EmbyServer {
       final req = await client.postUrl(uri);
       req.headers.set(
         'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
       );
       final res = await req.close();
       final text = await res.transform(utf8.decoder).join();
@@ -985,15 +1025,25 @@ class EmbyServer {
   }
 
   /// 向播放列表追加条目（失败返回 false，原因见 [lastPlaylistError]）
+  ///
+  /// v2.0.1 关键修正：Emby 的加片接口 `POST /Playlists/{id}/Items` 只认
+  /// **query 参数**（`Ids` / `UserId`），旧实现把 `Ids` 放在 JSON body 里，
+  /// 服务端照样返回 2xx 但一条都没加 —— 表现就是「播放列表建出来了、片单
+  /// 却是空的」。与 v1.7.68 修 `createPlaylist` 是同一类问题。
   Future<bool> addToPlaylist(String playlistId, List<String> itemIds) async {
     if (_token == null || itemIds.isEmpty) return false;
-    final ids = itemIds.join(',');
+    final query = <String, String>{
+      'Ids': itemIds.join(','),
+      if (_userId != null) 'UserId': _userId!,
+    };
+    // 标准端点优先；/Items/Add 是部分版本的别名，留作兜底
     for (final path in [
-      '$baseUrl/Playlists/$playlistId/Items/Add',
       '$baseUrl/Playlists/$playlistId/Items',
+      '$baseUrl/Playlists/$playlistId/Items/Add',
     ]) {
       try {
-        await _postJsonReturning(path, {'Ids': ids});
+        await _postQueryReturning(path, query);
+        lastPlaylistError = '';
         return true;
       } catch (e) {
         lastPlaylistError = '加片失败: $e';
@@ -1132,7 +1182,7 @@ class EmbyServer {
         req.headers.set('X-Emby-Token', _token!);
         req.headers.set(
           'Authorization',
-          'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+          'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
         );
         final res = await req.close();
         final body = await res.transform(utf8.decoder).join();
@@ -1188,7 +1238,7 @@ class EmbyServer {
       req.headers.set('X-Emby-Token', _token!);
       req.headers.set(
         'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", '
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
         'Version="1.0.0", Token="$_token"',
       );
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
@@ -1598,7 +1648,7 @@ class EmbyServer {
         req.headers.set('X-Emby-Token', _token!);
         req.headers.set(
           'Authorization',
-          'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+          'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
         );
         final res = await req.close();
         final body = await res.transform(utf8.decoder).join();
@@ -1624,7 +1674,7 @@ class EmbyServer {
       final req = await client.openUrl(method, Uri.parse(url));
       req.headers.set(
         'Authorization',
-        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+        'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
       );
       final res = await req.close();
       await res.drain();

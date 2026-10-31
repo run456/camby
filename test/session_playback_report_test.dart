@@ -71,11 +71,15 @@ void main() {
     final emby = _client(srv.port);
     await emby.authenticate();
 
-    await emby.reportPlaybackStart('item1');
+    await emby.reportPlaybackStart('item1', positionTicks: 50000000);
     await emby.reportPlaybackProgress('item1', 600000000);
     await emby.reportPlaybackStop('item1', 900000000, played: true);
 
     expect(hits['start'], contains('"ItemId":"item1"'));
+    // v2.0.1：必须带 PlaySessionId（部分 Emby 版本缺失会 400）
+    expect(hits['start'], contains('"PlaySessionId"'));
+    // 起播位置必须原样带上，否则会把服务端续播位置重置为 0
+    expect(hits['start'], contains('"PositionTicks":50000000'));
     expect(hits['progress'], contains('"PositionTicks":600000000'));
     expect(hits['stop'], contains('"ItemId":"item1"'));
     expect(hits['stop'], contains('"PositionTicks":900000000'));

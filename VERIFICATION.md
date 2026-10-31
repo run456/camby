@@ -1331,3 +1331,38 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 > 发布节奏：**v2.0.0 首次推送 GitHub**（含此前本地未推的 v1.7.65~v1.7.73 提交历史），并打 `v2.0.0` Release。
 
 > 发布节奏：未推送 GitHub（v1.7.65~1.7.73 共 9 版本地未推，待确认后一并推并打 Release）。
+
+## 41. v2.0.1 (201) 收藏夹加片 + 播放会话上报修复
+
+### 用户反馈
+
+1. 收藏夹同步又失效，影片没同步上（服务端「人妻」播放列表存在但**内容为空**）；
+2. 观看历史（继续观看）没同步；
+3. 服务端活动记录里没有 APP 的信息（日志里只有官方 App 的 OPPO-PKJ10 记录）。
+
+### 根因
+
+| # | 问题 | 根因 |
+|---|---|---|
+| 1 | 播放列表空壳 | `addToPlaylist` 把 `Ids` 放 JSON body，Emby 加片接口只认 query（`/Playlists/{id}/Items?Ids=&UserId=`），服务端 2xx 但未加任何条目 |
+| 2 | 活动日志无 APP | `/Sessions/Playing` 未带 `PlaySessionId`，部分 Emby 版本直接 400；异常被静默吞掉，无从发现 |
+| 3 | 继续观看丢失 | `/Sessions/Playing` 未带 `PositionTicks` → 服务端按 0 处理，把已有续播位置重置；且起播时先写 UserData、后发 Playing，顺序进一步放大问题 |
+
+### 修复
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 加片参数 | `addToPlaylist` 改用 `_postQueryReturning`，`Ids`/`UserId` 走 query；标准端点 `/Items` 优先，`/Items/Add` 兜底 |
+| 2 | 会话事件 | Start/Progress/Stop 全部带 `PlaySessionId`（每次播放生成一个）；失败写入 `lastSessionError` 并在统计页空态展示 |
+| 3 | 续播位置 | `reportPlaybackStart(itemId, positionTicks:)` 带当前续播位置；播放页先发 Start 再写 UserData |
+| 4 | 设备标识 | 全局 `Device="Camby"`（原 `Android`），活动日志可直接辨认 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error |
+| `flutter test`（全量） | **208 / 208 全绿**（新增 2 条：加片 query 契约、失败诊断） |
+| 新增守卫 | `playlist_add_http_test.dart`：`Ids=a1,a2`/`UserId` 必须在 query 且 body 为空；500 时返回 false 且写 `lastPlaylistError` |
+
+**交付**：`camby-2.0.1-release-arm64.apk`（versionCode **201** / **2.0.1**）。

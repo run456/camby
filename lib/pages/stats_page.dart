@@ -69,6 +69,11 @@ class _StatsPageState extends State<StatsPage> {
     // 仍查不到的显示「库外影片」（多半已从服务器删除），不再显示裸 Id
     final itemById = {for (final e in items) e.id: e};
     final resolvedNames = widget.state.activityItemNames;
+    // v2.0.1：空态同时给出「日志匹配情况」与「APP 上报失败原因」
+    final diag = [
+      widget.state.activityDiag,
+      widget.state.sessionDiag,
+    ].where((e) => e.trim().isNotEmpty).join('；');
     final topWatched = <(String, int)>[];
     if (activity != null && activity.itemPlays.isNotEmpty) {
       final entries = activity.itemPlays.entries.toList()
@@ -203,7 +208,7 @@ class _StatsPageState extends State<StatsPage> {
               child: _DailyBars(
                 daily: _buildDaily(playback, activity),
                 playsOverride: playback?.totalPlays ?? activity?.total,
-                hint: widget.state.activityDiag,
+                hint: diag,
               ),
             ),
             const SizedBox(height: 10),
@@ -212,7 +217,7 @@ class _StatsPageState extends State<StatsPage> {
               badge: _SourceBadge(text: activity != null ? '活动日志' : '本地近似'),
               child: _HourBars(
                 buckets: hourBuckets,
-                hint: widget.state.activityDiag,
+                hint: diag,
               ),
             ),
             const SizedBox(height: 10),
@@ -221,7 +226,7 @@ class _StatsPageState extends State<StatsPage> {
               badge: _SourceBadge(text: activity != null ? '活动日志' : '播放次数'),
               child: _TopItems(
                 entries: topWatched,
-                hint: widget.state.activityDiag,
+                hint: diag,
               ),
             ),
             const SizedBox(height: 12),
