@@ -47,6 +47,10 @@ class AppState extends ChangeNotifier {
   /// 内置活动日志聚合（无插件时的行为数据来源）
   ActivitySummary? get activity => _activity;
 
+  /// 活动日志账号匹配诊断（v2.0）：如「日志播放 128 条，本账号 128 条」。
+  /// 统计页空态直接展示，用于区分「确实没数据」与「账号/权限没匹配上」。
+  String get activityDiag => _server?.lastActivityDiag ?? '';
+
   /// 最近播放的条目（服务端 DatePlayed 倒序）
   List<MediaItem> get recentPlayedItems => _recentPlayedItems;
   bool get playbackLoading => _playbackLoading;

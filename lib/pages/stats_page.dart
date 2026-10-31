@@ -203,19 +203,26 @@ class _StatsPageState extends State<StatsPage> {
               child: _DailyBars(
                 daily: _buildDaily(playback, activity),
                 playsOverride: playback?.totalPlays ?? activity?.total,
+                hint: widget.state.activityDiag,
               ),
             ),
             const SizedBox(height: 10),
             _SectionCard(
               title: '播放时段统计',
               badge: _SourceBadge(text: activity != null ? '活动日志' : '本地近似'),
-              child: _HourBars(buckets: hourBuckets),
+              child: _HourBars(
+                buckets: hourBuckets,
+                hint: widget.state.activityDiag,
+              ),
             ),
             const SizedBox(height: 10),
             _SectionCard(
               title: '最常看作品 Top',
               badge: _SourceBadge(text: activity != null ? '活动日志' : '播放次数'),
-              child: _TopItems(entries: topWatched),
+              child: _TopItems(
+                entries: topWatched,
+                hint: widget.state.activityDiag,
+              ),
             ),
             const SizedBox(height: 12),
 
@@ -1050,16 +1057,17 @@ class _TopPeople extends StatelessWidget {
 
 /// 最常看作品 Top（活动日志条目级 / PlayCount）
 class _TopItems extends StatelessWidget {
-  const _TopItems({required this.entries});
+  const _TopItems({required this.entries, this.hint = ''});
   final List<(String, int)> entries;
+  final String hint;
 
   @override
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
-      return const Text(
-        '暂无播放记录（本账号的播放自 1.7.73 起计入服务器活动日志，'
-        '看完几部后这里会出现常看排行；此前无记录是因为 APP 播放未写入日志）',
-        style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
+      final suffix = hint.isEmpty ? '' : '（$hint）';
+      return Text(
+        '暂无播放记录（服务端活动日志里没有本账号的播放$suffix）',
+        style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }
     return Column(
@@ -1182,17 +1190,18 @@ class _ContinueList extends StatelessWidget {
 
 /// 每日观看时长（B 插件真实数据）
 class _DailyBars extends StatelessWidget {
-  const _DailyBars({required this.daily, this.playsOverride});
+  const _DailyBars({required this.daily, this.playsOverride, this.hint = ''});
   final List<DailyPlayback> daily;
   final int? playsOverride;
+  final String hint;
 
   @override
   Widget build(BuildContext context) {
     if (daily.isEmpty) {
-      return const Text(
-        '暂无每日观看数据（数据来自服务器活动日志；1.7.73 起 APP 播放也会写入，'
-        '网页/TV 端的播放一直会计入）',
-        style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
+      final suffix = hint.isEmpty ? '' : '；$hint';
+      return Text(
+        '暂无每日观看数据（数据来自服务器活动日志$suffix）',
+        style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }
     final maxMin = daily.fold<double>(
@@ -1252,8 +1261,9 @@ class _DailyBars extends StatelessWidget {
 
 /// 播放时段统计：12 档（每 2 小时）
 class _HourBars extends StatelessWidget {
-  const _HourBars({required this.buckets});
+  const _HourBars({required this.buckets, this.hint = ''});
   final List<int> buckets;
+  final String hint;
 
   static String _label(int i) {
     final s = i * 2;
@@ -1264,9 +1274,10 @@ class _HourBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = buckets.fold<int>(0, (a, b) => a + b);
     if (total == 0) {
-      return const Text(
-        '暂无播放时段数据（同样来自活动日志，APP 播放自 1.7.73 起计入）',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
+      final suffix = hint.isEmpty ? '' : '；$hint';
+      return Text(
+        '暂无播放时段数据（数据来自服务器活动日志$suffix）',
+        style: const TextStyle(fontSize: 11, color: AppColors.muted),
       );
     }
     final max = buckets.fold<int>(1, (a, b) => b > a ? b : a);

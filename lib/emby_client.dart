@@ -897,6 +897,11 @@ class EmbyServer {
   /// 空字符串 = 没有失败或未发生过操作。同步流程读取它给用户提示（v1.7.69）。
   String lastPlaylistError = '';
 
+  /// 最近一次活动日志统计的账号匹配诊断（v2.0）。
+  /// 形如「日志播放 128 条，本账号 128 条」；匹配为 0 时统计页空态会原样展示，
+  /// 便于确认是权限、日志保留期还是账号格式问题。
+  String lastActivityDiag = '';
+
   /// 创建播放列表，返回服务端 Id（失败返回 null，具体原因见 [lastPlaylistError]）
   ///
   /// v1.7.68 关键修正：**Emby 创建播放列表的参数在 URL query 上，不在 JSON body**。
@@ -1453,6 +1458,13 @@ class EmbyServer {
   /// Emby 内置活动日志（无需插件）
   /// GET /emby/System/ActivityLog/Entries?HasUserId=true&Limit=N
   /// 普通用户可能无权限，失败返回 null
+  ///
+  /// 账号归属判定（v2.0 修正）：Emby 在日志里写入的 `UserId` 与登录返回的
+  /// `User.Id` 可能存在**格式差异**（是否带连字符、大小写不同），而且播放类
+  /// 事件常常**根本不带 UserId 字段**（空字符串）。严格 `==` 会把本账号的
+  /// 网页/TV 播放全部误判为「非本人」而丢弃 —— 这正是 1.7.72 之后统计页
+  /// 三条卡片全空的根因。这里用 `_normId` 归一化后比较，并把空 UserId 视为
+  /// 本人（单账号服务器里播放事件没有 UserId 是常态）。
   Future<ActivitySummary?> activityLog({int limit = 800}) async {
     try {
       final json = await _getAny(
@@ -1468,14 +1480,24 @@ class EmbyServer {
       final starts = <String, List<DateTime>>{};
       final stops = <String, List<DateTime>>{};
       var total = 0;
+      var rawPlayback = 0; // 日志里播放类条目总数（不论归属）
+      var matched = 0; // 判为本人（归一化匹配或空 UserId）的条目数
+      final sampleUserIds = <String>{};
+      final myId = _userId == null ? null : _normId(_userId!);
       for (final r in list) {
         if (r is! Map) continue;
         final type = (r['Type'] ?? '').toString().toLowerCase();
         if (!type.contains('playback')) continue;
-        // v1.7.72：只统计本人账号的播放。管理员账号拉到的日志包含
-        // 全家所有用户，不按 UserId 过滤会把别人的播放算进自己的统计
+        rawPlayback++;
+        // v1.7.72：只统计本人账号的播放；v2.0 修正匹配口径（见上方注释）
         final uid = (r['UserId'] ?? '').toString();
-        if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
+        if (uid.isNotEmpty) sampleUserIds.add(uid);
+        final uidNorm = uid.isEmpty ? null : _normId(uid);
+        // 归一化后相等视为本人；日志未带 UserId 也视为本人（单账号服务器常态）
+        final mine =
+            myId == null ? true : (uidNorm == null || uidNorm == myId);
+        if (!mine) continue;
+        matched++;
         final d = DateTime.tryParse((r['Date'] ?? '').toString());
         final itemId = (r['ItemId'] ?? '').toString();
         if (type.contains('start')) {
@@ -1490,7 +1512,23 @@ class EmbyServer {
           stops.putIfAbsent(itemId, () => []).add(d);
         }
       }
-      if (total == 0) return null;
+      if (total == 0) {
+        // 即便没有命中，也记下诊断，便于在统计页空态提示里暴露真实原因
+        lastActivityDiag = _activityDiag(
+          rawPlayback,
+          matched,
+          sampleUserIds,
+          myId,
+        );
+        return null;
+      }
+
+      lastActivityDiag = _activityDiag(
+        rawPlayback,
+        matched,
+        sampleUserIds,
+        myId,
+      );
 
       // 配对 Start→Stop 推算观看时长（跳过异常间隔），并按日聚合
       double minutes = 0;
@@ -1522,6 +1560,30 @@ class EmbyServer {
 
   static String _dayKey(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// GUID / Id 归一化：去掉连字符等非十六进制字符并转小写（v2.0）。
+  /// Emby 同一个账号在不同接口里可能返回「带连字符」与「不带连字符」两种写法，
+  /// 严格字符串比较会把本账号的播放误判成别人的。
+  static String _normId(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^0-9a-z]'), '');
+
+  String _activityDiag(
+    int rawPlayback,
+    int matched,
+    Set<String> sampleUserIds,
+    String? myId,
+  ) {
+    final buf = StringBuffer('日志播放 $rawPlayback 条，本账号 $matched 条');
+    if (rawPlayback > 0 && matched == 0) {
+      buf.write('（本账号 Id: ${myId ?? '未知'}');
+      if (sampleUserIds.isNotEmpty) {
+        // 最多展示 2 个样本，避免空态提示过长
+        buf.write('；日志账号样本: ${sampleUserIds.take(2).join(' / ')}');
+      }
+      buf.write('）');
+    }
+    return buf.toString();
+  }
 
   Future<dynamic> _getAny(String path, {Map<String, String>? query}) async {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
