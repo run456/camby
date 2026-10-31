@@ -1152,3 +1152,33 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.69-release-arm64.apk`（`cn.camby.camby` / 109 / 1.7.69 / 34M / sha256 `a87c8de1f4b075df55887d71e260fccc66c798011fe0cbb1eddcecc5e93f0781`）。
 
 > 发布节奏：未推送 GitHub（v1.7.69 为累计窗口第 5 版，达到推送窗口，随下版一起推）。
+
+## 36. v1.7.70 (110) 首页/收藏页 UI 精简 + 全局搜索方案设计
+
+### 改动（用户确认后直接实施）
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | **收藏页网格 2 列 → 3 列** | `favorites_page.dart` `_movieWall` 的 `SliverGridDelegateWithFixedCrossAxisCount`：`crossAxisCount` 2→3、`crossAxisSpacing` 16→12、`mainAxisSpacing` 22→18、`childAspectRatio` 0.60→0.54（窄卡比例收窄，标题不挤压）；`_StackTile` 为相对布局，3 列无溢出 |
+| 2 | **首页顶栏精简** | 移除左上 `CAMBY` 品牌字与「服务器 · 片数」副标题、移除搜索圆钮；顶栏仅留右上连接状态胶囊（`Spacer` + `_Pill`）；删除随之无用的 `_sourceInfo` / `_searchRoute` / `_GlassCircleBtn` 及 `search_page` 导入 |
+| 3 | **全局搜索方案设计稿** | `docs/global_search_proposal.html`：悬浮球（常驻/可拖贴边）、下拉唤醒（首页与媒体库被刷新占用，仅 3 页可用）、双击当前 Tab 三方案对比 + 推荐组合（A1 常驻悬浮球 + C 双击兜底），待用户确认 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze`（改动文件） | 0 error / 0 warning |
+| `flutter test`（全量） | **196 / 196 全绿** |
+| 守卫测试 | `favorites_wall_test` 新增断言 `crossAxisCount == 3`；黄金图 `favorites_wall.png` 已 `--update-goldens` 重新生成 |
+| Release APK | `cn.camby.camby` / **versionCode 110** / **1.7.70** / 33M / sha256 `4989b1d25f59712538aeb177e7390d5e05eec9af3166185960209fbd6c106fbf` |
+
+**交付**：`camby-1.7.70-release-arm64.apk`。
+
+> 发布节奏：未推送 GitHub（v1.7.70 为累计窗口第 6 版）。注：v1.7.65~1.7.70 共 6 版本地未推，达到推送窗口，确认后一并推 GitHub 并打 Release。
+
+#### 全局搜索方案摘要（详见 `docs/global_search_proposal.html`）
+
+- **A 悬浮球（推荐主方案）**：在壳层 Overlay 常驻一个玻璃搜索球，右上角默认、可拖动贴边半隐、位置记忆、设置页可开关。5 个 Tab + 二级页全覆盖，一眼可见。
+- **B 下拉唤醒**：在收藏/数据/我的页顶部下拉唤出搜索；但首页与媒体库下拉已被"刷新"占用，全局性打折，且二级页需逐个覆盖。
+- **C 双击当前 Tab（兜底）**：双击当前所处 Tab（不切换）唤起搜索，零空间、所有页面可用但完全隐蔽。
+- 推荐 **A1 + C**：悬浮球为主、双击 Tab 兜底；首页搜索按钮不再恢复。待确认：① 球默认位置（右上/右下）② 是否可拖贴边 ③ 双击兜底是否同加。

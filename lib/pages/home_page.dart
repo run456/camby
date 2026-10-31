@@ -16,7 +16,6 @@ import '../widgets/cached_image.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/poster_hero.dart';
-import 'search_page.dart';
 
 /// 首页（沉浸式）：
 /// 1. 竖版海报满屏铺满（封面），文字叠在底部渐隐区上
@@ -324,45 +323,6 @@ class _HomePageState extends State<HomePage> {
       _rows[v.id] = list;
       _rowsLoading = false;
     });
-  }
-
-  /// 顶栏副标题：服务器 · 片数（离线/演示各有说法，避免只显示一个数字看不懂）
-  String _sourceInfo(AppState state) {
-    if (state.demoMode) return '演示媒体库 · ${state.items.length} 项';
-    if (state.offline) return '离线 · 缓存 ${state.items.length} 项';
-    final host = state.server?.host ?? '';
-    return host.isEmpty
-        ? '已连接 · ${state.items.length} 项'
-        : '$host · ${state.items.length} 项';
-  }
-
-  /// 搜索页转场：与详情页同款（半透明路由 + 淡入上浮），不再用 Material 缩放转场
-  Route<void> _searchRoute(AppState state) {
-    return PageRouteBuilder<void>(
-      opaque: false,
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 340),
-      reverseTransitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (_, __, ___) =>
-          SearchPage(state: state, onOpenDetail: widget.onOpenDetail),
-      transitionsBuilder: (_, anim, __, child) {
-        final curved = CurvedAnimation(
-          parent: anim,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        );
-      },
-    );
   }
 
   void _precacheAdjacent() {
@@ -761,7 +721,7 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
 
-          // 顶部栏（来源信息 + 搜索 + 连接）
+          // 顶部栏（v1.7.70：去掉 CAMBY/服务器信息与搜索按钮，只留右上连接状态）
           Positioned(
             top: 0,
             left: 0,
@@ -772,58 +732,7 @@ class _HomePageState extends State<HomePage> {
                 padding: const EdgeInsets.fromLTRB(18, 8, 14, 0),
                 child: Row(
                   children: [
-                    // 左侧来源信息：CAMBY / 服务器 · 片数（海报上直接叠字，带投影保证可读）
-                    Expanded(
-                      child: IgnorePointer(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'CAMBY',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                                // v1.7.29 优化1：字距 3→1，解决「CAMBY」字母拉太开
-                                letterSpacing: 1,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(
-                                    color: Color(0xCC000000),
-                                    blurRadius: 12,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 1),
-                            Text(
-                              _sourceInfo(state),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFFD7E2F5),
-                                shadows: [
-                                  Shadow(
-                                    color: Color(0xCC000000),
-                                    blurRadius: 10,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _GlassCircleBtn(
-                      icon: Icons.search_rounded,
-                      semanticLabel: '搜索',
-                      onTap: () =>
-                          Navigator.of(context).push(_searchRoute(state)),
-                    ),
-                    const SizedBox(width: 10),
+                    const Spacer(),
                     _Pill(
                       onTap: () => state.refresh(),
                       child: Row(
@@ -1001,69 +910,6 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// 顶栏液态玻璃圆钮（搜索等）：渐变玻璃 + 上缘高光 + 投影
-/// 刻意不做实时 BackdropFilter：海报横移时每帧重算模糊是横滑掉帧主因
-class _GlassCircleBtn extends StatelessWidget {
-  const _GlassCircleBtn({
-    required this.icon,
-    required this.onTap,
-    this.semanticLabel,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final String? semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 20,
-      scale: 0.92,
-      semanticLabel: semanticLabel,
-      child: Container(
-        width: 40,
-        height: 40,
-        child: ClipOval(
-          // 真·液态玻璃：BackdropFilter 把身后的海报磨砂化
-          //（顶栏固定不动，只有 1-2 个小圆钮，代价可忽略）
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
-                ),
-                border: Border.all(color: const Color(0x42FFFFFF)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x40000000),
-                    blurRadius: 12,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Icon(
-                  icon,
-                  size: 20,
-                  color: Colors.white,
-                  shadows: const [
-                    Shadow(color: Color(0x66000000), blurRadius: 6),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

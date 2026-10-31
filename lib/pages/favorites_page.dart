@@ -225,10 +225,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
         parent: AlwaysScrollableScrollPhysics(),
       ),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 22,
-        childAspectRatio: 0.60,
+        // v1.7.70：一行 2 个 → 3 个（间距与宽高比同步收窄，标题/片数不挤压）
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 18,
+        childAspectRatio: 0.54,
       ),
       itemCount: tiles,
       itemBuilder: (c, i) {

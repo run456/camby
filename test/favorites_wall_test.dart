@@ -33,6 +33,13 @@ void main() {
     expect(find.text('全部'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
+    // v1.7.70 守卫：影片收藏墙一行 3 个
+    final grid = tester.widget<GridView>(
+      find.byKey(const ValueKey('movies')),
+    );
+    final delegate = grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(delegate.crossAxisCount, 3);
+
     await expectLater(
       find.byType(FavoritesPage),
       matchesGoldenFile('goldens/favorites_wall.png'),
