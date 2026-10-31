@@ -110,7 +110,7 @@ void main() {
     await srv.close();
   });
 
-  test('全是他人账号 → 返回 null，但诊断信息给出原因', () async {
+  test('本账号零匹配时回退全量统计，并在诊断里写明', () async {
     final srv = await _startServer((req) async {
       if (req.uri.path.contains('AuthenticateByName')) {
         req.response
@@ -147,9 +147,12 @@ void main() {
     final emby = _client(srv.port);
     await emby.authenticate();
     final summary = await emby.activityLog();
-    expect(summary, isNull);
+    // 归一化后仍匹配不上时回退全量，保证统计页不空
+    expect(summary, isNotNull);
+    expect(summary!.total, 1);
+    expect(summary.itemPlays.containsKey('itemX'), isTrue);
     expect(emby.lastActivityDiag, contains('日志播放 1 条'));
-    expect(emby.lastActivityDiag, contains('本账号 0 条'));
+    expect(emby.lastActivityDiag, contains('已按全部日志统计'));
     await srv.close();
   });
 }

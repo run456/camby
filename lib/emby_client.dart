@@ -1475,83 +1475,92 @@ class EmbyServer {
       final list = json['Items'];
       if (list is! List) return null;
 
-      final plays = <String, int>{};
-      final hours = List<int>.filled(24, 0);
-      final starts = <String, List<DateTime>>{};
-      final stops = <String, List<DateTime>>{};
-      var total = 0;
-      var rawPlayback = 0; // 日志里播放类条目总数（不论归属）
-      var matched = 0; // 判为本人（归一化匹配或空 UserId）的条目数
-      final sampleUserIds = <String>{};
+      // 先解析出全部播放事件（归属/类型/时间/条目），再做两种聚合：
+      // ① 只算本账号；② 全量（兜底）。按账号聚合为空时回退全量，避免统计页
+      // 再次全空——宁可展示也不要「数据凭空消失」。
       final myId = _userId == null ? null : _normId(_userId!);
+      final sampleUserIds = <String>{};
+      final events = <({String type, DateTime? date, String itemId, bool mine})>[];
       for (final r in list) {
         if (r is! Map) continue;
         final type = (r['Type'] ?? '').toString().toLowerCase();
         if (!type.contains('playback')) continue;
-        rawPlayback++;
-        // v1.7.72：只统计本人账号的播放；v2.0 修正匹配口径（见上方注释）
         final uid = (r['UserId'] ?? '').toString();
         if (uid.isNotEmpty) sampleUserIds.add(uid);
         final uidNorm = uid.isEmpty ? null : _normId(uid);
-        // 归一化后相等视为本人；日志未带 UserId 也视为本人（单账号服务器常态）
-        final mine =
-            myId == null ? true : (uidNorm == null || uidNorm == myId);
-        if (!mine) continue;
-        matched++;
-        final d = DateTime.tryParse((r['Date'] ?? '').toString());
-        final itemId = (r['ItemId'] ?? '').toString();
-        if (type.contains('start')) {
-          // 只按开始事件计次，避免 Start/Stop 翻倍
-          total++;
-          if (d != null) hours[d.hour]++;
-          if (itemId.isNotEmpty) {
-            plays[itemId] = (plays[itemId] ?? 0) + 1;
-            starts.putIfAbsent(itemId, () => []).add(d ?? DateTime.now());
-          }
-        } else if (type.contains('stop') && itemId.isNotEmpty && d != null) {
-          stops.putIfAbsent(itemId, () => []).add(d);
-        }
+        // 归一化相等 = 本人；日志没带 UserId 也视为本人（单账号服务器常态）
+        final mine = myId == null || uidNorm == null || uidNorm == myId;
+        events.add((
+          type: type,
+          date: DateTime.tryParse((r['Date'] ?? '').toString()),
+          itemId: (r['ItemId'] ?? '').toString(),
+          mine: mine,
+        ));
       }
-      if (total == 0) {
-        // 即便没有命中，也记下诊断，便于在统计页空态提示里暴露真实原因
-        lastActivityDiag = _activityDiag(
-          rawPlayback,
-          matched,
-          sampleUserIds,
-          myId,
+
+      ActivitySummary? aggregate({required bool onlyMine}) {
+        final plays = <String, int>{};
+        final hours = List<int>.filled(24, 0);
+        final starts = <String, List<DateTime>>{};
+        final stops = <String, List<DateTime>>{};
+        var total = 0;
+        for (final e in events) {
+          if (onlyMine && !e.mine) continue;
+          if (e.type.contains('start')) {
+            total++; // 只按开始事件计次，避免 Start/Stop 翻倍
+            final d = e.date;
+            if (d != null) hours[d.hour]++;
+            if (e.itemId.isNotEmpty) {
+              plays[e.itemId] = (plays[e.itemId] ?? 0) + 1;
+              starts.putIfAbsent(e.itemId, () => []).add(d ?? DateTime.now());
+            }
+          } else if (e.type.contains('stop') &&
+              e.itemId.isNotEmpty &&
+              e.date != null) {
+            stops.putIfAbsent(e.itemId, () => []).add(e.date!);
+          }
+        }
+        if (total == 0) return null;
+        // 配对 Start→Stop 推算观看时长（跳过异常间隔），并按日聚合
+        double minutes = 0;
+        final dailyMinutes = <String, double>{};
+        for (final id in starts.keys) {
+          final s = starts[id]!..sort();
+          final e = (stops[id] ?? [])..sort();
+          for (var i = 0; i < s.length && i < e.length; i++) {
+            final diff = e[i].difference(s[i]).inMinutes;
+            if (diff > 0 && diff < 24 * 60) {
+              minutes += diff;
+              final k = _dayKey(s[i]);
+              dailyMinutes[k] = (dailyMinutes[k] ?? 0) + diff;
+            }
+          }
+        }
+        return ActivitySummary(
+          itemPlays: plays,
+          hourHist: hours,
+          total: total,
+          totalMinutes: minutes,
+          dailyMinutes: dailyMinutes,
         );
+      }
+
+      final matched = events.where((e) => e.mine).length;
+      final mine = aggregate(onlyMine: true);
+      if (mine != null) {
+        lastActivityDiag =
+            _activityDiag(events.length, matched, sampleUserIds, myId);
+        return mine;
+      }
+      // 本账号一条都没匹配上：若日志里确实有播放，回退全量统计并在诊断中写明
+      final all = aggregate(onlyMine: false);
+      if (all == null) {
+        lastActivityDiag = '日志无播放记录';
         return null;
       }
-
-      lastActivityDiag = _activityDiag(
-        rawPlayback,
-        matched,
-        sampleUserIds,
-        myId,
-      );
-
-      // 配对 Start→Stop 推算观看时长（跳过异常间隔），并按日聚合
-      double minutes = 0;
-      final dailyMinutes = <String, double>{};
-      for (final id in starts.keys) {
-        final s = starts[id]!..sort();
-        final e = (stops[id] ?? [])..sort();
-        for (var i = 0; i < s.length && i < e.length; i++) {
-          final diff = e[i].difference(s[i]).inMinutes;
-          if (diff > 0 && diff < 24 * 60) {
-            minutes += diff;
-            final k = _dayKey(s[i]);
-            dailyMinutes[k] = (dailyMinutes[k] ?? 0) + diff;
-          }
-        }
-      }
-      return ActivitySummary(
-        itemPlays: plays,
-        hourHist: hours,
-        total: total,
-        totalMinutes: minutes,
-        dailyMinutes: dailyMinutes,
-      );
+      lastActivityDiag =
+          '日志播放 ${events.length} 条，本账号匹配 0 条，已按全部日志统计';
+      return all;
     } catch (e) {
       debugPrint('ActivityLog unavailable: $e');
       return null;

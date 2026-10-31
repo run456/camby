@@ -1315,8 +1315,9 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 |---|---|---|
 | 1 | 归一化匹配 | 新增 `_normId()`：去除非十六进制字符 + 转小写；`uid` 与 `_userId` 都归一化后比较 |
 | 2 | 空 UserId | 视为本人（单账号服务器里播放事件不带 UserId 是常态）；仍能排除明确属于他人的条目 |
-| 3 | 诊断可见 | `EmbyServer.lastActivityDiag` 记录「日志播放 N 条，本账号 M 条」，匹配为 0 时附带本账号 Id 与日志账号样本；`AppState.activityDiag` 暴露，三张卡片空态直接展示 |
-| 4 | 会话上报保留 | v1.7.73 的 `/Sessions/Playing|Progress|Stopped` 继续有效，APP 播放照常写入日志 |
+| 3 | 零匹配兜底 | 归一化后本账号仍 0 条时**回退为全量日志统计**（宁可展示也不让统计页全空），诊断注明「已按全部日志统计」 |
+| 4 | 诊断可见 | `EmbyServer.lastActivityDiag` 记录「日志播放 N 条，本账号 M 条」；`AppState.activityDiag` 暴露，三张卡片空态直接展示 |
+| 5 | 会话上报保留 | v1.7.73 的 `/Sessions/Playing|Progress|Stopped` 继续有效，APP 播放照常写入日志 |
 
 ### 质量门
 
