@@ -1057,8 +1057,9 @@ class _TopItems extends StatelessWidget {
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
       return const Text(
-        '暂无播放记录（服务端未记录播放次数）',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
+        '暂无播放记录（本账号的播放自 1.7.73 起计入服务器活动日志，'
+        '看完几部后这里会出现常看排行；此前无记录是因为 APP 播放未写入日志）',
+        style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }
     return Column(
@@ -1189,7 +1190,8 @@ class _DailyBars extends StatelessWidget {
   Widget build(BuildContext context) {
     if (daily.isEmpty) {
       return const Text(
-        '暂无每日观看数据（插件与活动日志均未返回）',
+        '暂无每日观看数据（数据来自服务器活动日志；1.7.73 起 APP 播放也会写入，'
+        '网页/TV 端的播放一直会计入）',
         style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }
@@ -1263,7 +1265,7 @@ class _HourBars extends StatelessWidget {
     final total = buckets.fold<int>(0, (a, b) => a + b);
     if (total == 0) {
       return const Text(
-        '暂无播放时段数据',
+        '暂无播放时段数据（同样来自活动日志，APP 播放自 1.7.73 起计入）',
         style: TextStyle(fontSize: 11, color: AppColors.muted),
       );
     }

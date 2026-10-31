@@ -261,6 +261,10 @@ class AppState extends ChangeNotifier {
     final s = _server;
     if (s == null) return;
     final ok = await s.reportProgress(itemId, positionTicks, played: played);
+    // v1.7.73：UserData 直写之外同步发一次会话心跳，让服务器活动日志
+    // 记录本 APP 的播放事件（统计页「每日观看时长/播放时段」的数据源）。
+    // 失败静默：会话事件是尽力而为，不进重试队列。
+    if (ok) unawaited(s.reportPlaybackProgress(itemId, positionTicks));
     if (ok) {
       if (_pendingProgress.remove(itemId) != null) _persistPendingProgress();
     } else {
@@ -289,6 +293,29 @@ class AppState extends ChangeNotifier {
 
   /// 当前还有多少进度待上报（设置页/调试用）
   int get pendingProgressCount => _pendingProgress.length;
+
+  // ---------------- 会话型播放事件（v1.7.73） ----------------
+  //
+  // 起播 / 退出时各发一次，配合 reportServerProgress 里的心跳，让服务器
+  // 活动日志完整记录本 APP 的 PlaybackStart/Stop —— 统计页「每日观看时长、
+  // 播放时段统计、常看作品 Top」从此有本账号的真实数据。
+
+  /// 起播上报：POST /Sessions/Playing（活动日志出现「开始播放」条目）
+  Future<void> reportServerPlaybackStart(String itemId) {
+    return _server?.reportPlaybackStart(itemId) ?? Future.value();
+  }
+
+  /// 退出播放上报：POST /Sessions/Stopped（活动日志出现「停止播放」条目，
+  /// 与 Start 配对后统计页才能推算观看时长）
+  Future<void> reportServerPlaybackStop(
+    String itemId,
+    int positionTicks, {
+    bool played = false,
+  }) {
+    return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
+        Future.value();
+  }
+
 
   /// 当前还有多少收藏夹上云待重试（pendingSync 标记）
   int get pendingSyncCount => _folders.where((f) => f.pendingSync).length;

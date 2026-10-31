@@ -288,6 +288,54 @@ class EmbyServer {
     }
   }
 
+  // ---------------- 会话型播放上报（v1.7.73） ----------------
+  //
+  // 统计页「每日观看时长 / 播放时段 / 常看作品」的数据源是服务器活动日志
+  // （/System/ActivityLog/Entries），只有**会话型播放**（网页端、TV 端等）
+  // 才会写入。此前本 APP 只走 UserData 直写，活动日志里根本没有本 APP 的
+  // 播放事件 —— 1.7.72 按账号过滤后统计页全空，根因即此。
+  //
+  // 现在起播 / 心跳 / 退出时补发标准会话事件，APP 播放从此与其他客户端
+  // 一样进入活动日志（带本账号 UserId），统计页数据真实且只属于本人。
+  // 全部尽力而为（失败静默），不影响播放本身，也不进重试队列。
+
+  /// 起播时上报（POST /Sessions/Playing）
+  Future<void> reportPlaybackStart(String itemId) async {
+    try {
+      await _postJson('$baseUrl/Sessions/Playing', {
+        'ItemId': itemId,
+        'PlayMethod': 'DirectPlay',
+      });
+    } catch (_) {
+      // 会话事件不关键，失败不打扰用户
+    }
+  }
+
+  /// 播放中心跳（POST /Sessions/Playing/Progress）
+  Future<void> reportPlaybackProgress(String itemId, int positionTicks) async {
+    try {
+      await _postJson('$baseUrl/Sessions/Playing/Progress', {
+        'ItemId': itemId,
+        'PositionTicks': positionTicks,
+      });
+    } catch (_) {}
+  }
+
+  /// 退出播放时上报（POST /Sessions/Stopped）
+  Future<void> reportPlaybackStop(
+    String itemId,
+    int positionTicks, {
+    bool played = false,
+  }) async {
+    try {
+      await _postJson('$baseUrl/Sessions/Stopped', {
+        'ItemId': itemId,
+        'PositionTicks': positionTicks,
+        if (played) 'Played': true,
+      });
+    } catch (_) {}
+  }
+
   /// 带鉴权头的 JSON POST，并返回解码后的响应体（播放列表等写操作后拿回 Id）
   Future<Map<String, dynamic>> _postJsonReturning(
     String url,

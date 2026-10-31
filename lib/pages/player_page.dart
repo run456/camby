@@ -351,6 +351,11 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // 进入播放即向服务端上报一次 start：Emby 的会话列表出现本设备，
     // 首页「继续观看」位置随后由 _reportProgressNow() 持续同步
     unawaited(_reportProgressNow());
+    // v1.7.73：会话型播放开始事件（/Sessions/Playing）—— 让服务器活动日志
+    // 记录本 APP 的播放，统计页「每日观看时长/播放时段/常看作品」才有本账号数据
+    if (!_demo && _recordHistory) {
+      unawaited(widget.state.reportServerPlaybackStart(widget.item.id));
+    }
     _startReportTimer();
     _startBootWatch();
   }
@@ -988,6 +993,19 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     // 退出前最后一次同步播放位置：其它设备上的「继续观看」立刻跟上
     _reportTimer?.cancel();
     _reportTimer = null;
+    // v1.7.73：会话型播放停止事件（/Sessions/Stopped）—— 与起播时的 Start
+    // 配对，服务端活动日志才能推算出观看时长（统计页「每日观看时长」）
+    if (!_demo && _recordHistory) {
+      final total = _totalSeconds;
+      final pos = _positionSeconds;
+      unawaited(
+        widget.state.reportServerPlaybackStop(
+          widget.item.id,
+          (pos * 10000000).round(),
+          played: total > 0 && pos >= total * 0.95,
+        ),
+      );
+    }
     unawaited(_reportProgressNow());
     _player?.dispose();
     _posNv.dispose();

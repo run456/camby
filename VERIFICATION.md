@@ -1249,3 +1249,41 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.72-release-arm64.apk`（`cn.camby.camby` / **versionCode 112** / **1.7.72**）。
 
 > 发布节奏：未推送 GitHub（v1.7.65~1.7.72 共 8 版本地未推，已远超推送窗口，待确认后一并推并打 Release）。
+
+## 39. v1.7.73 (113) 统计页三条卡片全空修复（APP 播放接入会话上报）
+
+### 用户反馈
+
+升级 1.7.72 后统计页「每日观看时长（近 30 天）」「播放时段统计」「最常看作品 Top」三条全部显示「暂无数据」。
+
+### 根因
+
+这三张卡片的数据源是服务器**活动日志**（`/System/ActivityLog/Entries`），只有**会话型播放**（网页端、TV 端等走 `Sessions/Playing` 的客户端）才会写入。本 APP 从 1.7.38 起进度上报一直走 `UserData` 直写（`/Users/{uid}/Items/{id}/UserData`），**从不产生活动日志条目**——即 APP 里的每次观看在服务器日志里是「不存在」的。
+
+此前统计页有数据，是因为管理员账号能看到全家人的日志（其他客户端的播放）；1.7.72 按账号过滤后，日志里没有本账号的条目 → 全部清零。**之前看到的其实一直是别人的播放。**
+
+### 改动
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 会话上报三事件 | `emby_client.dart` 新增 `reportPlaybackStart`（`POST /Sessions/Playing`）、`reportPlaybackProgress`（`/Sessions/Playing/Progress`）、`reportPlaybackStop`（`/Sessions/Stopped`），全部尽力而为、失败静默 |
+| 2 | AppState 入口 | `reportServerProgress` 成功后附带会话心跳；新增 `reportServerPlaybackStart/Stop` |
+| 3 | 播放页接线 | `_open()` 起播后发 Start（`!_demo && _recordHistory` 守卫）；`dispose()` 退出前发 Stop（带结束位置与看完标记），与心跳共同构成完整会话 |
+| 4 | 空态文案 | 三张卡片「暂无」提示改为说明数据来源与生效时间（APP 播放自 1.7.73 起计入） |
+
+### 效果
+
+- 从本版起，APP 内的每次播放都会以**本账号 UserId** 写入服务器活动日志，「每日观看时长 / 播放时段统计 / 最常看作品 Top」逐步积累本人真实数据；历史数据无法追溯（日志里本就没有），需从本版起重新积累
+- 网页 / TV 端的播放照常计入；账号过滤（1.7.72）保持不变，不会混入家人播放
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error |
+| `flutter test`（全量） | **204 / 204 全绿**（新增 2 条） |
+| 新增守卫 | `session_playback_report_test.dart`：会话三事件请求体契约（ItemId/PositionTicks/Played）+ 服务端 500 不抛异常 |
+
+**交付**：`camby-1.7.73-release-arm64.apk`（`cn.camby.camby` / **versionCode 113** / **1.7.73**）。
+
+> 发布节奏：未推送 GitHub（v1.7.65~1.7.73 共 9 版本地未推，待确认后一并推并打 Release）。
