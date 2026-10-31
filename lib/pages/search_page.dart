@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../emby_client.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
@@ -599,8 +600,9 @@ class _ResultGrid extends StatelessWidget {
       SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         sliver: SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            // 平板（≥840）：与媒体库一致 6 列
+            crossAxisCount: context.mediaGridColumns,
             crossAxisSpacing: 11,
             mainAxisSpacing: 16,
             childAspectRatio: 0.55,
@@ -635,8 +637,9 @@ class _ActorGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        // 平板（≥840）：演员结果 6 列
+        crossAxisCount: context.mediaGridColumns,
         crossAxisSpacing: 11,
         mainAxisSpacing: 16,
         childAspectRatio: 0.78,

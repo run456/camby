@@ -4,11 +4,20 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'search_page.dart';
+
+/// 设置页水平内边距：平板内容限宽 720 居中，手机保持 16。
+double _horizontalPad(BuildContext context) {
+  final w = MediaQuery.of(context).size.width;
+  if (w < kTabletBreakpoint) return 16;
+  final pad = (w - 720) / 2;
+  return pad < 30 ? 30 : pad;
+}
 
 /// 「我的」设置页：所有控件可交互，选择持久化到 SharedPreferences
 class SettingsPage extends StatefulWidget {
@@ -140,10 +149,11 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       child: ListView(
         physics: const BouncingScrollPhysics(),
+        // 平板（≥840）：内容限宽 720 居中，设置行不被拉到 1000+dp
         padding: EdgeInsets.fromLTRB(
-          16,
+          _horizontalPad(context),
           MediaQuery.of(context).padding.top + 14,
-          16,
+          _horizontalPad(context),
           110,
         ),
         children: [

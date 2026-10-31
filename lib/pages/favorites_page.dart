@@ -228,7 +228,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         // v1.7.70：一行 2 个 → 3 个（间距与宽高比同步收窄，标题/片数不挤压）
         // 平板：设计稿 .collection 收藏 5 列
-        crossAxisCount: context.isTablet ? 5 : 3,
+        crossAxisCount: context.favoriteGridColumns,
         crossAxisSpacing: 12,
         mainAxisSpacing: 18,
         childAspectRatio: 0.54,
@@ -425,7 +425,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         parent: AlwaysScrollableScrollPhysics(),
       ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: context.isTablet ? 6 : 3,
+        crossAxisCount: context.mediaGridColumns,
         crossAxisSpacing: 12,
         mainAxisSpacing: 18,
         childAspectRatio: 0.72,

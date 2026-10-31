@@ -226,6 +226,13 @@ class PlayerPageState extends State<PlayerPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 280), () {
         if (!mounted) return;
+        // 方向策略（已定）：**手机与平板一律强制横屏**。
+        // 这样播放器只有一套布局与一套控件尺寸，不会因为竖屏平板/折叠屏
+        // 再分叉出第二套控件树（按钮间距、字幕基准、手势区全都要另算一遍）。
+        // 代价：平板竖持时用户需把机器转过来——取舍理由是「代码规整 +
+        // 控件行为两端一致」优先。若日后要支持平板竖屏播放，只需在此处
+        // 按 breakpoint 分支（平板放行 portraitUp 并额外做一版竖屏控件布局），
+        // 其余页面/播放器逻辑都不受影响。
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,

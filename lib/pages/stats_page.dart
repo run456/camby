@@ -107,7 +107,10 @@ class _StatsPageState extends State<StatsPage> {
         Container(color: Colors.black.withOpacity(0.2)),
         ListView(
           padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
-          children: [
+          // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
+          children: _tabletColumns(
+            wide,
+            [
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Row(
@@ -264,10 +267,65 @@ class _StatsPageState extends State<StatsPage> {
               ),
             ),
           ],
+          ),
         ),
       ],
     );
   }
+}
+
+/// 平板双栏布局：卡片两两并排，分隔用 SizedBox 与分区标题/页头保持整行。
+///
+/// 规则：SizedBox 间距丢弃；`_SectionHead` 保持整行；其余卡片按顺序两两并排，
+/// 落单的一张占半宽（右侧留空），保证手机端原有顺序与内容完全不变。
+List<Widget> _tabletColumns(bool wide, List<Widget> children) {
+  if (!wide) return children;
+  const gap = 14.0;
+  final out = <Widget>[];
+  var pending = <Widget>[];
+
+  void flush() {
+    if (pending.isEmpty) return;
+    if (pending.length == 1) {
+      out.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: pending.first),
+            const Spacer(),
+          ],
+        ),
+      );
+    } else {
+      out.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: pending[0]),
+            const SizedBox(width: gap),
+            Expanded(child: pending[1]),
+          ],
+        ),
+      );
+      out.add(const SizedBox(height: gap));
+    }
+    pending = <Widget>[];
+  }
+
+  for (final w in children) {
+    if (w is SizedBox) continue; // 竖向间距在双栏下无意义
+    // 页头（数据总结 + 来源）与「概览」网格保持整行，不参与并排
+    if (w is _SectionHead || w is Padding || w is _OverviewGrid) {
+      flush();
+      out.add(w);
+      out.add(const SizedBox(height: gap));
+      continue;
+    }
+    pending.add(w);
+    if (pending.length == 2) flush();
+  }
+  flush();
+  return out;
 }
 
 /// 来源小标签

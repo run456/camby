@@ -410,7 +410,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
                 sliver: SliverGrid.builder(
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: wide ? 6 : 3,
+                    crossAxisCount: context.mediaGridColumns,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 14,
                     childAspectRatio: 0.55,

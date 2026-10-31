@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
@@ -137,8 +138,9 @@ class _TagPageState extends State<TagPage> {
                 : GridView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
+                        SliverGridDelegateWithFixedCrossAxisCount(
+                          // 平板（≥840）：与媒体库一致 6 列
+                          crossAxisCount: context.mediaGridColumns,
                           crossAxisSpacing: 11,
                           mainAxisSpacing: 16,
                           childAspectRatio: 0.53,

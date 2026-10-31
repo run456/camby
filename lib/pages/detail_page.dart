@@ -620,6 +620,10 @@ class _DetailPageState extends State<DetailPage> {
   Widget build(BuildContext context) {
     final item = _item;
     final wide = context.isTablet;
+    // 设计稿 §断点：**仅 ≥1200（expanded）** 做主从分栏；
+    // 840–1199（medium，多为竖屏平板）侧栏折叠，仍走手机单列（不改行为，
+    // 否则 1014dp 宽处塞 380 信息栏会把主内容挤成一条）。
+    final master = context.isExpanded;
     // 海报按原始比例展示，标题上移叠到海报下半区（盖住海报大字的低半部分）
     final posterAspect = (item.posterAspect > 0 ? item.posterAspect : 0.6667)
         .clamp(0.4, 2.4);
@@ -663,8 +667,8 @@ class _DetailPageState extends State<DetailPage> {
           Positioned.fill(
             // 独立图层：滚动只重绘列表，背后全屏模糊不再每帧重算
             child: RepaintBoundary(
-              child: wide
-                  // 平板（≥840）：设计稿 .detailHead 定高 300 横版头部
+              child: master
+                  // 平板扩展档（≥1200）：设计稿 .detailHead 定高 300 横版头部
                   // + .detailBody 1fr/380px 主从分栏
                   ? ListView(
                       controller: _scroll,

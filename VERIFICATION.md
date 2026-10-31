@@ -1405,3 +1405,38 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 | 新增守卫 | `session_report_transport_test.dart`（query 优先 / body 兜底 / 失败可见 / 缺失会话补 Playing / playedHistory 查询契约）；`player_double_tip_layout_test.dart`（禁止 148dp 水平排布、上移量下限、生命周期观察者配对） |
 
 **交付**：`camby-2.0.2-release-arm64.apk`（versionCode **202** / **2.0.2**）。
+
+## 45. 每版固定验证清单（v2.0.7 起启用）
+
+平板/手机双端共存后，每版发布前**必须**按此清单执行（自动化部分已脚本化）。
+
+### 自动化（一条命令）
+
+```bash
+bash tools/verify_release.sh --build
+```
+
+| 步骤 | 内容 | 失败即禁止发布 |
+|---|---|---|
+| 1 | 版本一致性：`pubspec.yaml` / `README.md` 版本行一致 | ✔ |
+| 2 | `flutter analyze`：0 error / 0 warning | ✔ |
+| 3 | `flutter test`：全量通过 | ✔ |
+| 4 | `tools/perf_audit.py`：性能静态红线 | ✔ |
+| 5 | 构建 release APK 并复制到 `releases/` | ✔ |
+
+### 回归守卫测试（常驻）
+
+| 测试文件 | 锁定内容 |
+|---|---|
+| `test/phone_regression_test.dart` | 手机端必须底部 Tab（无 Rail）、首页满幅 Hero、详情单列（无 380 侧栏）、设置页 16 边距；平板端必须 Rail ≤96、设置页限宽 720 居中 |
+| `test/layout_breakpoint_test.dart` | 三档断点 840 / 1200 与 `kRailWidth=96` |
+| `test/tablet_layout_test.dart` | Hero 定高 300 + 边距 30、详情头部 300、收藏页渲染 |
+
+### 真机必测（手机 + 平板各一台）
+
+- [ ] 手机端：首页 / 媒体库 / 详情 / 收藏 / 统计 / 设置 —— 与上一版逐页比对（无视觉变化即为通过）
+- [ ] 平板横屏：Rail 96px、Hero 卡片 300 高、继续观看 7 张、最近添加 9 张、详情主从分栏、收藏 5 列
+- [ ] 平板竖屏（840–1199 档）：导航收为图标条，媒体库 4 列（当前 6 列待按设计稿调），页面无溢出
+- [ ] 播放：起播/退出/杀 App 后活动日志有开始+结束，续播位置正确（手机与平板均强制横屏）
+- [ ] 性能：`PERFORMANCE.md` §2 阈值表（6 列网格滚动、切 Tab、详情首帧、内存）
+- [ ] 回滚锚点：发布前打 tag，出问题 `git reset --hard <tag>`

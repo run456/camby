@@ -18,6 +18,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// 1194×834 = 11 寸平板横屏，命中 medium 档（840–1199）。
 /// 外壳会注入「内容区宽 = 1194 - 96(Rail)」，测试直接给 1194 模拟整屏。
 const _tabletSize = Size(1194, 834);
+/// 1600×1000 = 大平板横屏，命中 expanded 档（≥1200，主从分栏生效）
+const _expandedSize = Size(1600, 1000);
 
 Widget _wrap(Widget child) => MaterialApp(
   theme: AppTheme.dark(),
@@ -55,9 +57,9 @@ void main() {
     expect(pageViewRect.left, moreOrLessEquals(30, epsilon: 0.5));
   });
 
-  testWidgets('平板详情：头部 300 定高 + 右侧 380px 信息栏（主从分栏）',
+  testWidgets('平板扩展档（1600dp）详情：头部 300 定高 + 主从分栏',
       (tester) async {
-    tester.view.physicalSize = _tabletSize;
+    tester.view.physicalSize = _expandedSize;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
@@ -86,6 +88,34 @@ void main() {
     final headRect = tester.getRect(headFinder);
     expect(headRect.height, moreOrLessEquals(300, epsilon: 0.5));
     expect(headRect.left, moreOrLessEquals(30, epsilon: 0.5));
+  });
+
+  testWidgets('平板中等档（1194dp）详情：侧栏折叠，仍是单列',
+      (tester) async {
+    tester.view.physicalSize = _tabletSize;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailPage(
+          item: demoLibrary.first,
+          state: AppState(),
+          onPlay: (item, subtitle, {resume = false}) {},
+          onOpenDetail: (_, {String? heroTag}) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // 设计稿：840–1199 档「详情侧栏折叠进底部抽屉」→ 不得出现 380 信息栏
+    final rows = tester.widgetList<Row>(find.byType(Row));
+    final withSide = rows.where(
+      (r) => r.children.any((w) => w is SizedBox && w.width == 380),
+    );
+    expect(withSide, isEmpty, reason: '中等档详情不得出现 380px 侧栏');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('平板收藏：渲染无异常且网格仍有「全部/新建」瓦片', (tester) async {

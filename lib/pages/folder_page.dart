@@ -123,7 +123,7 @@ class _FolderPageState extends State<FolderPage> {
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                                 // 平板（≥840）：与媒体库网格一致升到 6 列
-                                crossAxisCount: context.isTablet ? 6 : 3,
+                                crossAxisCount: context.mediaGridColumns,
                                 crossAxisSpacing: 11,
                                 mainAxisSpacing: 16,
                                 childAspectRatio: 0.55,

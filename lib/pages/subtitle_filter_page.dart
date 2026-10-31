@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_state.dart';
+import '../layout.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../widgets/media_poster.dart';
@@ -143,8 +144,9 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
                       gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                            // 平板（≥840）：与媒体库一致 6 列
+                            crossAxisCount: context.mediaGridColumns,
                             crossAxisSpacing: 11,
                             mainAxisSpacing: 16,
                             childAspectRatio: 0.55,

@@ -161,37 +161,113 @@ class _PersonPageState extends State<PersonPage> {
                 parent: AlwaysScrollableScrollPhysics(),
               ),
               slivers: [
-                // 顶部清晰头像，底部渐隐透出模糊主色调
+                // 顶部头像：
+                // 手机：满幅清晰头像 + 底部渐隐（与详情一致）
+                // 平板（≥840）：改为 300 定高卡片——左侧头像 + 右侧姓名/生卒/简介
                 SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 340,
-                    child: ShaderMask(
-                      blendMode: BlendMode.dstIn,
-                      shaderCallback: (rect) => const LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white,
-                          Colors.white,
-                          Colors.transparent,
-                        ],
-                        stops: [0.0, 0.72, 1.0],
-                      ).createShader(rect),
-                      child: imgUrl != null
-                          ? CachedImage(
-                              url: imgUrl,
-                              alignment: Alignment.topCenter,
-                              memWidth: 900,
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                  ),
+                  child: wide
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(30, 14, 30, 0),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: SizedBox(
+                              height: 300,
+                              child: Row(
+                                children: [
+                                  if (imgUrl != null)
+                                    SizedBox(
+                                      width: 200,
+                                      child: CachedImage(
+                                        url: imgUrl,
+                                        fit: BoxFit.cover,
+                                        alignment: Alignment.topCenter,
+                                        memWidth: 600,
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        28,
+                                        26,
+                                        26,
+                                        26,
+                                      ),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            p.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: -0.4,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          if (_birth != null) ...[
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              _birth!,
+                                              style: const TextStyle(
+                                                fontSize: 12.5,
+                                                color: AppColors.muted,
+                                              ),
+                                            ),
+                                          ],
+                                          if (_overview.isNotEmpty) ...[
+                                            const SizedBox(height: 14),
+                                            _OverviewText(
+                                              text: _overview,
+                                              expanded: _expanded,
+                                              onToggle: () => setState(
+                                                () => _expanded = !_expanded,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        )
+                      : SizedBox(
+                          height: 340,
+                          child: ShaderMask(
+                            blendMode: BlendMode.dstIn,
+                            shaderCallback: (rect) => const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.white,
+                                Colors.white,
+                                Colors.transparent,
+                              ],
+                              stops: [0.0, 0.72, 1.0],
+                            ).createShader(rect),
+                            child: imgUrl != null
+                                ? CachedImage(
+                                    url: imgUrl,
+                                    alignment: Alignment.topCenter,
+                                    memWidth: 900,
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
                 ),
                 SliverToBoxAdapter(
                   child: Column(
                     children: [
-                      // 姓名 + 出生日期
-                      Center(
+                      // 姓名 + 出生日期（平板已放入头部卡片，不重复展示）
+                      if (!wide)
+                        Center(
                         child: Column(
                           children: [
                             Text(
@@ -216,7 +292,7 @@ class _PersonPageState extends State<PersonPage> {
                           ],
                         ),
                       ),
-                      if (_overview.isNotEmpty) ...[
+                      if (!wide && _overview.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -298,7 +374,7 @@ class _PersonPageState extends State<PersonPage> {
                     ),
                     sliver: SliverGrid(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: wide ? 6 : 3,
+                        crossAxisCount: context.mediaGridColumns,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 16,
                         childAspectRatio: 0.52,
