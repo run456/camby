@@ -60,6 +60,7 @@ void main() {
   });
 
   testWidgets('我的（设置）', (t) async {
-    await pumpPage(t, SettingsPage(state: state, onTabChanged: (_) {}));
+    await pumpPage(t,
+        SettingsPage(state: state, onTabChanged: (_) {}, onOpenDetail: (item, {heroTag}) {}));
   });
 }

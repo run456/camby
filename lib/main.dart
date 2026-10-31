@@ -17,6 +17,7 @@ import 'pages/stats_page.dart';
 import 'pages/library_page.dart';
 import 'pages/favorites_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/search_page.dart';
 
 void main() {
   // ErrorWidget 兜底：正常情况下永远不会看到它；
@@ -131,6 +132,40 @@ class _AppShellState extends State<AppShell>
   /// 同时首页保留在栈下方，返回时不会重建、也不会黑屏。
   void _openDetail(MediaItem item, {String? heroTag}) {
     Navigator.of(context).push(_detailRoute(item, heroTag));
+  }
+
+  /// 全局搜索入口（v1.7.71）：双击当前 Tab 唤起，或「我的」页右上角搜索按钮。
+  /// 转场与详情页同款（半透明路由 + 淡入上浮）
+  void _openSearch() {
+    Navigator.of(context).push(_searchRoute(_state, _openDetail));
+  }
+
+  Route<void> _searchRoute(AppState state, OpenDetail onOpenDetail) {
+    return PageRouteBuilder<void>(
+      opaque: false,
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 340),
+      reverseTransitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (_, __, ___) =>
+          SearchPage(state: state, onOpenDetail: onOpenDetail),
+      transitionsBuilder: (_, anim, __, child) {
+        final curved = CurvedAnimation(
+          parent: anim,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
   }
 
   /// 详情页转场：淡入 + 轻微上浮（进入）/ 淡出（返回）
@@ -256,6 +291,7 @@ class _AppShellState extends State<AppShell>
           SettingsPage(
             onTabChanged: (i) => setState(() => _tab = i),
             state: _state,
+            onOpenDetail: _openDetail,
           ),
         ];
 
@@ -327,7 +363,7 @@ class _AppShellState extends State<AppShell>
                 left: 16,
                 right: 16,
                 bottom: MediaQuery.of(context).padding.bottom + 10,
-                child: _GlassNavBar(
+                child: GlassNavBar(
                   index: _tab,
                   onChanged: (i) {
                     setState(() {
@@ -337,6 +373,7 @@ class _AppShellState extends State<AppShell>
                     _tabAnim.forward(from: 0);
                     _blur.value = false;
                   },
+                  onSearch: _openSearch,
                 ),
               ),
             ],
@@ -350,10 +387,16 @@ class _AppShellState extends State<AppShell>
 }
 
 /// 全局液态玻璃 Tab 栏：悬浮胶囊 + 选中项玻璃高亮胶囊
-class _GlassNavBar extends StatelessWidget {
-  const _GlassNavBar({required this.index, required this.onChanged});
+class GlassNavBar extends StatefulWidget {
+  const GlassNavBar({
+    required this.index,
+    required this.onChanged,
+    this.onSearch,
+  });
   final int index;
   final ValueChanged<int> onChanged;
+  /// 双击「当前所在」Tab 唤起全局搜索（方案 C）；非当前 Tab 的点击照常切换
+  final VoidCallback? onSearch;
 
   static const _items = [
     (Icons.home_rounded, '首页'),
@@ -362,6 +405,30 @@ class _GlassNavBar extends StatelessWidget {
     (Icons.insert_chart_rounded, '数据'),
     (Icons.person_rounded, '我的'),
   ];
+
+  @override
+  State<GlassNavBar> createState() => GlassNavBarState();
+}
+
+class GlassNavBarState extends State<GlassNavBar> {
+  DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
+  int _lastIndex = -1;
+
+  void _onTap(int i) {
+    final now = DateTime.now();
+    // 双击当前所在 Tab（300ms 内连点同一格且不切换）→ 唤起搜索
+    if (i == widget.index &&
+        i == _lastIndex &&
+        now.difference(_lastTap).inMilliseconds < 300) {
+      widget.onSearch?.call();
+      // 消费掉这次双击，避免第三次连点再次触发
+      _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
+      return;
+    }
+    _lastTap = now;
+    _lastIndex = i;
+    widget.onChanged(i);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -415,12 +482,12 @@ class _GlassNavBar extends StatelessWidget {
                 ),
               ),
               Row(
-                children: List.generate(_items.length, (i) {
-                  final item = _items[i];
-                  final sel = i == index;
+                children: List.generate(GlassNavBar._items.length, (i) {
+                  final item = GlassNavBar._items[i];
+                  final sel = i == widget.index;
                   return Expanded(
                     child: LiquidPress(
-                      onTap: () => onChanged(i),
+                      onTap: () => _onTap(i),
                       radius: 22,
                       scale: 0.92,
                       glow: 0.36,

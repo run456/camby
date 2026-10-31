@@ -26,7 +26,11 @@ void main() {
       MaterialApp(
         theme: ThemeData.dark(),
         home: Scaffold(
-          body: SettingsPage(state: state, onTabChanged: (_) {}),
+          body: SettingsPage(
+            state: state,
+            onTabChanged: (_) {},
+            onOpenDetail: (item, {heroTag}) {},
+          ),
         ),
       ),
     );

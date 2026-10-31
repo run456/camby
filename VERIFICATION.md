@@ -1182,3 +1182,32 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 - **B 下拉唤醒**：在收藏/数据/我的页顶部下拉唤出搜索；但首页与媒体库下拉已被"刷新"占用，全局性打折，且二级页需逐个覆盖。
 - **C 双击当前 Tab（兜底）**：双击当前所处 Tab（不切换）唤起搜索，零空间、所有页面可用但完全隐蔽。
 - 推荐 **A1 + C**：悬浮球为主、双击 Tab 兜底；首页搜索按钮不再恢复。待确认：① 球默认位置（右上/右下）② 是否可拖贴边 ③ 双击兜底是否同加。
+
+## 37. v1.7.71 (111) 全局搜索落地：双击 Tab + 我的页搜索按钮
+
+### 用户决策
+
+> 做方案 C 就行，然后在「我的」页右上角加个搜索按钮。
+
+即：**仅做方案 C（双击当前 Tab 唤起）**，并额外在**「我的」页右上角**加一个常驻搜索按钮作为可见入口。
+
+### 改动
+
+| # | 项 | 处理 |
+|---|---|---|
+| 1 | 双击当前 Tab 唤起搜索 | `GlassNavBar` 由 `StatelessWidget` 改为 `StatefulWidget`，在 `GlassNavBarState` 用 `_lastTap`/`_lastIndex` 记录上次点击；`_onTap(i)` 中若 `i == 当前 index 且 == 上次 index 且间隔 < 300ms` → 调 `onSearch?.call()`（并重置 `_lastTap` 防止第三次连点再触发），否则走原 `onChanged(i)` |
+| 2 | 壳层搜索入口 | `main.dart` 新增 `_openSearch()` / `_searchRoute()`（与详情页同款半透明路由 + 淡入上浮），传给 `GlassNavBar.onSearch`；`GlassNavBar` 原为私有，改为公开以便单测 |
+| 3 | 「我的」页搜索按钮 | `settings_page.dart` 头部 Row 右侧加玻璃质感搜索圆钮（`LiquidPress` 包裹 `Icon(Icons.search_rounded)`），点击 `_openSearch()` 唤起搜索页；`SettingsPage` 新增必填 `onOpenDetail` 入参并透传 |
+| 4 | 测试修复 | 因 `SettingsPage` 新增必填参数，`settings_render_test` / `all_pages_render_test` 同步补 `onOpenDetail`，否则编译失败 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze`（改动文件） | 0 error / 0 warning |
+| `flutter test`（全量） | **199 / 199 全绿** |
+| 守卫测试 | `global_search_test.dart`：双击触发 `onSearch` 且不再切换、点其它 Tab 只切换、我的页搜索钮打开 `SearchPage` |
+
+**交付**：`camby-1.7.71-release-arm64.apk`（`cn.camby.camby` / **versionCode 111** / **1.7.71** / 34M / sha256 `5a46d1d6738f98fca52d9617cc855a9d8cdcf3885b1249658db2d35ba5e6f77a`）。
+
+> 发布节奏：未推送 GitHub（v1.7.65~1.7.71 共 7 版本地未推，已到推送窗口，确认后一并推并打 Release）。

@@ -8,6 +8,7 @@ import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'search_page.dart';
 
 /// 「我的」设置页：所有控件可交互，选择持久化到 SharedPreferences
 class SettingsPage extends StatefulWidget {
@@ -15,10 +16,12 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.onTabChanged,
     required this.state,
+    required this.onOpenDetail,
   });
 
   final void Function(int tab) onTabChanged;
   final AppState state;
+  final OpenDetail onOpenDetail;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -34,6 +37,36 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  void _openSearch() {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.transparent,
+        transitionDuration: const Duration(milliseconds: 340),
+        reverseTransitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (_, __, ___) =>
+            SearchPage(state: widget.state, onOpenDetail: widget.onOpenDetail),
+        transitionsBuilder: (_, anim, __, child) {
+          final curved = CurvedAnimation(
+            parent: anim,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curved,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.05),
+                end: Offset.zero,
+              ).animate(curved),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -124,6 +157,32 @@ class _SettingsPageState extends State<SettingsPage> {
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
+                ),
+              ),
+              const Spacer(),
+              // v1.7.71：右上角搜索按钮（全局搜索的另一入口，与双击 Tab 并存）
+              LiquidPress(
+                onTap: _openSearch,
+                radius: 18,
+                scale: 0.9,
+                semanticLabel: '搜索',
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
+                    ),
+                    border: Border.all(color: const Color(0x42FFFFFF)),
+                  ),
+                  child: const Icon(
+                    Icons.search_rounded,
+                    size: 19,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ],
