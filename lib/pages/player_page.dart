@@ -668,9 +668,10 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
   /// 起播后立刻同步一次进度，并挂上周期定时器
   void _startReportTimer() {
     _reportTimer?.cancel();
-    // 每 10 秒补一次：服务端 UserData 里的播放位置因此始终接近当前位置
+    // v1.7.65：心跳改为 30 秒（用户确认）。服务端 UserData 里的播放位置据此
+    // 始终接近当前位置；失败会进入 AppState 的待上报队列，下次成功时补发。
     _reportTimer = Timer.periodic(
-      const Duration(seconds: 10),
+      const Duration(seconds: 30),
       (_) => unawaited(_reportProgress()),
     );
   }
@@ -703,7 +704,16 @@ class PlayerPageState extends State<PlayerPage> with TickerProviderStateMixin {
     final srv = widget.state.server;
     if (srv == null) return;
     _lastReportAt = DateTime.now();
-    unawaited(srv.reportProgress(widget.item.id, (pos * 10000000).round()));
+    // v1.7.65：进度统一经 AppState 上报入口，带「已看完」标记与失败重试队列，
+    // 保证另一台设备能读到续播位置与已看状态。
+    final played = total > 0 && pos >= total * 0.95;
+    unawaited(
+      widget.state.reportServerProgress(
+        widget.item.id,
+        (pos * 10000000).round(),
+        played: played,
+      ),
+    );
   }
 
   /// 通用玻璃面板：码率 / 倍速 / 字幕等单选列表共用一套外观。

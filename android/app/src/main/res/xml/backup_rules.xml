@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  v1.7.65：开启 Android 自动备份（配合 AndroidManifest 的 allowBackup=true）。
+  作用：本 App 的「服务器配置」「本地收藏夹 JSON」「播放缓存」默认都落在 App
+  私有目录 / SharedPreferences 里，正常会被卸载清空。开启 Auto Backup 后，这些
+  数据会随系统备份到用户的 Google 账号，重装后自动还原 —— 配合收藏夹映射到
+  服务端播放列表，实现「卸载重装也能找回收藏夹」的自动恢复。
+  注意：自动备份依赖设备已开启 Google 备份且登录同一账号；若不可用，设置页
+  仍有「从服务器恢复收藏夹」的手动入口。
+-->
+<full-backup-content>
+    <include domain="sharedpref" path="."/>
+    <include domain="file" path="."/>
+</full-backup-content>

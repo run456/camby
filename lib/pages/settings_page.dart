@@ -535,6 +535,28 @@ class _ServersSection extends StatelessWidget {
         if (connected) ...[
           const SizedBox(height: 2),
           LiquidPress(
+            onTap: () async {
+              showToast(context, '正在从服务器恢复收藏夹…');
+              await state.syncFoldersFromServer();
+              if (!context.mounted) return;
+              showToast(
+                context,
+                '已与服务端播放列表同步',
+                icon: Icons.check_circle_outline_rounded,
+              );
+            },
+            radius: 8,
+            scale: 0.94,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                '从服务器恢复收藏夹',
+                style: TextStyle(fontSize: 11, color: AppColors.accent),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          LiquidPress(
             onTap: () => state.disconnect(),
             radius: 8,
             scale: 0.94,

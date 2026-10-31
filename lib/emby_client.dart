@@ -214,7 +214,7 @@ class EmbyServer {
   @visibleForTesting
   static int? heightFromNameForTest(String name) => _heightFromName(name);
 
-  /// 写回播放进度（1.7.38 新增）
+  /// 写回播放进度（1.7.38 新增，1.7.65 强化）
   ///
   /// Emby 有两条写进度的官方路线：
   /// 1. `Sessions/Playing` + `/Progress` + `/Stopped` —— 会话型，需要维护
@@ -226,24 +226,45 @@ class EmbyServer {
   /// 插值片段、没有任何 `Sessions` / `Playing/` 字面量，因此 1.7.38 走的是
   /// 第 2 条。
   ///
-  /// 失败静默：上报不是播放的前提，演示模式（无 token / 无 userId）直接跳过。
-  Future<void> reportProgress(String itemId, int positionTicks) async {
+  /// 1.7.65 升级：
+  /// - [played] 为 true 时额外写 `Played` 字段，让服务端「已看完」状态与本地一致
+  ///   （之前从不标 Played，导致「另一台手机看不到已看记录」）；
+  /// - 瞬时网络错误（Wi-Fi/数据切换、锁屏唤醒）自动重试一次，不再被静默吞掉；
+  /// - 返回是否成功，供调用方决定是否进入重试队列（跨会话兜底）。
+  Future<bool> reportProgress(
+    String itemId,
+    int positionTicks, {
+    bool played = false,
+  }) async {
     final uid = _userId;
-    if (_token == null || uid == null) return;
-    try {
-      await _postJson(
-        '$baseUrl/Users/$uid/Items/$itemId/UserData',
-        <String, dynamic>{
-          'ItemId': itemId,
-          'PlaybackPositionTicks': positionTicks,
-        },
-      );
-    } catch (_) {
-      // 服务端不支持 / 网络抖动都忽略，不打断播放
+    if (_token == null || uid == null) return false;
+    final body = <String, dynamic>{
+      'ItemId': itemId,
+      'PlaybackPositionTicks': positionTicks,
+      if (played) 'Played': true,
+    };
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await _postJson('$baseUrl/Users/$uid/Items/$itemId/UserData', body);
+        return true;
+      } catch (e) {
+        // 瞬时网络错误重试一次（GET 同样的处理），其余失败直接以 false 收场
+        if (attempt == 0 && _isTransientNetworkError(e)) {
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          continue;
+        }
+        return false;
+      }
     }
+    return false;
   }
 
-  /// 带鉴权头 + 忽略自签证书的 JSON POST
+  /// 带鉴权头 + 忽略自签证书的 JSON POST（仅上报进度使用）
+  ///
+  /// 与旧实现的关键差异：**校验 HTTP 状态码**。旧版 `await res.drain()` 把
+  /// 500/503 也当成「成功」，于是服务端实际没写进进度、App 却以为写好了 ——
+  /// 正是「另一台手机没记录」的隐性根因之一。现在非 2xx 直接抛异常，让重试
+  /// 与状态上报能真正生效。
   Future<void> _postJson(String url, Map<String, dynamic> body) async {
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 6)
@@ -257,7 +278,39 @@ class EmbyServer {
       req.headers.contentType = ContentType.json;
       req.write(jsonEncode(body));
       final res = await req.close();
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        await res.drain();
+        throw EmbyException('上报播放进度失败 (${res.statusCode})');
+      }
       await res.drain();
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 带鉴权头的 JSON POST，并返回解码后的响应体（播放列表等写操作后拿回 Id）
+  Future<Map<String, dynamic>> _postJsonReturning(
+    String url,
+    Map<String, dynamic> body,
+  ) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 8)
+      ..badCertificateCallback = (_, __, ___) => true;
+    try {
+      final req = await client.postUrl(Uri.parse(url));
+      req.headers.set(
+        'Authorization',
+        'MediaBrowser Client="Camby", Device="Android", DeviceId="camby01", Version="1.0.0", Token="$_token"',
+      );
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode(body));
+      final res = await req.close();
+      final text = await res.transform(utf8.decoder).join();
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        throw EmbyException('请求失败 (${res.statusCode})');
+      }
+      if (text.isEmpty) return const {};
+      return jsonDecode(text) as Map<String, dynamic>;
     } finally {
       client.close();
     }
@@ -782,6 +835,141 @@ class EmbyServer {
     }
   }
 
+  // ---------------- 收藏夹 ↔ 服务端播放列表（v1.7.65） ----------------
+  //
+  // Emby 没有「收藏夹」概念，最接近的是 **Playlist（播放列表）**：网页端可见、
+  // 可重命名、随账号存在于服务端，换设备/重装登录后自动回来。因此 App 把自建
+  // 收藏夹映射到服务端 Playlist，实现多设备同步 + 自动恢复。
+  //
+  // 各版本 Emby 的播放列表路由不完全一致（/Playlists 与 /Users/{uid}/Playlists
+  // 两种基址、/Items 与 /Items/Add 两种追加路由），这里逐个端点探测，任一环节
+  // 失败都**静默回退为「仅本地收藏夹」**，绝不影响正常播放。
+
+  /// 创建播放列表，返回服务端 Id（失败返回 null）
+  Future<String?> createPlaylist(String name, List<String> itemIds) async {
+    final uid = _userId;
+    if (_token == null || uid == null) return null;
+    final body = {
+      'Name': name,
+      'Ids': itemIds,
+      'UserId': uid,
+      'MediaType': 'Video',
+    };
+    for (final path in [
+      '$baseUrl/Users/$uid/Playlists',
+      '$baseUrl/Playlists',
+    ]) {
+      try {
+        final json = await _postJsonReturning(path, body);
+        final id = (json['Id'] ?? json['ItemId'])?.toString();
+        if (id != null && id.isNotEmpty) return id;
+      } catch (_) {
+        /* 端点不存在或参数不被接受，试下一个基址 */
+      }
+    }
+    return null;
+  }
+
+  /// 向播放列表追加条目（失败返回 false，调用方保留本地状态）
+  Future<bool> addToPlaylist(String playlistId, List<String> itemIds) async {
+    if (_token == null || itemIds.isEmpty) return false;
+    for (final path in [
+      '$baseUrl/Playlists/$playlistId/Items/Add',
+      '$baseUrl/Playlists/$playlistId/Items',
+    ]) {
+      try {
+        await _postJsonReturning(path, {'Ids': itemIds});
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// 从播放列表移除条目
+  Future<bool> removeFromPlaylist(
+    String playlistId,
+    List<String> itemIds,
+  ) async {
+    if (_token == null || itemIds.isEmpty) return false;
+    try {
+      final ids = itemIds.map(Uri.encodeQueryComponent).join(',');
+      await _request('$baseUrl/Playlists/$playlistId/Items?Ids=$ids',
+          method: 'DELETE');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 重命名播放列表（Emby 把播放列表当 Item，直接改 Name 字段）
+  Future<bool> renamePlaylist(String playlistId, String name) async {
+    if (_token == null) return false;
+    try {
+      await _postJsonReturning(
+        '$baseUrl/Items/$playlistId',
+        {'Id': playlistId, 'Name': name},
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 删除播放列表
+  Future<bool> deletePlaylist(String playlistId) async {
+    if (_token == null) return false;
+    try {
+      await _request('$baseUrl/Items/$playlistId', method: 'DELETE');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 拉取服务端所有播放列表（含其子条目 Id）。失败返回空列表。
+  Future<List<ServerPlaylist>> listPlaylists() async {
+    final uid = _userId;
+    if (_token == null || uid == null) return const [];
+    try {
+      final json = await _getJson(
+        '$baseUrl/Users/$uid/Items',
+        query: {
+          'IncludeItemTypes': 'Playlist',
+          'Fields': 'PlaylistItems,ChildCount',
+          'Recursive': 'true',
+          'Limit': '100',
+        },
+      );
+      final out = <ServerPlaylist>[];
+      for (final e in (json['Items'] as List? ?? const [])) {
+        final m = e as Map<String, dynamic>;
+        final id = (m['Id'] as String?) ?? '';
+        if (id.isEmpty) continue;
+        final name = (m['Name'] as String?) ?? '';
+        // 优先读 PlaylistItems 内联字段；部分版本不返回则逐个回拉（更可靠）
+        final ids = <String>[];
+        final rawItems = m['PlaylistItems'];
+        if (rawItems is List) {
+          for (final it in rawItems) {
+            if (it is Map && it['Id'] != null) ids.add(it['Id'].toString());
+          }
+        }
+        if (ids.isEmpty && (m['ChildCount'] as int? ?? 0) > 0) {
+          try {
+            final pj = await _getJson('$baseUrl/Playlists/$id/Items');
+            for (final it in (pj['Items'] as List? ?? const [])) {
+              if (it is Map && it['Id'] != null) ids.add(it['Id'].toString());
+            }
+          } catch (_) {}
+        }
+        out.add(ServerPlaylist(id, name, ids));
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// 演员头像地址
   String personImageUrl(String personId, String? tag) {
     final t = tag != null ? '&tag=$tag' : '';
@@ -1274,4 +1462,13 @@ class EmbyException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// 服务端播放列表（精简视图，供 reconcile 合并使用）
+class ServerPlaylist {
+  const ServerPlaylist(this.id, this.name, [this.itemIds = const []]);
+
+  final String id;
+  final String name;
+  final List<String> itemIds;
 }

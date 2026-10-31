@@ -9,6 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'emby_client.dart';
 import 'models.dart';
 
+/// 待上报进度（持久化队列用）
+class _PendingProgress {
+  const _PendingProgress(this.ticks, this.played);
+  final int ticks;
+  final bool played;
+}
+
 /// 应用数据源状态
 /// demoMode=true  → 使用内置演示库
 /// demoMode=false → 使用真实 Emby 服务器的条目
@@ -205,6 +212,85 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------------- 进度上报到服务端（含失败重试队列，v1.7.65） ----------------
+  //
+  // 「另一台手机看不到播放记录」的根因：旧上报只在播放页直接调 server，失败被
+  // 静默吞掉、且从不标 Played，断网/切网瞬间丢的进度就再也补不回来。
+  // 这里在 AppState 层维护一个**持久化待上报队列**：成功就出队，失败就留下，
+  // 下次成功上报 / 连接 / 刷新时统一冲刷。队列落盘，App 被杀也不丢。
+
+  /// itemId -> 待上报的进度（ticks + 是否已看完）
+  final Map<String, _PendingProgress> _pendingProgress = {};
+
+  /// 把一次进度上报到服务端（统一入口，带重试队列）。
+  /// [played] 为 true 时同步标「已看完」（之前从不标，是跨端不同步的主因）。
+  Future<void> reportServerProgress(
+    String itemId,
+    int positionTicks, {
+    bool played = false,
+  }) async {
+    final s = _server;
+    if (s == null) return;
+    final ok = await s.reportProgress(itemId, positionTicks, played: played);
+    if (ok) {
+      if (_pendingProgress.remove(itemId) != null) _persistPendingProgress();
+    } else {
+      _pendingProgress[itemId] = _PendingProgress(positionTicks, played);
+      await _persistPendingProgress();
+    }
+  }
+
+  /// 冲刷待上报队列：连接成功 / 下拉刷新 / 回到前台时调用。
+  Future<void> flushPendingProgress() async {
+    final s = _server;
+    if (s == null || _pendingProgress.isEmpty) return;
+    final pending = Map<String, _PendingProgress>.from(_pendingProgress);
+    for (final entry in pending.entries) {
+      final ok = await s.reportProgress(
+        entry.key,
+        entry.value.ticks,
+        played: entry.value.played,
+      );
+      if (ok) {
+        _pendingProgress.remove(entry.key);
+        await _persistPendingProgress();
+      }
+    }
+  }
+
+  /// 当前还有多少进度待上报（设置页/调试用）
+  int get pendingProgressCount => _pendingProgress.length;
+
+  Future<void> _persistPendingProgress() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = _pendingProgress.map(
+        (k, v) => MapEntry(k, {'t': v.ticks, 'p': v.played}),
+      );
+      await prefs.setString('pending_progress_json', jsonEncode(data));
+    } catch (_) {}
+  }
+
+  Future<void> _loadPendingProgress() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('pending_progress_json');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      _pendingProgress
+        ..clear()
+        ..addAll({
+          for (final e in data.entries)
+            e.key: _PendingProgress(
+              (e.value['t'] as int?) ?? 0,
+              (e.value['p'] as bool?) ?? false,
+            ),
+        });
+    } catch (_) {}
+  }
+
   // ---------------- 收藏夹（本地索引） + 演员收藏 ----------------
 
   List<FavoriteFolder> _folders = const [];
@@ -251,11 +337,23 @@ class AppState extends ChangeNotifier {
       id: 'f${DateTime.now().microsecondsSinceEpoch}',
       name: name.trim().isEmpty ? '未命名收藏夹' : name.trim(),
       createdAt: DateTime.now().millisecondsSinceEpoch,
+      serverId: _activeServerId,
     );
     _folders = [..._folders, f];
     notifyListeners();
     await _saveFolders();
-    return f;
+    // 上云：映射到服务端播放列表（失败不影响本地）
+    if (_server != null) {
+      final pid = await _server!.createPlaylist(f.name, const []);
+      if (pid != null) {
+        _folders = _folders
+            .map((e) => e.id == f.id ? e.copyWith(playlistId: pid) : e)
+            .toList();
+        await _saveFolders();
+        notifyListeners();
+      }
+    }
+    return folderById(f.id) ?? f;
   }
 
   Future<void> renameFolder(String id, String name) async {
@@ -266,23 +364,33 @@ class AppState extends ChangeNotifier {
         .toList();
     notifyListeners();
     await _saveFolders();
+    final pid = folderById(id)?.playlistId;
+    if (pid != null && _server != null) {
+      await _server!.renamePlaylist(pid, t);
+    }
   }
 
   Future<void> deleteFolder(String id) async {
+    final pid = folderById(id)?.playlistId;
     _folders = _folders.where((f) => f.id != id).toList();
     notifyListeners();
     await _saveFolders();
+    if (pid != null && _server != null) await _server!.deletePlaylist(pid);
   }
 
-  /// 设置某影片归属的收藏夹集合（多选）
+  /// 设置某影片归属的收藏夹集合（多选），并同步到服务端播放列表
   Future<void> setItemFolders(String itemId, Set<String> folderIds) async {
+    final oldById = {for (final f in _folders) f.id: f};
+    var changed = false;
     _folders = _folders.map((f) {
       final has = f.itemIds.contains(itemId);
       final want = folderIds.contains(f.id);
       if (want && !has) {
+        changed = true;
         return f.copyWith(itemIds: [...f.itemIds, itemId]);
       }
       if (!want && has) {
+        changed = true;
         return f.copyWith(
           itemIds: f.itemIds.where((e) => e != itemId).toList(),
         );
@@ -291,10 +399,24 @@ class AppState extends ChangeNotifier {
     }).toList();
     notifyListeners();
     await _saveFolders();
+    if (!changed || _server == null) return;
+    // 计算增减并同步到对应服务端播放列表
+    for (final f in _folders) {
+      final pid = f.playlistId;
+      if (pid == null) continue;
+      final oldHas = oldById[f.id]?.itemIds.contains(itemId) ?? false;
+      final newHas = f.itemIds.contains(itemId);
+      if (newHas && !oldHas) await _server!.addToPlaylist(pid, [itemId]);
+      if (!newHas && oldHas) await _server!.removeFromPlaylist(pid, [itemId]);
+    }
   }
 
   Future<void> _removeItemFromFolders(String itemId) async {
     if (_folders.isEmpty) return;
+    final affected = <String>{};
+    for (final f in _folders) {
+      if (f.itemIds.contains(itemId)) affected.add(f.id);
+    }
     var changed = false;
     _folders = _folders.map((f) {
       if (!f.itemIds.contains(itemId)) return f;
@@ -302,6 +424,92 @@ class AppState extends ChangeNotifier {
       return f.copyWith(itemIds: f.itemIds.where((e) => e != itemId).toList());
     }).toList();
     if (changed) await _saveFolders();
+    if (changed && _server != null) {
+      for (final fid in affected) {
+        final pid = folderById(fid)?.playlistId;
+        if (pid != null) await _server!.removeFromPlaylist(pid, [itemId]);
+      }
+    }
+  }
+
+  /// 把服务端播放列表与本地收藏夹合并（纯函数，便于单测）。
+  ///
+  /// 规则：
+  /// - 以 playlistId 为主键。服务端有、本地也有的 → 用服务端成员为准做并集
+  ///   （服务端是跨设备真源，离线时本地新增也不会丢）；
+  /// - 服务端有、本地没有的 → 在本地新建一个收藏夹（**自动恢复**场景）；
+  /// - 本地有 playlistId、服务端已删除的 → 本地一并移除（保持两端一致）；
+  /// - 本地纯本地（playlistId==null）的收藏夹一律保留，不动。
+  static List<FavoriteFolder> reconcileFolders(
+    List<FavoriteFolder> local,
+    List<ServerPlaylist> remote,
+    String serverId,
+  ) {
+    final byPlaylist = <String, ServerPlaylist>{};
+    for (final p in remote) byPlaylist[p.id] = p;
+    final result = <FavoriteFolder>[];
+    for (final f in local) {
+      // 纯本地、或归属其它服务器的收藏夹：不参与合并，原样保留
+      // （避免不同服务器的 playlistId 字符串撞名时互相串号）
+      if (f.playlistId == null || f.serverId != serverId) {
+        result.add(f);
+        continue;
+      }
+      final p = byPlaylist.remove(f.playlistId);
+      if (p == null) continue; // 服务端已删，本地移除
+      final merged = <String>{...p.itemIds, ...f.itemIds}.toList();
+      result.add(f.copyWith(name: p.name, itemIds: merged));
+    }
+    // 服务端新增、本地未匹配的播放列表 → 建本地收藏夹
+    for (final p in byPlaylist.values) {
+      result.add(
+        FavoriteFolder(
+          id: 'pl_${p.id}',
+          name: p.name,
+          itemIds: p.itemIds,
+          serverId: serverId,
+          playlistId: p.id,
+        ),
+      );
+    }
+    return result;
+  }
+
+  /// 从服务端拉回播放列表并与本地收藏夹双向同步。
+  ///
+  /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」时调用：
+  /// 1. 把归属当前服务器、但还没上云的旧版本地收藏夹推上去（兼容升级前的收藏夹）；
+  /// 2. 用 reconcileFolders 合并。
+  Future<void> syncFoldersFromServer() async {
+    final s = _server;
+    final sid = _activeServerId;
+    if (s == null || sid == null) return;
+    // 旧版本地收藏夹缺 serverId，先回填为当前服务器
+    if (_folders.any((f) => f.serverId == null)) {
+      _folders = _folders
+          .map((f) => f.serverId == null ? f.copyWith(serverId: sid) : f)
+          .toList();
+    }
+    // 把当前服务器下、尚未上云的收藏夹推到服务端
+    for (final f in _folders) {
+      if (f.serverId == sid && f.playlistId == null && _server != null) {
+        final pid = await _server!.createPlaylist(f.name, f.itemIds);
+        if (pid != null) {
+          _folders = _folders
+              .map((e) => e.id == f.id ? e.copyWith(playlistId: pid) : e)
+              .toList();
+        }
+      }
+    }
+    List<ServerPlaylist> remote;
+    try {
+      remote = await s.listPlaylists();
+    } catch (_) {
+      remote = const [];
+    }
+    _folders = reconcileFolders(_folders, remote, sid);
+    notifyListeners();
+    await _saveFolders();
   }
 
   bool isPersonFavorite(String? id) =>
@@ -451,6 +659,7 @@ class AppState extends ChangeNotifier {
   Future<void> restore() async {
     await _loadCache();
     await _loadFolders();
+    await _loadPendingProgress();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(
@@ -536,6 +745,10 @@ class AppState extends ChangeNotifier {
       _loadPlayback();
       // 演员收藏（Person 收藏在服务端，失败静默保留本地）
       loadFavoritePersons();
+      // 收藏夹与服务端播放列表双向同步（多设备同步 + 重装自动恢复）
+      await syncFoldersFromServer();
+      // 冲刷可能存在的待上报进度
+      unawaited(flushPendingProgress());
       return true;
     } catch (e) {
       _loading = false;

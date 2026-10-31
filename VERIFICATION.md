@@ -1015,3 +1015,28 @@ v1.7.58 的背景块横贯整行（一整条），应如设计图：**只有文�
 **交付**：`camby-1.7.64-release-arm64.apk`（`cn.camby.camby` / 104 / 1.7.64 / 34.5M / sha256 `658cc1c565e627391d6b608ebdca73ce819c67a4172f24133235249338d9db5e`）。
 
 > 发布节奏：v1.7.60~64 已**统一推送 GitHub** 并逐版创建 Release（附对应 APK），累计窗口清零，下次推送从 v1.7.65 起再累计 5 版。
+
+## 31. v1.7.65 (105) 多设备同步：进度 + 收藏夹 + 重装恢复
+
+> 背景：用户提出四连问（进度不同步 / 收藏夹不同步 / 统计不同步 / 重装恢复）。
+> 完整方案见 `docs/SYNC_PLAN.md`。本版落地三项，统计一致性由「进度同步正确」自然满足
+> （统计始终从服务端 UserData 派生，刷新即对齐）。
+
+| # | 问题 | 处理 |
+|---|---|---|
+| 1 | 另一台手机看不到播放记录 | `reportProgress` 重写：① 新增 `played` 字段写入（之前从不标「已看完」）；② `_postJson` 增加 **HTTP 状态码校验**，500/503 不再被当成成功；③ 瞬时网络错误自动重试一次；④ AppState 新增**持久化待上报队列** `reportServerProgress`/`flushPendingProgress`，失败入队、成功出队，App 被杀也不丢；⑤ 播放页心跳 10s → **30s**（用户确认） |
+| 2 | 设备 A 的收藏夹同步到设备 B | 收藏夹映射到 Emby 服务端 **Playlist**：`create/rename/delete/add/remove` 时同步服务端；`connect` 后从服务器 `listPlaylists` 拉回，与本地 `reconcileFolders` 合并（服务端为权威取并集、服务端新增则自动建本地、服务端已删则本地移除、纯本地保留）。**修复多服串号 bug**：`FavoriteFolder` 增加 `serverId` 字段，切服不再把 A 的收藏夹渲染到 B |
+| 3 | 卸载重装后恢复收藏夹 | ① 收藏夹已上云（映射到服务端 Playlist），重装登录后自动拉回；② 开启 **Android Auto Backup**（`AndroidManifest` `allowBackup` + `res/xml/backup_rules.xml`），让服务器配置 / 收藏夹 JSON 随 Google 备份跨重装还原；③ 设置页「我的服务器」已连接时新增「**从服务器恢复收藏夹**」手动入口兜底 |
+
+### 质量门
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze` | 0 error / 0 warning |
+| `flutter test` | 168 → **176 / 176**（新增 `progress_sync_test.dart`：Played 写入 / 500 返回 false / 未登录不抛；`sync_folders_test.dart`：reconcile 四类场景 + 跨服隔离） |
+
+**交付**：`camby-1.7.65-release-arm64.apk`（`cn.camby.camby` / 105 / 1.7.65 / 34.5M / sha256 `d44fc3888e04dd2fd91b97e0989be55c2d2b905d814c5c700ff31614fa110654`）。
+
+> 发布节奏：未推送 GitHub（v1.7.65 为累计窗口第 1 版，攒满 5 版再推）。
+> 注意：Emby 播放列表路由各版本不完全一致，收藏夹映射采用多端点探测 + 失败静默回退，
+> 建议在你真实服务器上回归一次收藏夹增删/改名/换设备。

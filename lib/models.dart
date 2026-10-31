@@ -119,19 +119,34 @@ class FavoriteFolder {
     required this.name,
     this.itemIds = const [],
     this.createdAt = 0,
+    this.serverId,
+    this.playlistId,
   });
 
   final String id;
   final String name;
   final List<String> itemIds;
   final int createdAt;
+  /// 归属的服务器 profile id（v1.7.65 新增）。
+  /// 旧版收藏夹无此字段，多服务器时会把 A 的收藏夹渲染到 B 上；
+  /// connect 时若为空会回填为当前激活服务器 id。
+  final String? serverId;
+  /// 同步到的服务端播放列表 Id（null = 仅本地，未上云）
+  final String? playlistId;
 
-  FavoriteFolder copyWith({String? name, List<String>? itemIds}) =>
+  FavoriteFolder copyWith({
+    String? name,
+    List<String>? itemIds,
+    String? serverId,
+    String? playlistId,
+  }) =>
       FavoriteFolder(
         id: id,
         name: name ?? this.name,
         itemIds: itemIds ?? this.itemIds,
         createdAt: createdAt,
+        serverId: serverId ?? this.serverId,
+        playlistId: playlistId ?? this.playlistId,
       );
 
   Map<String, dynamic> toJson() => {
@@ -139,6 +154,8 @@ class FavoriteFolder {
     'name': name,
     'itemIds': itemIds,
     'createdAt': createdAt,
+    if (serverId != null) 'serverId': serverId,
+    if (playlistId != null) 'playlistId': playlistId,
   };
 
   factory FavoriteFolder.fromJson(Map<String, dynamic> j) => FavoriteFolder(
@@ -148,6 +165,8 @@ class FavoriteFolder {
         .map((e) => e.toString())
         .toList(),
     createdAt: j['createdAt'] as int? ?? 0,
+    serverId: j['serverId'] as String?,
+    playlistId: j['playlistId'] as String?,
   );
 }
 
