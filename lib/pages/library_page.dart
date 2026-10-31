@@ -4,6 +4,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
+import '../layout.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
@@ -156,7 +157,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final wide = MediaQuery.of(context).size.width >= 840;
+    final wide = context.isTablet;
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
         '|$_cnOnly|${_tagFilters.join()}'

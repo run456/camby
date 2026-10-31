@@ -9,6 +9,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
+import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
 import '../widgets/media_poster.dart';
@@ -308,7 +309,7 @@ class _DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     final item = _item;
-    final wide = MediaQuery.of(context).size.width >= 840;
+    final wide = context.isTablet;
     // 海报按原始比例展示，标题上移叠到海报下半区（盖住海报大字的低半部分）
     final posterAspect = (item.posterAspect > 0 ? item.posterAspect : 0.6667)
         .clamp(0.4, 2.4);

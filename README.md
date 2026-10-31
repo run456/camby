@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.4 (204)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.5 (205)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -121,6 +121,16 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.5 (205) 平板改造 M1：统一断点 + 左侧 Rail 外壳
+
+**平板/手机单 APK 适配 · 第一阶段（形态解锁）**
+- 新增 `lib/layout.dart`：按设计稿 `camby_tablet_redesign.html` 三档断点——`<840` 手机（底部 Tab）、`840–1199` 中等（图标条 Rail）、`≥1200` 扩展（带标签 Rail + 主从分栏）；收敛原散落在 4 个页面的 `MediaQuery...size.width >= 840` 魔法数字为 `context.isTablet` / `context.breakpoint`
+- `main.dart` 导航外壳改造：**唯一裁决者**按 `breakpoint` 分支——手机走原样底部玻璃栏（零改动），平板走左侧 96px `NavigationRail` + `Expanded(内容区)`
+- 关键修复：Rail 分支通过 `LayoutBuilder` + `MediaQuery` **把"内容区宽度"注入**页面，避免 `home_page` 用全设备宽算「继续观看」大卡宽高导致溢出 96px（设计稿评审缺陷 #2）
+- 手机路径代码一行未动；页面保活（`Offstage`+`TickerMode`）、切 Tab 过渡、状态栏模糊全部复用
+- 新增 `test/layout_breakpoint_test.dart`：锁定三档 840/1200 与 `isTablet/useRail` 一致性
+- 回滚锚点：`git tag pre-tablet-phase1`（= v2.0.4 手机版），随时 `git reset --hard pre-tablet-phase1`
 
 ### v2.0.4 (204) 修复收藏夹改名 400
 

@@ -6,6 +6,7 @@ import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'app_state.dart';
+import 'layout.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'widgets/liquid_press.dart';
@@ -295,70 +296,49 @@ class _AppShellState extends State<AppShell>
           ),
         ];
 
-        final shell = Scaffold(
+        // 内容体（页面保活 + 状态栏模糊）。底部导航条 / 左侧 Rail 由外壳按
+        // breakpoint 分支决定，手机路径零改动。
+        final body = _buildBody(context, pages);
+
+        if (context.useRail) {
+          // 平板：左侧 Rail + 内容区。内容区宽度经 MediaQuery 注入，
+          // 否则 home_page 用 MediaQuery.of(context).size.width（仍是全设备宽）
+          // 算「继续观看」大卡宽高会宽出 Rail 宽度导致溢出。
+          return Scaffold(
+            backgroundColor: AppColors.bg,
+            body: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildRail(context),
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: Color(0x1AFFFFFF),
+                ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (ctx, constraints) {
+                      final mq = MediaQuery.of(context);
+                      return MediaQuery(
+                        data: mq.copyWith(
+                          size: Size(constraints.maxWidth, mq.size.height),
+                        ),
+                        child: body,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // 手机：保持现有底部悬浮玻璃栏，零改动
+        return Scaffold(
           backgroundColor: AppColors.bg,
           body: Stack(
             children: [
-              // 注意：这里以前还挂着一个 `_ShaderWarmup`（隐形 2×2 BackdropFilter）。
-              // BackdropFilter 会为它**下面**的所有内容建立离屏图层，而它是 Stack
-              // 的最后一个子节点（压在最底层）——等于要求把各平台 view 下面的
-              // 全部内容先渲进一张离屏纹理。加上 Activity 的 theme 背景是黑的，
-              // 一旦这块离屏合成失败，整屏就是纯黑。预热省下的那点首帧掉帧
-              // 不值得冒「App 进不去」的风险，已移除。
-              Positioned.fill(
-                // 保活：切 Tab 不再销毁重建整页（图片不重解码、滚动位置保留）
-                // 未访问过的页面先放占位，避免启动时一次性构建 5 页
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: _onScroll,
-                  child: AnimatedBuilder(
-                    animation: _tabAnim,
-                    builder: (_, inner) {
-                      final t = Curves.easeOutCubic.transform(_tabAnim.value);
-                      return Opacity(
-                        opacity: 0.55 + 0.45 * t,
-                        child: Transform.translate(
-                          offset: Offset(0, 10 * (1 - t)),
-                          child: inner,
-                        ),
-                      );
-                    },
-                    child: RepaintBoundary(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          for (var i = 0; i < pages.length; i++)
-                            // Offstage：保留 State 但跳过布局/绘制；
-                            // TickerMode：停掉隐藏页的动画
-                            Offstage(
-                              offstage: i != _tab,
-                              child: TickerMode(
-                                enabled: i == _tab,
-                                child: _visited.contains(i)
-                                    ? pages[i]
-                                    : const SizedBox.shrink(),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // 顶部状态栏：上滑后才出现的渐进动态模糊，五个标签页统一
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: IgnorePointer(
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable: _blur,
-                    builder: (_, active, __) => StatusBarBlur(
-                      height: MediaQuery.of(context).padding.top + 24,
-                      active: active,
-                    ),
-                  ),
-                ),
-              ),
+              body,
               Positioned(
                 left: 16,
                 right: 16,
@@ -379,9 +359,132 @@ class _AppShellState extends State<AppShell>
             ],
           ),
         );
-
-        return shell;
       },
+    );
+  }
+
+  /// 内容体：页面保活（Offstage+TickerMode）+ 切 Tab 柔和过渡 + 顶部状态栏模糊。
+  /// 与导航外壳解耦，供手机（底部 Tab）与平板（左侧 Rail）复用。
+  Widget _buildBody(BuildContext context, List<Widget> pages) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          // 保活：切 Tab 不再销毁重建整页（图片不重解码、滚动位置保留）
+          // 未访问过的页面先放占位，避免启动时一次性构建 5 页
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: AnimatedBuilder(
+              animation: _tabAnim,
+              builder: (_, inner) {
+                final t = Curves.easeOutCubic.transform(_tabAnim.value);
+                return Opacity(
+                  opacity: 0.55 + 0.45 * t,
+                  child: Transform.translate(
+                    offset: Offset(0, 10 * (1 - t)),
+                    child: inner,
+                  ),
+                );
+              },
+              child: RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    for (var i = 0; i < pages.length; i++)
+                      // Offstage：保留 State 但跳过布局/绘制；
+                      // TickerMode：停掉隐藏页的动画
+                      Offstage(
+                        offstage: i != _tab,
+                        child: TickerMode(
+                          enabled: i == _tab,
+                          child: _visited.contains(i)
+                              ? pages[i]
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        // 顶部状态栏：上滑后才出现的渐进动态模糊，五个标签页统一
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _blur,
+              builder: (_, active, __) => StatusBarBlur(
+                height: MediaQuery.of(context).padding.top + 24,
+                active: active,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 平板左侧导航栏（≥840 启用），复用底部 Tab 的同套图标/文案。
+  /// 中等档（840–1199）为纯图标条，扩展档（≥1200）显示标签。
+  Widget _buildRail(BuildContext context) {
+    final expanded = context.isExpanded;
+    return Container(
+      width: kRailWidth,
+      decoration: BoxDecoration(
+        color: AppColors.bg,
+        border: const Border(
+          right: BorderSide(color: Color(0x14FFFFFF), width: 1),
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Icon(
+              Icons.play_circle_fill_rounded,
+              size: 26,
+              color: Colors.white.withOpacity(0.92),
+            ),
+          ),
+          Expanded(
+            child: NavigationRail(
+              backgroundColor: Colors.transparent,
+              selectedIndex: _tab,
+              onDestinationSelected: (i) {
+                setState(() {
+                  _tab = i;
+                  _visited.add(i);
+                });
+                _tabAnim.forward(from: 0);
+                _blur.value = false;
+              },
+              labelType: expanded
+                  ? NavigationRailLabelType.all
+                  : NavigationRailLabelType.none,
+              selectedIconTheme: const IconThemeData(size: 21),
+              unselectedIconTheme: const IconThemeData(size: 21),
+              selectedLabelTextStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+              unselectedLabelTextStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+              destinations: [
+                for (final it in GlassNavBar._items)
+                  NavigationRailDestination(
+                    icon: Icon(it.$1),
+                    label: Text(it.$2),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

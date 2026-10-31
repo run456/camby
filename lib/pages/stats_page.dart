@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../layout.dart';
 
 /// 数据总结：液态玻璃风格
 /// A 本地库聚合（精确） + B Playback Reporting / 活动日志（真实行为）
@@ -56,7 +57,7 @@ class _StatsPageState extends State<StatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final wide = MediaQuery.of(context).size.width >= 840;
+    final wide = context.isTablet;
     final stats = widget.state.stats;
     final playback = widget.state.playback;
     final activity = widget.state.activity;

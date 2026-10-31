@@ -7,6 +7,7 @@ import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../theme.dart';
+import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
@@ -121,7 +122,7 @@ class _PersonPageState extends State<PersonPage> {
         : null;
     final films = _filtered;
     final topPad = MediaQuery.of(context).padding.top;
-    final wide = MediaQuery.of(context).size.width >= 840;
+    final wide = context.isTablet;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Stack(
