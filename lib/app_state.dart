@@ -477,13 +477,15 @@ class AppState extends ChangeNotifier {
 
   /// 从服务端拉回播放列表并与本地收藏夹双向同步。
   ///
-  /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」时调用：
+  /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」/ 收藏页刷新按钮时调用：
   /// 1. 把归属当前服务器、但还没上云的旧版本地收藏夹推上去（兼容升级前的收藏夹）；
   /// 2. 用 reconcileFolders 合并。
-  Future<void> syncFoldersFromServer() async {
+  ///
+  /// 返回同步完成后当前服务器名下的收藏夹数量（供 UI 提示用）。
+  Future<int> syncFoldersFromServer() async {
     final s = _server;
     final sid = _activeServerId;
-    if (s == null || sid == null) return;
+    if (s == null || sid == null) return 0;
     // 旧版本地收藏夹缺 serverId，先回填为当前服务器
     if (_folders.any((f) => f.serverId == null)) {
       _folders = _folders
@@ -510,6 +512,7 @@ class AppState extends ChangeNotifier {
     _folders = reconcileFolders(_folders, remote, sid);
     notifyListeners();
     await _saveFolders();
+    return _folders.where((f) => f.serverId == sid).length;
   }
 
   bool isPersonFavorite(String? id) =>

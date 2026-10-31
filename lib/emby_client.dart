@@ -846,15 +846,19 @@ class EmbyServer {
   // 失败都**静默回退为「仅本地收藏夹」**，绝不影响正常播放。
 
   /// 创建播放列表，返回服务端 Id（失败返回 null）
+  ///
+  /// v1.7.66 修复：Emby 的 `Ids` 参数是**逗号分隔字符串**（query/model 绑定
+  /// 风格），传 JSON 数组会被 400 拒绝 —— 之前收藏夹映射到服务端播放列表
+  /// 全部静默失败就是这个原因。空列表则干脆不带 Ids 字段。
   Future<String?> createPlaylist(String name, List<String> itemIds) async {
     final uid = _userId;
     if (_token == null || uid == null) return null;
-    final body = {
+    final body = <String, dynamic>{
       'Name': name,
-      'Ids': itemIds,
       'UserId': uid,
       'MediaType': 'Video',
     };
+    if (itemIds.isNotEmpty) body['Ids'] = itemIds.join(',');
     for (final path in [
       '$baseUrl/Users/$uid/Playlists',
       '$baseUrl/Playlists',
@@ -873,12 +877,13 @@ class EmbyServer {
   /// 向播放列表追加条目（失败返回 false，调用方保留本地状态）
   Future<bool> addToPlaylist(String playlistId, List<String> itemIds) async {
     if (_token == null || itemIds.isEmpty) return false;
+    final ids = itemIds.join(',');
     for (final path in [
       '$baseUrl/Playlists/$playlistId/Items/Add',
       '$baseUrl/Playlists/$playlistId/Items',
     ]) {
       try {
-        await _postJsonReturning(path, {'Ids': itemIds});
+        await _postJsonReturning(path, {'Ids': ids});
         return true;
       } catch (_) {}
     }

@@ -9,6 +9,7 @@ import '../routes.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
+import '../widgets/glass_toast.dart';
 import 'folder_page.dart';
 import 'person_page.dart';
 
@@ -86,7 +87,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               children: [
                 // 标题
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -107,6 +108,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      // v1.7.66：与服务器同步收藏夹（拉回播放列表 + 推送未上云的本地夹）
+                      _SyncButton(state: state),
                     ],
                   ),
                 ),
@@ -538,7 +542,9 @@ class _StackTile extends StatelessWidget {
                     : math.min(2, covers.length - 1);
                 return Stack(
                   clipBehavior: Clip.none,
-                  alignment: Alignment.center,
+                  // v1.7.66：卡片贴底对齐 —— 之前 Center 让 0.85 缩放的
+                  // 海报上下各空 7.5%，标题和封面之间显得很宽
+                  alignment: Alignment.bottomCenter,
                   children: [
                     for (var depth = maxDepth; depth >= 0; depth--)
                       _layer(depth, w, h),
@@ -573,7 +579,8 @@ class _StackTile extends StatelessWidget {
               },
             ),
           ),
-          const SizedBox(height: 9),
+          // v1.7.66：9 → 6，海报贴底后标题紧随其后
+          const SizedBox(height: 6),
           Text(
             name,
             maxLines: 1,
@@ -716,6 +723,77 @@ class _StackTile extends StatelessWidget {
   );
 }
 
+/// 标题行右侧的「与服务器同步」按钮（v1.7.66）。
+///
+/// 点击：把未上云的本地收藏夹推到服务端播放列表 + 拉回其他设备的改动，
+/// 完成后 toast 汇报数量；未连接服务器时提示不可用。
+class _SyncButton extends StatefulWidget {
+  const _SyncButton({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_SyncButton> createState() => _SyncButtonState();
+}
+
+class _SyncButtonState extends State<_SyncButton> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidPress(
+      onTap: _busy ? null : _sync,
+      radius: 999,
+      scale: 0.92,
+      glow: 0.14,
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withOpacity(0.06),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        child: _busy
+            ? const Padding(
+                padding: EdgeInsets.all(8),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white70,
+                ),
+              )
+            : const Icon(
+                Icons.sync_rounded,
+                size: 18,
+                color: Colors.white70,
+              ),
+      ),
+    );
+  }
+
+  Future<void> _sync() async {
+    if (widget.state.server == null) {
+      showToast(context, '未连接服务器，无法同步', icon: Icons.info_outline_rounded);
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final n = await widget.state.syncFoldersFromServer();
+      if (!mounted) return;
+      showToast(
+        context,
+        '已同步 · $n 个收藏夹与服务器一致',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showToast(context, '同步失败，请检查网络后重试', icon: Icons.error_outline_rounded);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}
+
 /// 新建收藏夹虚线卡
 class _NewFolderTile extends StatelessWidget {
   const _NewFolderTile({required this.onTap});
@@ -742,9 +820,11 @@ class _NewFolderTile extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // v1.7.66：新建卡整体放大（40→54 / 21→26），与真实
+                    // 收藏夹卡片的视觉分量对齐，更好点中
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 54,
+                      height: 54,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.white.withOpacity(0.06),
@@ -754,16 +834,16 @@ class _NewFolderTile extends StatelessWidget {
                       ),
                       child: const Icon(
                         Icons.add_rounded,
-                        size: 21,
+                        size: 26,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 9),
+                    const SizedBox(height: 12),
                     const Text(
                       '新建收藏夹',
                       style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                         color: AppColors.muted,
                       ),
                     ),
