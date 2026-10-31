@@ -50,20 +50,27 @@ void main() {
       expect(seg.contains('showToast'), isTrue);
     });
 
-    test('封面堆叠必须贴底对齐（bottomCenter）', () {
-      final stackIdx = pageSrc.indexOf('clipBehavior: Clip.none,');
-      expect(stackIdx, greaterThanOrEqualTo(0));
-      final seg = pageSrc.substring(stackIdx, stackIdx + 220);
+    test('封面堆叠必须贴底对齐（_layer 返回 Align bottomCenter）', () {
+      final layerIdx = pageSrc.indexOf('Widget _layer(int depth');
+      expect(layerIdx, greaterThanOrEqualTo(0));
+      final endIdx = pageSrc.indexOf('Widget get _placeholder', layerIdx);
+      final seg = pageSrc.substring(layerIdx, endIdx);
       expect(seg.contains('Alignment.bottomCenter'), isTrue,
           reason: '海报堆叠应贴底，避免标题与封面间距过宽');
+      // v1.7.66 的教训：外层贴底但内部 Center 会再次居中——禁止 _layer 内用 Center
+      expect(seg.contains('Center('), isFalse,
+          reason: '_layer 内不得再用 Center 把海报居中');
     });
 
-    test('新建收藏夹卡图标不得小于 54', () {
+    test('新建收藏夹卡图标还原为 40（外框由 FractionallySizedBox 缩小）', () {
       final newIdx = pageSrc.indexOf('class _NewFolderTile');
       final seg = pageSrc.substring(newIdx);
       final m = RegExp(r'width: (\d+),\s*\n\s*height: \d+,').firstMatch(seg);
       expect(m, isNotNull);
-      expect(int.parse(m!.group(1)!), greaterThanOrEqualTo(54));
+      expect(int.parse(m!.group(1)!), 40, reason: '内部按钮还原 v1.7.63 尺寸');
+      expect(seg.contains('FractionallySizedBox'), isTrue,
+          reason: '虚线外框必须缩到 0.85 与海报卡一致');
+      expect(seg.contains('heightFactor: 0.85'), isTrue);
     });
   });
 }

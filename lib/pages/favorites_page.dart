@@ -89,7 +89,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                    // v1.7.67：标题 / 副标题 / 同步按钮水平居中对齐
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       const Text(
                         '收藏',
@@ -579,8 +580,8 @@ class _StackTile extends StatelessWidget {
               },
             ),
           ),
-          // v1.7.66：9 → 6，海报贴底后标题紧随其后
-          const SizedBox(height: 6),
+          // v1.7.67：海报贴底后 3dp 即可（此前居中导致约 20dp 空隙）
+          const SizedBox(height: 3),
           Text(
             name,
             maxLines: 1,
@@ -700,7 +701,10 @@ class _StackTile extends StatelessWidget {
         child: card,
       ),
     );
-    return Center(
+    // v1.7.67：Align 贴底 + 卡片尺寸收在自身 —— 之前外层 Stack 改了
+    // bottomCenter 但这里的 Center 又把海报居中了一次，标题间距没变小
+    return Align(
+      alignment: Alignment.bottomCenter,
       child: SizedBox(width: cw, height: ch, child: card),
     );
   }
@@ -811,43 +815,50 @@ class _NewFolderTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: CustomPaint(
-              painter: _DashedRRectPainter(
-                radius: 14,
-                color: Colors.white.withOpacity(0.26),
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // v1.7.66：新建卡整体放大（40→54 / 21→26），与真实
-                    // 收藏夹卡片的视觉分量对齐，更好点中
-                    Container(
-                      width: 54,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.06),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.14),
+            // v1.7.67：虚线外框缩到与海报堆叠卡一致（0.85 缩放 + 贴底），
+            // 看起来和其他收藏夹一样大；内部按钮/文字还原 v1.7.63 尺寸
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: FractionallySizedBox(
+                widthFactor: 0.85,
+                heightFactor: 0.85,
+                child: CustomPaint(
+                  painter: _DashedRRectPainter(
+                    radius: 14,
+                    color: Colors.white.withOpacity(0.26),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withOpacity(0.06),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.14),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.add_rounded,
+                            size: 21,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                      child: const Icon(
-                        Icons.add_rounded,
-                        size: 26,
-                        color: Colors.white,
-                      ),
+                        const SizedBox(height: 9),
+                        const Text(
+                          '新建收藏夹',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      '新建收藏夹',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
