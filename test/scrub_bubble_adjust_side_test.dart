@@ -45,10 +45,11 @@ void main() {
       '亮度 / 音量指示',
       '外挂字幕叠加层',
     );
-    expect(block.contains("left: _adjustSide == 'volume' ? 48 : null"), isTrue,
-        reason: '右半屏调音量 → 指示条显示在左侧（v1.7.64 起离边 48dp）');
-    expect(block.contains("right: _adjustSide == 'brightness' ? 48 : null"),
-        isTrue, reason: '左半屏调亮度 → 指示条显示在右侧（v1.7.64 起离边 48dp）');
+    // v2.0.8：离边距离改由 PlayerUi.adjustEdge 提供（手机 48 / 平板 72）
+    expect(block.contains("left: _adjustSide == 'volume' ? ui.adjustEdge : null"),
+        isTrue, reason: '右半屏调音量 → 指示条显示在左侧');
+    expect(block.contains("right: _adjustSide == 'brightness' ? ui.adjustEdge : null"),
+        isTrue, reason: '左半屏调亮度 → 指示条显示在右侧');
     // 旧的同侧写法必须移除
     expect(block.contains("left: _adjustSide == 'brightness'"), isFalse);
     expect(block.contains("right: _adjustSide == 'volume'"), isFalse);

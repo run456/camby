@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../layout.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../player/boot_watch.dart';
@@ -1732,6 +1733,8 @@ class PlayerPageState extends State<PlayerPage>
   Widget build(BuildContext context) {
     final item = widget.item;
     final total = _totalSeconds;
+    // 播放器 UI 度量：手机一套、平板一套（按钮尺寸/间距/字号随分辨率放大）
+    final ui = PlayerUi.of(context);
     // 系统返回手势/返回键也走统一退出序列（黑幕遮旋转）
     return PopScope(
       canPop: false,
@@ -1828,40 +1831,49 @@ class PlayerPageState extends State<PlayerPage>
 
               // 双击 ±10 秒提示（v2.0.3）：
               // 紧贴对应按钮的**同一水平线**上，而不是堆在按钮组正上方 ——
-              //   · +10 秒 → 快进按钮**右侧**，与其水平对齐，间距 = 快进↔播放 的 26dp
-              //   · -10 秒 → 快退按钮**左侧**，与其水平对齐，间距 = 快退↔播放 的 26dp
+              //   · +10 秒 → 快进按钮**右侧**，与其水平对齐，间距 = 快进↔播放 的 clusterGap
+              //   · -10 秒 → 快退按钮**左侧**，与其水平对齐，间距 = 快退↔播放 的 clusterGap
               // 几何（相对屏幕水平中心 x=0，与 _centerControls 严格一致）：
-              //   播放钮半宽 33、按钮间隔 26、快进退钮半宽 25
-              //   → 快进钮右缘 = 33+26+25 = 109；快退钮左缘 = -109
-              //   气泡固定宽 _tipW=92（见下），半宽 46
+              //   播放钮半宽 33、按钮间隔 26、快进退钮整宽 50、气泡半宽 46
+              //   → 快进钮右缘 = 33+26+50 = 109；快退钮左缘 = -109
               //   +10 秒：气泡左缘 = 109+26 = 135 → 中心 135+46 = 181
               //   -10 秒：气泡右缘 = -109-26 = -135 → 中心 -135-46 = -181
               // 故不论左右，translate 的水平位移都是 ±181，纵向为 0（同屏心）。
+              // v2.0.8：以上数字改为 PlayerUi 度量驱动，平板 242（见 layout.dart）。
               if (_doubleTip != null)
                 Align(
                   alignment: Alignment.center,
-                  child: Transform.translate(
-                    // _doubleTipLeft = true 是「-10秒」(快退，在左)；false 是「+10秒」(快进，在右)
-                    offset: Offset(_doubleTipLeft ? -181.0 : 181.0, 0),
-                    child: Glass(
-                      // 固定宽高便于上面的位移精确对应 26dp 间距；内容居中不换行
-                      width: 92,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      radius: 16,
-                      blur: 20,
-                      blurEnabled: false,
-                      child: Text(
-                        _doubleTip!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
+                  child: Builder(
+                    builder: (ctx) {
+                      // 控件尺寸按分辨率取：手机 92/17、平板 112/21（设计稿）
+                      final ui = PlayerUi.of(ctx);
+                      return Transform.translate(
+                        // _doubleTipLeft = true 是「-10秒」(快退，在左)；false 是「+10秒」(快进，在右)
+                        offset: Offset(
+                          _doubleTipLeft ? -ui.tipOffset : ui.tipOffset,
+                          0,
                         ),
-                      ),
-                    ),
+                        child: Glass(
+                          // 固定宽高便于上面的位移精确对应 clusterGap 间距；内容居中不换行
+                          width: ui.tipW,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: ui.tipPadH,
+                            vertical: ui.tipPadV,
+                          ),
+                          radius: ui.tablet ? 20 : 16,
+                          blur: 20,
+                          blurEnabled: false,
+                          child: Text(
+                            _doubleTip!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: ui.tipFont,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
 
@@ -1874,9 +1886,9 @@ class PlayerPageState extends State<PlayerPage>
                 Positioned(
                   top: 0,
                   bottom: 0,
-                  left: _adjustSide == 'volume' ? 48 : null,
-                  right: _adjustSide == 'brightness' ? 48 : null,
-                  width: 68,
+                  left: _adjustSide == 'volume' ? ui.adjustEdge : null,
+                  right: _adjustSide == 'brightness' ? ui.adjustEdge : null,
+                  width: ui.adjustW,
                   child: Center(
                     child: Glass(
                       padding: const EdgeInsets.symmetric(
@@ -1893,7 +1905,7 @@ class PlayerPageState extends State<PlayerPage>
                             _adjustSide == 'brightness'
                                 ? Icons.brightness_6_rounded
                                 : Icons.volume_up_rounded,
-                            size: 17,
+                            size: ui.adjustIcon,
                             color: AppColors.ink,
                           ),
                           const SizedBox(height: 4),
@@ -1914,7 +1926,7 @@ class PlayerPageState extends State<PlayerPage>
                           ),
                           const SizedBox(height: 7),
                           SizedBox(
-                            height: 150,
+                            height: ui.adjustBarH,
                             child: RotatedBox(
                               quarterTurns: -1,
                               child: LinearProgressIndicator(
@@ -1950,8 +1962,8 @@ class PlayerPageState extends State<PlayerPage>
                         children: [
                           Text(
                             _fmt(pos),
-                            style: const TextStyle(
-                              fontSize: 32,
+                            style: TextStyle(
+                              fontSize: ui.scrubFont,
                               fontWeight: FontWeight.w800,
                               color: Colors.white,
                               shadows: [
@@ -1965,10 +1977,10 @@ class PlayerPageState extends State<PlayerPage>
                           const SizedBox(height: 4),
                           Text(
                             '${pos - _scrubStartPos >= 0 ? '+' : '-'}${_fmt((pos - _scrubStartPos).abs())} · ${_fmt(total)}',
-                            style: const TextStyle(
-                              fontSize: 12,
+                            style: TextStyle(
+                              fontSize: ui.scrubSubFont,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFFD2DEFA),
+                              color: const Color(0xFFD2DEFA),
                               shadows: [
                                 Shadow(
                                   color: Color(0x99000000),
@@ -1990,6 +2002,9 @@ class PlayerPageState extends State<PlayerPage>
                 builder: (context, _) {
                   final cue = _cueText;
                   if (cue.isEmpty) return const SizedBox.shrink();
+                  // 平板屏幕物理尺寸更大，同样的 dp 字号相对画面偏小，
+                  // 按 PlayerUi 的倍率整体放大（用户自定义字号仍生效）
+                  final subScale = PlayerUi.of(context).subtitleScale;
                   return Positioned(
                     left: 24,
                     right: 24,
@@ -2019,7 +2034,9 @@ class PlayerPageState extends State<PlayerPage>
                             textAlign: TextAlign.center,
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
-                            style: _subStyle.textStyle,
+                            style: _subStyle.textStyle.copyWith(
+                              fontSize: _subStyle.size * subScale,
+                            ),
                           ),
                         ),
                       ),
@@ -2075,7 +2092,13 @@ class PlayerPageState extends State<PlayerPage>
                   child: SafeArea(
                     bottom: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                      // 与顶栏同 ui.topPadH/topPadV/topIcon，保证锁定前后不跳位
+                      padding: EdgeInsets.fromLTRB(
+                        PlayerUi.of(context).topPadH,
+                        PlayerUi.of(context).topPadV,
+                        PlayerUi.of(context).topPadH,
+                        0,
+                      ),
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: GestureDetector(
@@ -2084,7 +2107,7 @@ class PlayerPageState extends State<PlayerPage>
                           onLongPress: _unlockScreen,
                           child: GlassIconButton(
                             icon: Icons.lock_rounded,
-                            iconSize: 15,
+                            iconSize: PlayerUi.of(context).topIcon,
                             blurEnabled: false,
                             onTap: null,
                           ),
@@ -2118,6 +2141,7 @@ class PlayerPageState extends State<PlayerPage>
     // 起播加载弹窗显示期间不画控制层：一来画面还没有，控件只会显得杂乱，
     // 二来顶栏/底栏会盖住弹窗上的「切换 Exo / 继续等待」按钮（v1.7.55）
     if (_bootOverlayVisible) return const SizedBox.shrink();
+    final ui = PlayerUi.of(context);
     return Positioned(
       top: 0,
       left: 0,
@@ -2125,16 +2149,16 @@ class PlayerPageState extends State<PlayerPage>
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+          padding: EdgeInsets.fromLTRB(ui.topPadH, ui.topPadV, ui.topPadH, 0),
           child: Row(
             children: [
               GlassIconButton(
                 icon: Icons.arrow_back_ios_new_rounded,
-                iconSize: 15,
+                iconSize: ui.topIcon,
                 blurEnabled: false,
                 onTap: () => unawaited(_exitPlayer()),
               ),
-              const SizedBox(width: 10),
+              SizedBox(width: ui.topTitleGap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2144,8 +2168,8 @@ class PlayerPageState extends State<PlayerPage>
                       item.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13.5,
+                      style: TextStyle(
+                        fontSize: ui.topTitle,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                       ),
@@ -2156,19 +2180,19 @@ class PlayerPageState extends State<PlayerPage>
                       '${item.audioCodec} ${item.audioChannels}ch',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFFA9BCD8),
+                      style: TextStyle(
+                        fontSize: ui.topMeta,
+                        color: const Color(0xFFA9BCD8),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: ui.topIconGap),
               Glass(
-                height: 34,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                radius: 17,
+                height: ui.topChipH,
+                padding: EdgeInsets.symmetric(horizontal: ui.topChipPadH),
+                radius: ui.topChipH / 2,
                 blur: 18,
                 blurEnabled: false,
                 // 显式无参回调：直接传 _switchEngine 会把 Future 静默丢掉
@@ -2176,25 +2200,25 @@ class PlayerPageState extends State<PlayerPage>
                 child: Center(
                   child: Text(
                     _engine.short,
-                    style: const TextStyle(
-                      fontSize: 11,
+                    style: TextStyle(
+                      fontSize: ui.topChipFont,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: ui.topIconGap),
               GlassIconButton(
                 icon: Icons.lock_open_rounded,
-                iconSize: 15,
+                iconSize: ui.topIcon,
                 blurEnabled: false,
                 onTap: _lockScreen,
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: ui.topIconGap),
               GlassIconButton(
                 icon: Icons.info_outline_rounded,
-                iconSize: 15,
+                iconSize: ui.topIcon,
                 blurEnabled: false,
                 onTap: _showInfo,
               ),
@@ -2210,15 +2234,16 @@ class PlayerPageState extends State<PlayerPage>
   // 「快退 / 播放 / 快进」三件套，切集走详情页的分集列表。
   // 顺带修掉旧注释里「底栏有下一段」的说法：底栏从来没有这个按钮。
   Widget _centerControls() {
+    final ui = PlayerUi.of(context);
     return Positioned.fill(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _GlassPlayBtn(icon: Icons.replay_rounded, onTap: () => _skip(-10)),
-          const SizedBox(width: 26),
+          SizedBox(width: ui.clusterGap),
           LiquidPress(
             onTap: _togglePlay,
-            radius: 33,
+            radius: ui.playBtn / 2,
             scale: 0.92,
             shadows: const [
               BoxShadow(
@@ -2228,8 +2253,8 @@ class PlayerPageState extends State<PlayerPage>
               ),
             ],
             child: Container(
-              width: 66,
-              height: 66,
+              width: ui.playBtn,
+              height: ui.playBtn,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
@@ -2238,12 +2263,12 @@ class PlayerPageState extends State<PlayerPage>
               ),
               child: Icon(
                 _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                size: 30,
+                size: ui.playIcon,
                 color: Colors.white,
               ),
             ),
           ),
-          const SizedBox(width: 26),
+          SizedBox(width: ui.clusterGap),
           _GlassPlayBtn(
             // 水平镜像 replay 图标，与快退严格对称（forward 图标不是镜像对）
             icon: Icons.replay_rounded,
@@ -2258,10 +2283,11 @@ class PlayerPageState extends State<PlayerPage>
   Widget _bottomBar(BuildContext context, double total) {
     // 同 _topBar：加载弹窗期间不画底栏（会压住弹窗的按钮）
     if (_bootOverlayVisible) return const SizedBox.shrink();
+    final ui = PlayerUi.of(context);
     return Positioned(
-      left: 16,
-      right: 16,
-      bottom: 10,
+      left: ui.barInset,
+      right: ui.barInset,
+      bottom: ui.barBottom,
       child: SafeArea(
         top: false,
         child: Column(
@@ -2286,7 +2312,7 @@ class PlayerPageState extends State<PlayerPage>
                 },
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: ui.barGap),
             // 单行：左边当前时间 → 中间胶囊（弹性）→ 右边缓冲速率 + 总时长
             // v1.7.33/1.7.40：时长与缓冲固定贴最右，不再和按钮挤在一行里
             Row(
@@ -2295,14 +2321,14 @@ class PlayerPageState extends State<PlayerPage>
                   valueListenable: _posNv,
                   builder: (_, pos, __) => Text(
                     _fmt(pos),
-                    style: const TextStyle(
-                      fontSize: 11,
+                    style: TextStyle(
+                      fontSize: ui.timeFont,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFFC6D5EF),
+                      color: const Color(0xFFC6D5EF),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: ui.barInnerGap),
                 Expanded(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -2319,15 +2345,15 @@ class PlayerPageState extends State<PlayerPage>
                             onTap: _pickSubtitle,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: ui.chipGap),
                         _Chip(
                           label: _fit == PlaybackFit.fill ? '满屏' : '自适配',
                           icon: Icons.aspect_ratio_rounded,
                           onTap: _toggleFit,
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: ui.chipGap),
                         _SpeedChip(label: _speedLabel, onTap: _pickSpeed),
-                        const SizedBox(width: 8),
+                        SizedBox(width: ui.chipGap),
                         _Chip(
                           label: _engine == PlaybackEngine.mpv
                               ? (_hw ? '硬解' : '软解')
@@ -2335,7 +2361,7 @@ class PlayerPageState extends State<PlayerPage>
                           icon: Icons.memory_rounded,
                           onTap: () => unawaited(_toggleHardware()),
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: ui.chipGap),
                         _Chip(
                           label: '码率 · ${_bitrateShort()}',
                           icon: Icons.speed_rounded,
@@ -2345,27 +2371,27 @@ class PlayerPageState extends State<PlayerPage>
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                SizedBox(width: ui.barInnerGap),
                 // 缓冲速率常显（v1.7.40）：没数据时给占位，避免这一格忽隐忽现
                 ValueListenableBuilder<String>(
                   valueListenable: _bufNv,
                   builder: (_, buf, __) => Text(
                     buf.isEmpty ? '-- MB/s' : buf,
                     maxLines: 1,
-                    style: const TextStyle(
-                      fontSize: 10.5,
+                    style: TextStyle(
+                      fontSize: ui.timeFont - 0.5,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF8B94A7),
+                      color: const Color(0xFF8B94A7),
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Text(
                   _fmt(total),
-                  style: const TextStyle(
-                    fontSize: 11,
+                  style: TextStyle(
+                    fontSize: ui.timeFont,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFFC6D5EF),
+                    color: const Color(0xFFC6D5EF),
                   ),
                 ),
               ],
@@ -2393,17 +2419,18 @@ class _GlassPlayBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ui = PlayerUi.of(context);
     return Glass(
-      width: 50,
-      height: 50,
+      width: ui.sideBtn,
+      height: ui.sideBtn,
       padding: EdgeInsets.zero,
-      radius: 25,
+      radius: ui.sideBtn / 2,
       blur: 20,
       blurEnabled: false,
       onTap: onTap,
       child: Transform.flip(
         flipX: flipX,
-        child: Icon(icon, size: 23, color: AppColors.ink),
+        child: Icon(icon, size: ui.sideIcon, color: AppColors.ink),
       ),
     );
   }
@@ -2417,19 +2444,20 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ui = PlayerUi.of(context);
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 168),
       child: Glass(
-        height: 30,
+        height: ui.chipH,
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        radius: 15,
+        radius: ui.chipH / 2,
         blur: 16,
         blurEnabled: false,
         onTap: onTap,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: Colors.white),
+            Icon(icon, size: ui.chipIcon, color: Colors.white),
             const SizedBox(width: 5),
             // 字幕语言名可能很长：允许省略，避免把底栏挤爆
             Flexible(
@@ -2437,8 +2465,8 @@ class _Chip extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
+                style: TextStyle(
+                  fontSize: ui.chipFont,
                   fontWeight: FontWeight.w700,
                   color: Colors.white,
                 ),
@@ -2512,12 +2540,15 @@ class _ProgressBarState extends State<_ProgressBar> {
         widget.onUp(_valueAt(d.localPosition, box.size.width));
       },
       child: SizedBox(
-        height: 34,
+        height: PlayerUi.of(context).barHitH,
         child: LayoutBuilder(
           builder: (context, c) {
+            final ui = PlayerUi.of(context);
             final w = c.maxWidth;
             final x = w * pct;
             final r = pressed ? 9.0 : 6.0;
+            // 轨道垂直居中于热区（以按下态高度对齐，与原 13 一致）
+            final top = ui.barHitH / 2 - ui.barActiveH / 2;
             return Stack(
               clipBehavior: Clip.none,
               children: [
@@ -2525,13 +2556,14 @@ class _ProgressBarState extends State<_ProgressBar> {
                 Positioned(
                   left: 0,
                   right: 0,
-                  top: 13,
+                  top: top,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     curve: Curves.easeOutCubic,
-                    height: pressed ? 8 : 4,
+                    height: pressed ? ui.barActiveH : ui.barTrackH,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(pressed ? 8 : 4),
+                      borderRadius:
+                          BorderRadius.circular(pressed ? ui.barActiveH : ui.barTrackH),
                       color: Colors.white.withOpacity(0.22),
                     ),
                   ),
@@ -2540,13 +2572,14 @@ class _ProgressBarState extends State<_ProgressBar> {
                 Positioned(
                   left: 0,
                   width: x,
-                  top: 13,
+                  top: top,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     curve: Curves.easeOutCubic,
-                    height: pressed ? 8 : 4,
+                    height: pressed ? ui.barActiveH : ui.barTrackH,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(pressed ? 8 : 4),
+                      borderRadius:
+                          BorderRadius.circular(pressed ? ui.barActiveH : ui.barTrackH),
                       gradient: const LinearGradient(
                         colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                       ),
@@ -2620,7 +2653,7 @@ class _GlassPanel extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 470,
+          maxWidth: PlayerUi.of(context).panelMaxW,
           // 上下各留 12px，尽量吃满
           maxHeight: avail - 24,
         ),

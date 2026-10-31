@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:camby/layout.dart';
+
 /// v1.7.64：三项修复守卫。
 /// 1. 播放页屏幕常亮（WakelockPlus），播放中不黑屏
 /// 2. 亮度/音量指示条加高、离屏幕边缘更远
@@ -24,9 +26,18 @@ void main() {
     final i = player.indexOf('亮度 / 音量指示');
     expect(i, greaterThanOrEqualTo(0));
     final block = player.substring(i, player.indexOf('外挂字幕叠加层', i));
-    expect(block.contains('height: 150'), isTrue, reason: '进度条 88 太矮');
+    // v2.0.8：数值改由 PlayerUi 提供（手机 150/48、平板 190/72）
+    expect(block.contains('height: ui.adjustBarH'), isTrue,
+        reason: '进度条高度必须走度量，旧的 88 太矮');
     expect(block.contains('height: 88'), isFalse, reason: '旧的矮进度条还在');
-    expect(block.contains('? 48 : null'), isTrue, reason: '离边 22dp 太贴边');
+    expect(block.contains('? ui.adjustEdge : null'), isTrue,
+        reason: '离边距离必须走度量，旧的 22dp 太贴边');
+    // 手机端不得小于 v1.7.64 定稿的下限
+    expect(PlayerUi.phone().adjustBarH, greaterThanOrEqualTo(150));
+    expect(PlayerUi.phone().adjustEdge, greaterThanOrEqualTo(48));
+    // 平板只放大不缩小
+    expect(PlayerUi.tablet().adjustBarH, greaterThan(150));
+    expect(PlayerUi.tablet().adjustEdge, greaterThan(48));
   });
 
   test('收藏页标题区与封面收紧（网格顶留白 ≤ 6）', () {
