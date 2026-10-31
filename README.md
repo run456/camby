@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.2 (202)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.4 (204)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -121,6 +121,24 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.4 (204) 修复收藏夹改名 400
+
+**收藏夹同步后在 APP 改名提示 400 失败（真机 2.0.3）**
+- 根因：改名走 `GET /Users/{uid}/Items/{id}` 取完整对象 → 只改 `Name` → `POST /Items/{id}` 写回。但 Emby 的 `ItemUpdateService.UpdateItem`（`ItemUpdateService.cs:327`）会对 `request.ProviderIds` 直接 `.ToList()`；而该 GET **默认不返回** `ProviderIds`（`DtoService.cs:861` 仅在请求 `ItemFields.ProviderIds` 字段时才塞进 DTO）→ 回传 DTO 里 `ProviderIds` 为 null → 服务端 `ArgumentNullException: source` → **400**。Emby Web 能改名是因为它的元数据编辑器显式请求了 `ProviderIds` 字段，APP 之前没请求
+- 修复：回传前给 DTO 补上 `ProviderIds`（及 `Genres/Tags/Studios/People` 等常见集合字段）空值，保证形态完整；播放列表本就没有这些元数据，补空不会丢数据
+- 新增 `test/rename_playlist_providerids_test.dart`：模拟 Emby 默认 GET（不带 ProviderIds）+ 复刻服务端「缺 ProviderIds 即 400」行为，断言修复后改名成功
+
+### v2.0.3 (203) 双击 ±10 秒提示布局统一
+
+**双击快进/快退提示不统一（真机 2.0.2）**
+- 旧布局把「+10秒 / -10秒」都浮在按钮组正上方、仅做 34dp 方向感偏移，左右提示视觉上没和对应按钮对齐，方向感弱
+- 改为**紧贴对应按钮的同一水平线**：
+  - `+10秒` → 贴在**快进按钮右侧**，与其水平对齐
+  - `-10秒` → 贴在**快退按钮左侧**，与其水平对齐
+  - 与按钮的间距 == 快进↔播放 / 快退↔播放 的间隔（**26dp**，与 `_centerControls` 的 `SizedBox(width:26)` 完全一致）
+- 几何按 `_centerControls` 复刻（播放钮半宽 33 + 间隔 26 + 快进退钮半宽 25 → 快进钮右缘 109 / 快退钮左缘 -109），气泡固定宽 92，故位移恒为 ±181、纵向 0，保证不论屏宽都精确对齐
+- 更新 `test/player_double_tip_layout_test.dart` 覆盖新布局（贴边、同水平、26dp 间距、固定宽 92）
 
 ### v2.0.2 (202) 会话上报改 query 双形态 / 播放历史兜底 / 双击提示错位
 

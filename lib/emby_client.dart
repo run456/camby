@@ -1133,11 +1133,29 @@ class EmbyServer {
   /// v1.7.68：先 `GET /Users/{uid}/Items/{id}` 取完整对象，只改 `Name` 再
   /// `POST /Items/{id}` 写回——避免只发 `{Id,Name}` 把其它字段（如
   /// PlaylistItems 的引用）整包覆盖导致丢片。
+  ///
+  /// v2.0.4 修复：Emby 的 `ItemUpdateService.UpdateItem` 会对
+  /// `request.ProviderIds` 直接 `.ToList()`（`ItemUpdateService.cs:327`），
+  /// 而上面的 GET **默认不返回** `ProviderIds` 字段
+  ///（`DtoService.cs:861` 仅在请求 `ItemFields.ProviderIds` 时才塞进 DTO），
+  /// 于是回传的 DTO 里 `ProviderIds` 为 null → `ArgumentNullException: source`
+  /// → **400**（社区贴也指向缺失的 ProviderIds）。播放列表本就没有 ProviderIds，
+  /// 这里补空字典（连同其它集合字段一并补空，防不同版本再踩同款坑）即可。
   Future<bool> renamePlaylist(String playlistId, String name) async {
     if (_token == null) return false;
     try {
       final m = await _getJson('$baseUrl/Users/$_userId/Items/$playlistId');
       m['Name'] = name;
+      // Emby 的 UpdateItem 对集合字段直接解引用，DTO 缺省为 null 即 400：
+      // 补空值保证形态完整（播放列表无这些元数据，补空不会丢数据）
+      m['ProviderIds'] ??= <String, String>{};
+      for (final f in const [
+        'Genres', 'Tags', 'Studios', 'People', 'GenreItems',
+        'ArtistItems', 'AlbumArtists', 'AirDays', 'LockedFields',
+        'ProductionLocations', 'Taglines',
+      ]) {
+        m[f] ??= const [];
+      }
       await _postJsonReturning('$baseUrl/Items/$playlistId', m);
       return true;
     } catch (e) {
