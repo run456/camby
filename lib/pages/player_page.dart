@@ -191,6 +191,7 @@ class PlayerPageState extends State<PlayerPage>
   }
 
   bool _demoPlaying = true;
+
   /// v1.7.64：屏幕常亮当前状态（避免每帧重复打平台通道）
   bool _wakelockOn = false;
   double _demoPosition = 0;
@@ -1600,7 +1601,9 @@ class PlayerPageState extends State<PlayerPage>
     if (!useNative && _player?.nativeSubtitles == true) {
       await _player?.setSubtitle(null);
     }
-    final native = useNative ? (await _player?.setSubtitle(track.url) ?? false) : false;
+    final native = useNative
+        ? (await _player?.setSubtitle(track.url) ?? false)
+        : false;
     if (!native) {
       final cues = await _loadCues(track);
       if (!mounted) return;
@@ -2026,8 +2029,7 @@ class PlayerPageState extends State<PlayerPage>
                         child: ConstrainedBox(
                           // 只保留限宽，长句自动换行、居中
                           constraints: BoxConstraints(
-                            maxWidth:
-                                MediaQuery.of(context).size.width * 0.85,
+                            maxWidth: MediaQuery.of(context).size.width * 0.85,
                           ),
                           child: Text(
                             cue,
@@ -2547,8 +2549,11 @@ class _ProgressBarState extends State<_ProgressBar> {
             final w = c.maxWidth;
             final x = w * pct;
             final r = pressed ? 9.0 : 6.0;
-            // 轨道垂直居中于热区（以按下态高度对齐，与原 13 一致）
-            final top = ui.barHitH / 2 - ui.barActiveH / 2;
+            // v2.0.13：轨道/圆点统一以热区中线（barHitH/2）垂直居中。
+            // 旧实现轨道 top 按按下态高度算、圆点 top 是硬编码 8/10，
+            // 平板档位下圆点中心与轨道中心最大偏差 6px（用户实测反馈）。
+            final trackH = pressed ? ui.barActiveH : ui.barTrackH;
+            final top = ui.barHitH / 2 - trackH / 2;
             return Stack(
               clipBehavior: Clip.none,
               children: [
@@ -2562,8 +2567,9 @@ class _ProgressBarState extends State<_ProgressBar> {
                     curve: Curves.easeOutCubic,
                     height: pressed ? ui.barActiveH : ui.barTrackH,
                     decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(pressed ? ui.barActiveH : ui.barTrackH),
+                      borderRadius: BorderRadius.circular(
+                        pressed ? ui.barActiveH : ui.barTrackH,
+                      ),
                       color: Colors.white.withOpacity(0.22),
                     ),
                   ),
@@ -2578,8 +2584,9 @@ class _ProgressBarState extends State<_ProgressBar> {
                     curve: Curves.easeOutCubic,
                     height: pressed ? ui.barActiveH : ui.barTrackH,
                     decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(pressed ? ui.barActiveH : ui.barTrackH),
+                      borderRadius: BorderRadius.circular(
+                        pressed ? ui.barActiveH : ui.barTrackH,
+                      ),
                       gradient: const LinearGradient(
                         colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                       ),
@@ -2594,10 +2601,10 @@ class _ProgressBarState extends State<_ProgressBar> {
                     ),
                   ),
                 ),
-                // 圆点
+                // 圆点：中心 = barHitH/2，与轨道同一中线
                 Positioned(
                   left: (x - r).clamp(0.0, math.max(0.0, w - r * 2)),
-                  top: pressed ? 8 : 10,
+                  top: ui.barHitH / 2 - r,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     curve: Curves.easeOutCubic,

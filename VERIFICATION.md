@@ -1452,6 +1452,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 50. v2.0.13 实测反馈 2 项
+
+1. **详情页重复播放按钮**：`DetailPage.build` 底部常驻播放区（`_ProgressPlayButton` + 重新播放圆钮 + 渐变模糊带）加 `if (!wide)` 仅手机渲染；平板横幅操作行已含播放入口。平板 `_tabletChildren` 末尾底部预留 `SizedBox(120)` → `32`（手机分支 120 保留，底部条仍在）。
+2. **播放器进度条圆点/轨道居中**：`_ProgressBar` 轨道 `top = barHitH/2 - (pressed ? barActiveH : barTrackH)/2`；圆点 `top = barHitH/2 - r`（r = pressed ? 9 : 6）。手机（34/4/8）与平板（46/6/11）两档几何断言不变，中心线恒为 barHitH/2。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.13-release-arm64.apk`。
+
+---
+
 ## 49. v2.0.12 实测反馈 6 项
 
 1. **详情页按 `docs/detail_tablet_proposal.html` 重适配（平板端全部重写，手机不动）**：头部横幅 330（backdrop 全宽铺底 + 双向渐变 + 悬浮海报 180×262 + 左下信息/操作 + 右下进度条）；操作行 = 立即/继续播放 + 从头播放 + 收藏 + 标记已看（新增 `EmbyServer.markPlayed` / `AppState.togglePlayed`）；扩展档双栏 1fr/340px；中等档横幅同款 + 限宽 760 居中单列；顶部避让状态栏。守卫测试同步更新（横幅 330 / 边距 24）。

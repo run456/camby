@@ -324,8 +324,7 @@ class _DetailPageState extends State<DetailPage> {
           const _SectionLabel('剧情简介'),
           const SizedBox(height: 8),
           GestureDetector(
-            onTap: () =>
-                setState(() => _descExpanded = !_descExpanded),
+            onTap: () => setState(() => _descExpanded = !_descExpanded),
             child: Text(
               item.overview,
               maxLines: _descExpanded ? null : 5,
@@ -339,8 +338,7 @@ class _DetailPageState extends State<DetailPage> {
           ),
           if (item.overview.length > 80)
             GestureDetector(
-              onTap: () =>
-                  setState(() => _descExpanded = !_descExpanded),
+              onTap: () => setState(() => _descExpanded = !_descExpanded),
               child: Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
@@ -410,7 +408,8 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
       ),
-      const SizedBox(height: 120),
+      // v2.0.13：平板已无底部播放条，底部预留从 120 收到 32
+      const SizedBox(height: 32),
     ];
   }
 
@@ -468,10 +467,7 @@ class _DetailPageState extends State<DetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(
                     width: 214,
-                    child: CachedImage(
-                      url: item.backdrops[i],
-                      memWidth: 480,
-                    ),
+                    child: CachedImage(url: item.backdrops[i], memWidth: 480),
                   ),
                 ),
               ),
@@ -528,10 +524,7 @@ class _DetailPageState extends State<DetailPage> {
                     gradient: LinearGradient(
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
-                      colors: [
-                        const Color(0xB304080E),
-                        Colors.transparent,
-                      ],
+                      colors: [const Color(0xB304080E), Colors.transparent],
                       stops: const [0.0, 0.45],
                     ),
                   ),
@@ -633,7 +626,10 @@ class _DetailPageState extends State<DetailPage> {
                   gold: true,
                 ),
               if (item.isTrue4K) _Badge(icon: Icons.hd_rounded, label: '2160p'),
-              _Badge(icon: Icons.movie_creation_outlined, label: item.videoCodec),
+              _Badge(
+                icon: Icons.movie_creation_outlined,
+                label: item.videoCodec,
+              ),
               if (item.audioChannels > 0)
                 _Badge(
                   icon: Icons.graphic_eq_rounded,
@@ -866,230 +862,245 @@ class _DetailPageState extends State<DetailPage> {
                       cacheExtent: 800,
                       padding: EdgeInsets.zero,
                       children: [
-                  // 海报按原始比例完整显示（不裁切）
-                  RepaintBoundary(
-                    child: AspectRatio(
-                      aspectRatio: posterAspect,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if ((item.posterUrl ?? item.backdropUrl) != null)
-                            ShaderMask(
-                              // 海报底部渐隐，透出底下的模糊主色调
-                              blendMode: BlendMode.dstIn,
-                              shaderCallback: (rect) => const LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.white,
-                                  Colors.white,
-                                  Colors.transparent,
-                                ],
-                                stops: [0.0, 0.72, 1.0],
-                              ).createShader(rect),
-                              child: CachedImage(
-                                url: item.posterUrlFor(900) ?? item.backdropUrl,
-                                memWidth: 900,
-                              ),
-                            )
-                          else
-                            DecoratedBox(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    item.colors.first.withOpacity(0.9),
-                                    AppColors.bgTop,
-                                    AppColors.bg,
+                        // 海报按原始比例完整显示（不裁切）
+                        RepaintBoundary(
+                          child: AspectRatio(
+                            aspectRatio: posterAspect,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if ((item.posterUrl ?? item.backdropUrl) !=
+                                    null)
+                                  ShaderMask(
+                                    // 海报底部渐隐，透出底下的模糊主色调
+                                    blendMode: BlendMode.dstIn,
+                                    shaderCallback: (rect) =>
+                                        const LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.white,
+                                            Colors.white,
+                                            Colors.transparent,
+                                          ],
+                                          stops: [0.0, 0.72, 1.0],
+                                        ).createShader(rect),
+                                    child: CachedImage(
+                                      url:
+                                          item.posterUrlFor(900) ??
+                                          item.backdropUrl,
+                                      memWidth: 900,
+                                    ),
+                                  )
+                                else
+                                  DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          item.colors.first.withOpacity(0.9),
+                                          AppColors.bgTop,
+                                          AppColors.bg,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Transform.translate(
+                          offset: Offset(0, -titleLift),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: wide ? 32 : 20,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // 标题压在封面上
+                                Text(
+                                  item.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: wide ? 32 : 26,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.16,
+                                    letterSpacing: -0.6,
+                                    color: Colors.white,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Color(0xCC000000),
+                                        blurRadius: 16,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  [
+                                    if (item.year > 0) '${item.year}',
+                                    if (item.runtimeMin > 0)
+                                      '${item.runtimeMin} 分钟',
+                                    if (item.director.isNotEmpty)
+                                      '导演 ${item.director}',
+                                    if (item.studio.isNotEmpty) item.studio,
+                                  ].join('  ·  '),
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFFD3DEF0),
+                                  ),
+                                ),
+                                const SizedBox(height: 9),
+                                // 规格徽章
+                                Wrap(
+                                  spacing: 7,
+                                  runSpacing: 7,
+                                  children: [
+                                    if (item.rating > 0)
+                                      _Badge(
+                                        icon: Icons.star_rounded,
+                                        label: item.rating.toStringAsFixed(1),
+                                        gold: true,
+                                      ),
+                                    if (item.isTrue4K)
+                                      _Badge(
+                                        icon: Icons.hd_rounded,
+                                        label: '2160p',
+                                      ),
+                                    _Badge(
+                                      icon: Icons.movie_creation_outlined,
+                                      label: item.videoCodec,
+                                    ),
+                                    _Badge(
+                                      icon: Icons.graphic_eq_rounded,
+                                      label:
+                                          '${item.audioCodec} ${item.audioChannels}ch',
+                                    ),
                                   ],
                                 ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: Offset(0, -titleLift),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: wide ? 32 : 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // 标题压在封面上
-                          Text(
-                            item.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: wide ? 32 : 26,
-                              fontWeight: FontWeight.w900,
-                              height: 1.16,
-                              letterSpacing: -0.6,
-                              color: Colors.white,
-                              shadows: const [
-                                Shadow(
-                                  color: Color(0xCC000000),
-                                  blurRadius: 16,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            [
-                              if (item.year > 0) '${item.year}',
-                              if (item.runtimeMin > 0) '${item.runtimeMin} 分钟',
-                              if (item.director.isNotEmpty)
-                                '导演 ${item.director}',
-                              if (item.studio.isNotEmpty) item.studio,
-                            ].join('  ·  '),
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              color: Color(0xFFD3DEF0),
-                            ),
-                          ),
-                          const SizedBox(height: 9),
-                          // 规格徽章
-                          Wrap(
-                            spacing: 7,
-                            runSpacing: 7,
-                            children: [
-                              if (item.rating > 0)
-                                _Badge(
-                                  icon: Icons.star_rounded,
-                                  label: item.rating.toStringAsFixed(1),
-                                  gold: true,
-                                ),
-                              if (item.isTrue4K)
-                                _Badge(icon: Icons.hd_rounded, label: '2160p'),
-                              _Badge(
-                                icon: Icons.movie_creation_outlined,
-                                label: item.videoCodec,
-                              ),
-                              _Badge(
-                                icon: Icons.graphic_eq_rounded,
-                                label:
-                                    '${item.audioCodec} ${item.audioChannels}ch',
-                              ),
-                            ],
-                          ),
-                          if (item.subtitles.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                const Text(
-                                  '字幕',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.muted,
+                                if (item.subtitles.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      const Text(
+                                        '字幕',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.muted,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      _SubtitlePill(
+                                        label:
+                                            _selectedSubtitle?.label ?? '关闭字幕',
+                                        onTap: _pickSubtitle,
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 10),
-                                _SubtitlePill(
-                                  label: _selectedSubtitle?.label ?? '关闭字幕',
-                                  onTap: _pickSubtitle,
-                                ),
-                              ],
-                            ),
-                          ],
-                          const SizedBox(height: 20),
-                          // 剧情简介：液态玻璃卡片（手机/平板共用）
-                          _overviewCard(item),
-                          // 媒体信息：文件路径 / 封装 / 大小 / 入库时间
-                          // （v1.7.50：按设计稿移到剧情简介之后）
-                          if (item.filePath.isNotEmpty ||
-                              item.fileSizeBytes > 0) ...[
-                            const SizedBox(height: 22),
-                            _mediaInfoCard(item),
-                          ],
-                          if (item.isSeries) ...[
-                            const SizedBox(height: 22),
-                            _SectionLabel(
-                              '分集',
-                              trailing: _episodes == null
-                                  ? null
-                                  : '共 ${_episodes!.length} 集',
-                            ),
-                            const SizedBox(height: 10),
-                            _episodeList(),
-                          ],
-                          if (item.people.isNotEmpty) ...[
-                            const SizedBox(height: 22),
-                            _SectionLabel('主演'),
-                            const SizedBox(height: 12),
-                            _castRow(),
-                          ],
-                          if (_tagList(item).isNotEmpty ||
-                              itemHasChineseSubtitle(item)) ...[
-                            const SizedBox(height: 22),
-                            const _SectionLabel('标签'),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                if (itemHasChineseSubtitle(item))
-                                  _InfoTag(
-                                    label: '中文字幕',
-                                    icon: Icons.subtitles_rounded,
-                                    onTap: _openSubtitleFilter,
+                                ],
+                                const SizedBox(height: 20),
+                                // 剧情简介：液态玻璃卡片（手机/平板共用）
+                                _overviewCard(item),
+                                // 媒体信息：文件路径 / 封装 / 大小 / 入库时间
+                                // （v1.7.50：按设计稿移到剧情简介之后）
+                                if (item.filePath.isNotEmpty ||
+                                    item.fileSizeBytes > 0) ...[
+                                  const SizedBox(height: 22),
+                                  _mediaInfoCard(item),
+                                ],
+                                if (item.isSeries) ...[
+                                  const SizedBox(height: 22),
+                                  _SectionLabel(
+                                    '分集',
+                                    trailing: _episodes == null
+                                        ? null
+                                        : '共 ${_episodes!.length} 集',
                                   ),
-                                ..._tagList(item).map(
-                                  (t) => _TagButton(
-                                    label: t,
-                                    onTap: () => _openTag(t),
+                                  const SizedBox(height: 10),
+                                  _episodeList(),
+                                ],
+                                if (item.people.isNotEmpty) ...[
+                                  const SizedBox(height: 22),
+                                  _SectionLabel('主演'),
+                                  const SizedBox(height: 12),
+                                  _castRow(),
+                                ],
+                                if (_tagList(item).isNotEmpty ||
+                                    itemHasChineseSubtitle(item)) ...[
+                                  const SizedBox(height: 22),
+                                  const _SectionLabel('标签'),
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (itemHasChineseSubtitle(item))
+                                        _InfoTag(
+                                          label: '中文字幕',
+                                          icon: Icons.subtitles_rounded,
+                                          onTap: _openSubtitleFilter,
+                                        ),
+                                      ..._tagList(item).map(
+                                        (t) => _TagButton(
+                                          label: t,
+                                          onTap: () => _openTag(t),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
-                          if (item.backdrops.isNotEmpty) ...[
-                            const SizedBox(height: 22),
-                            _SectionLabel(
-                              '剧照',
-                              trailing: '${item.backdrops.length} 张',
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 136,
-                              child: ListView.builder(
-                                scrollDirection: Axis.horizontal,
-                                itemCount: item.backdrops.length,
-                                itemBuilder: (c, i) => Padding(
-                                  padding: const EdgeInsets.only(right: 10),
-                                  child: LiquidPress(
-                                    onTap: () =>
-                                        _showBackdrop(item.backdrops[i]),
-                                    radius: 12,
-                                    scale: 0.97,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: SizedBox(
-                                        width: 214,
-                                        child: CachedImage(
-                                          url: item.backdrops[i],
-                                          memWidth: 480,
+                                ],
+                                if (item.backdrops.isNotEmpty) ...[
+                                  const SizedBox(height: 22),
+                                  _SectionLabel(
+                                    '剧照',
+                                    trailing: '${item.backdrops.length} 张',
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    height: 136,
+                                    child: ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      itemCount: item.backdrops.length,
+                                      itemBuilder: (c, i) => Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: 10,
+                                        ),
+                                        child: LiquidPress(
+                                          onTap: () =>
+                                              _showBackdrop(item.backdrops[i]),
+                                          radius: 12,
+                                          scale: 0.97,
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            child: SizedBox(
+                                              width: 214,
+                                              child: CachedImage(
+                                                url: item.backdrops[i],
+                                                memWidth: 480,
+                                              ),
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
+                                ],
+                                const SizedBox(height: 22),
+                                _SectionLabel('相似推荐'),
+                                const SizedBox(height: 12),
+                                _similarRow(),
+                                const SizedBox(height: 120),
+                              ],
                             ),
-                          ],
-                          const SizedBox(height: 22),
-                          _SectionLabel('相似推荐'),
-                          const SizedBox(height: 12),
-                          _similarRow(),
-                          const SizedBox(height: 120),
-                        ],
-                      ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
           // 状态栏渐进模糊：上滑后才出现（放在顶栏之前，保证按钮不被糊）
@@ -1163,80 +1174,83 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
           // 底部常驻播放区：渐变模糊带（状态栏镜像） + 整体进度按钮
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Stack(
-              children: [
-                // ① 渐变模糊带：底部最强、向上连续淡出（与状态栏同款着色器）
-                IgnorePointer(
-                  child: BottomBarBlur(
-                    height:
-                        math.max(
-                          4.0,
-                          MediaQuery.of(context).padding.bottom - 10,
-                        ) +
-                        110,
-                    active: true,
-                    // BackdropFilter 每帧都在重采样，sigma 越大越吃 GPU，
-                    // 30→20 视觉几乎无差，中低端机滚动明显更顺
-                    sigma: 20,
+          // v2.0.13：仅手机保留 —— 平板横幅操作行已有
+          // 「继续播放 / 从头播放 / 收藏 / 标记已看」，底部再放一条就是重复按钮
+          if (!wide)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Stack(
+                children: [
+                  // ① 渐变模糊带：底部最强、向上连续淡出（与状态栏同款着色器）
+                  IgnorePointer(
+                    child: BottomBarBlur(
+                      height:
+                          math.max(
+                            4.0,
+                            MediaQuery.of(context).padding.bottom - 10,
+                          ) +
+                          110,
+                      active: true,
+                      // BackdropFilter 每帧都在重采样，sigma 越大越吃 GPU，
+                      // 30→20 视觉几乎无差，中低端机滚动明显更顺
+                      sigma: 20,
+                    ),
                   ),
-                ),
-                // ② 按钮行
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    14,
-                    20,
-                    // 全面屏手势条本身已占 24~40dp，这里再收 10dp 让按钮更贴底
-                    math.max(4.0, MediaQuery.of(context).padding.bottom - 10),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _ProgressPlayButton(
-                          item: item,
-                          onTap: () => widget.onPlay(item, _selectedSubtitle),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      LiquidPress(
-                        onTap: () => widget.onPlay(
-                          item,
-                          _selectedSubtitle,
-                          resume: false,
-                        ),
-                        radius: 28,
-                        semanticLabel: '重新播放',
-                        child: Container(
-                          width: 56,
-                          height: 58,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.20),
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.replay_rounded,
-                            size: 23,
-                            color: Colors.white,
+                  // ② 按钮行
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      14,
+                      20,
+                      // 全面屏手势条本身已占 24~40dp，这里再收 10dp 让按钮更贴底
+                      math.max(4.0, MediaQuery.of(context).padding.bottom - 10),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _ProgressPlayButton(
+                            item: item,
+                            onTap: () => widget.onPlay(item, _selectedSubtitle),
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 10),
+                        LiquidPress(
+                          onTap: () => widget.onPlay(
+                            item,
+                            _selectedSubtitle,
+                            resume: false,
+                          ),
+                          radius: 28,
+                          semanticLabel: '重新播放',
+                          child: Container(
+                            width: 56,
+                            height: 58,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
+                              ),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.20),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.replay_rounded,
+                              size: 23,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -1616,7 +1630,9 @@ class _BannerGhostBtn extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                color: active ? const Color(0xFFCFE0FF) : const Color(0xFFDFE7F5),
+                color: active
+                    ? const Color(0xFFCFE0FF)
+                    : const Color(0xFFDFE7F5),
               ),
             ),
           ],
