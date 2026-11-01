@@ -1452,6 +1452,16 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 53. v2.0.16 实测反馈 3 项
+
+1. **手机端收藏夹重复文件夹**：根因是同步只按 `playlistId` 匹配不看名字——本地夹 Id 失效/未上云时直接新建同名播放列表，服务端同名的再被拉回本地成重复夹。修复（`_reconcileUpload`）：① 未上云 / Id 失效先**按名收养**服务端同名播放列表（`adoptOrCreate`，只补本地缺片、不删服务端多出片）；② 收尾**按名去重合并**本地重复夹（片单并集、多余服务端播放列表删除）；③ `renamePlaylist` 增加**最小 body 重试兜底**修「人妻」改名永远 400。测试 +3（收养 / 去重 / 不波及其它服务器）。
+2. **统计页「缺简介 0 部」**：`missingOverview` 计数只判 `overview.isEmpty`，而解析层把空简介替换成「暂无简介」占位 → 计数恒 0、列表却有条目。计数与列表统一同一套条件（`missingPoster` 同步统一）。
+3. **平板详情页按设计稿重排**：v2.0.14 只修标题对齐、双栏未动，与 `docs/detail_sections_proposal.html` 不符。改**单列**：分集 → 剧情简介 → 媒体信息 → 主演 → 标签 → 剧照 → 相似推荐；扩展档占满内容区、中等档限宽 760 居中；顺带修扩展档左栏 `Column` 缺 `crossAxisAlignment: start` 导致标签 chip 整排居中。`tablet_layout_test` 增加单列顺序断言。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过（232→235）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.16-release-arm64.apk`。
+
+---
+
 ## 52. v2.0.15 移除「选择码率」功能
 1. **功能删除**：服务端无转码，`MaxStreamingBitrate` 切换实际无效（直连原片服务端忽略参数；转码地址失败静默回退原片还弹虚假成功）。完整移除：播放页底栏码率胶囊 + 播放信息面板「码率上限」行 + `_changeBitrate`/`_applyBitrate`/`_bitrateText`/`_bitrateShort`/`_showGlassPanel`/`_maxBitrate`/`_bitrates` + 首播读 `set_max_bitrate`；设置页「最大码率」项；`streamUrl` 的 `maxBitrate` 参数。
 2. **连带清理**：`_showGlassPanel` 因唯一调用方 `_changeBitrate` 删除而变孤儿，一并移除；`_Sheet.subtitle` 参数此前仅 `_showGlassPanel` 传入，删除后清理死参数与死渲染分支。

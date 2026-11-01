@@ -212,4 +212,85 @@ void main() {
     expect(st.pendingSyncCount, 1);
     expect(st.folderSyncDiag, contains('创建失败'));
   });
+
+  test('v2.0.16 按名收养：playlistId 失效但服务端有同名播放列表 → 绑定而非重建', () async {
+    final s = _FakeServer();
+    s.playlists = [
+      ServerPlaylist('plCloud', '哈哈', ['m9']), // 另一台设备建的，Id 对不上本地
+    ];
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f7',
+        name: '哈哈',
+        itemIds: ['m1'],
+        serverId: 's1',
+        playlistId: 'plStale', // 服务端已不存在
+      ),
+    ]);
+    await st.syncFoldersFromServer();
+    expect(s.createdNames, isEmpty, reason: '有同名播放列表时不得重建，否则服务端出现两个「哈哈」');
+    expect(s.deleted, isEmpty);
+    final f = st.folders.single;
+    expect(f.playlistId, 'plCloud', reason: '应收养服务端同名播放列表');
+    expect(f.pendingSync, isFalse);
+    // 本地缺的片单补上去
+    expect(s.added.single.$1, 'plCloud');
+    expect(s.added.single.$2, ['m1']);
+  });
+
+  test('v2.0.16 同名去重：本地重复文件夹合并为一个，多余服务端播放列表删除', () async {
+    final s = _FakeServer();
+    s.playlists = [
+      ServerPlaylist('plA', '哈哈', ['m1']),
+    ];
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'fA',
+        name: '哈哈',
+        itemIds: ['m2'],
+        serverId: 's1',
+        playlistId: 'plA',
+      ),
+      FavoriteFolder(
+        id: 'fB',
+        name: '哈哈',
+        itemIds: ['m3'],
+        serverId: 's1',
+        playlistId: null, // 历史事故留下的纯本地同名夹
+      ),
+    ]);
+    final n = await st.syncFoldersFromServer();
+    expect(n, 1, reason: '两个「哈哈」必须合并为一个');
+    final f = st.folders.single;
+    expect(f.name, '哈哈');
+    expect(f.playlistId, 'plA');
+    expect(f.itemIds, ['m2', 'm3'], reason: '片单取并集');
+    // fB 收养时 plA 已被 fA 匹配 → 走创建，随后去重把新建的删掉
+    expect(s.deleted, contains('pl_哈哈'), reason: '多余的服务端播放列表应被清理');
+  });
+
+  test('v2.0.16 同名去重不波及其它服务器与不同名收藏夹', () async {
+    final s = _FakeServer();
+    s.playlists = const [];
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'fX',
+        name: '独夹',
+        itemIds: ['m1'],
+        serverId: 's1',
+      ),
+      FavoriteFolder(
+        id: 'fY',
+        name: '别服夹',
+        itemIds: ['m2'],
+        serverId: 's2',
+        playlistId: 'plOtherSrv',
+      ),
+    ]);
+    final n = await st.syncFoldersFromServer();
+    expect(st.folders.any((f) => f.id == 'fY'), isTrue,
+        reason: '其它服务器的收藏夹原样保留');
+    expect(s.deleted, isEmpty);
+    expect(n, 1);
+  });
 }

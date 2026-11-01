@@ -366,56 +366,33 @@ class _DetailPageState extends State<DetailPage> {
   /// ① 头部横幅 330：横版 backdrop 全宽铺底 + 底部/左侧双向渐变压暗，
   ///    竖版海报（180×262）悬浮在左，标题/徽章/元信息/操作按钮压左下，
   ///    右下角观看进度条 —— 一进页面就能按播放；
-  /// ② 扩展档（≥1200）：内容双栏 1fr / 340px，左 = 分集/主演/标签/剧照/
-  ///    相似推荐（横向行），右 = 剧情简介 + 媒体信息（玻璃卡片）；
-  /// ③ 中等档（840–1199）：横幅同款，右栏并入左栏改为限宽居中单列；
+  /// ② 下部板块（v2.0.16 按 docs/detail_sections_proposal.html 重排）：
+  ///    **单列**结构，顺序 = 分集(剧集)→剧情简介→媒体信息→主演→标签→剧照→
+  ///    相似推荐；所有板块标题与内容严格同一左缘；
+  /// ③ 断点：扩展档（≥1200）占满内容区；中等档（840–1199）限宽 760 居中；
   /// ④ 手机端（<840）完全不动。
   List<Widget> _tabletChildren(MediaItem item) {
     final tags = _tagList(item);
     final master = context.isExpanded;
 
-    final left = _leftSections(item, tags);
-    // 右栏（扩展档）/ 并入栏（中等档）：剧情简介、媒体信息用「列左缘外部标题」，
-    // 与左栏 主演/标签/剧照/相似 的板块标题严格同左缘，根治标题缩进不齐
-    final right = <Widget>[
-      const _SectionLabel('剧情简介'),
-      const SizedBox(height: 10),
-      _overviewCard(item, withTitle: false),
-      if (item.filePath.isNotEmpty || item.fileSizeBytes > 0) ...[
-        const SizedBox(height: 22),
-        const _SectionLabel('媒体信息'),
-        const SizedBox(height: 10),
-        _mediaInfoCard(item, withTitle: false),
-      ],
-    ];
-
+    final body = _tabletSections(item, tags);
     return [
       _tabletBanner(item),
       const SizedBox(height: 22),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),
+        // 中等档：限宽居中（设计稿 §断点③）；扩展档占满内容区
         child: master
-            ? Row(
+            ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: Column(children: left)),
-                  const SizedBox(width: 24),
-                  SizedBox(
-                    width: 340,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: right,
-                    ),
-                  ),
-                ],
+                children: body,
               )
-            // 中等档：右栏并入，限宽居中单列（设计稿 §断点③）
             : Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 760),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [...left, ...right],
+                    children: body,
                   ),
                 ),
               ),
@@ -425,8 +402,11 @@ class _DetailPageState extends State<DetailPage> {
     ];
   }
 
-  /// 左栏区块：分集 / 主演 / 标签 / 剧照 / 相似推荐（扩展档与中等档共用）
-  List<Widget> _leftSections(MediaItem item, List<String> tags) {
+  /// 下部板块（设计稿 docs/detail_sections_proposal.html 单列顺序）：
+  /// 分集 / 剧情简介 / 媒体信息 / 主演 / 标签 / 剧照 / 相似推荐。
+  /// 剧情简介与媒体信息用「列左缘外部标题」+ 玻璃卡片（withTitle: false），
+  /// 与 主演/标签/剧照/相似 的板块标题严格同左缘。
+  List<Widget> _tabletSections(MediaItem item, List<String> tags) {
     return [
       if (item.isSeries) ...[
         _SectionLabel(
@@ -437,13 +417,27 @@ class _DetailPageState extends State<DetailPage> {
         _episodeList(),
         const SizedBox(height: 22),
       ],
+      // 剧情简介（设计稿板块 1）
+      const _SectionLabel('剧情简介'),
+      const SizedBox(height: 10),
+      _overviewCard(item, withTitle: false),
+      // 媒体信息（设计稿板块 2）
+      if (item.filePath.isNotEmpty || item.fileSizeBytes > 0) ...[
+        const SizedBox(height: 22),
+        const _SectionLabel('媒体信息'),
+        const SizedBox(height: 10),
+        _mediaInfoCard(item, withTitle: false),
+      ],
+      // 主演（设计稿板块 3）
       if (item.people.isNotEmpty) ...[
+        const SizedBox(height: 22),
         const _SectionLabel('主演'),
         const SizedBox(height: 12),
         _castRow(),
-        const SizedBox(height: 22),
       ],
+      // 标签（设计稿板块 4）：胶囊 chip 流，与标题同左缘
       if (tags.isNotEmpty || itemHasChineseSubtitle(item)) ...[
+        const SizedBox(height: 22),
         const _SectionLabel('标签'),
         const SizedBox(height: 12),
         Wrap(
@@ -459,9 +453,10 @@ class _DetailPageState extends State<DetailPage> {
             ...tags.map((t) => _TagButton(label: t, onTap: () => _openTag(t))),
           ],
         ),
-        const SizedBox(height: 22),
       ],
+      // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
       if (item.backdrops.isNotEmpty) ...[
+        const SizedBox(height: 22),
         _SectionLabel('剧照', trailing: '${item.backdrops.length} 张'),
         const SizedBox(height: 12),
         SizedBox(
@@ -486,8 +481,9 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
         ),
-        const SizedBox(height: 22),
       ],
+      // 相似推荐（设计稿板块 6）
+      const SizedBox(height: 22),
       const _SectionLabel('相似推荐'),
       const SizedBox(height: 12),
       _similarRow(),

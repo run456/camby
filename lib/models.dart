@@ -1327,8 +1327,11 @@ class LibraryStats {
       hourlyHeatmap: heatLevels,
       weeklyTrend: trend,
       topPeople: topPeople,
-      missingPoster: items.where((e) => e.posterUrl == null).length,
-      missingOverview: items.where((e) => e.overview.isEmpty).length,
+      // v2.0.16 修复：计数必须与标题列表同一套条件。旧实现 missingOverview
+      // 只判 overview.isEmpty，而解析层把空简介替换成了「暂无简介」占位符，
+      // 计数永远 0、列表却能列出条目（「缺简介 0 部」+ 8 条清单的矛盾）。
+      missingPoster: missPoster.length,
+      missingOverview: missOverview.length,
       tagCounts: tagCounts,
       tagDistribution: tagDist,
       topCast: topCast,

@@ -1150,8 +1150,15 @@ class EmbyServer {
   /// 于是回传的 DTO 里 `ProviderIds` 为 null → `ArgumentNullException: source`
   /// → **400**（社区贴也指向缺失的 ProviderIds）。播放列表本就没有 ProviderIds，
   /// 这里补空字典（连同其它集合字段一并补空，防不同版本再踩同款坑）即可。
+  /// v2.0.16 兜底：部分 Emby 版本对回传 DTO 里某个集合/引用字段仍判 400
+  ///（用户实测「人妻」改名永远 400，v2.0.4 的补空字段方案在 该服务器上不够）。
+  /// 播放列表本身没有简介/厂牌等元数据，名字是唯一要改的字段 —— 整包 POST
+  /// 失败后改用**最小 body**（{Id, Name} + v2.0.4 那套空集合）重试一次。
+  /// 播放列表的片单由 /Playlists/{id}/Items 独立接口管理，UpdateItem 不碰它。
   Future<bool> renamePlaylist(String playlistId, String name) async {
     if (_token == null) return false;
+    Object? lastErr;
+    // ① 整包回传（保其它元数据字段原样）
     try {
       final m = await _getJson('$baseUrl/Users/$_userId/Items/$playlistId');
       m['Name'] = name;
@@ -1176,7 +1183,23 @@ class EmbyServer {
       await _postJsonReturning('$baseUrl/Items/$playlistId', m);
       return true;
     } catch (e) {
-      lastPlaylistError = '改名失败: $e';
+      lastErr = e;
+    }
+    // ② 最小 body 重试（仅名字 + 空集合）
+    try {
+      await _postJsonReturning('$baseUrl/Items/$playlistId', {
+        'Id': playlistId,
+        'Name': name,
+        'ProviderIds': <String, String>{},
+        'LockedFields': const [],
+        'Genres': const [],
+        'Tags': const [],
+        'Studios': const [],
+        'People': const [],
+      });
+      return true;
+    } catch (e) {
+      lastPlaylistError = '改名失败: $lastErr / $e';
       return false;
     }
   }

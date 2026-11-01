@@ -687,13 +687,16 @@ class AppState extends ChangeNotifier {
 
   /// 上行模式：把本地收藏夹的状态推到服务端（APP 为准）。
   ///
-  /// - 未上云（playlistId==null）→ 创建播放列表；
+  /// - 未上云（playlistId==null）或已上云但服务端播放列表已不在 → **先按名字
+  ///   收养**服务端同名播放列表（v2.0.16 防重复的关键：旧逻辑直接新建，另一台
+  ///   设备已建过同名夹时服务端就会出现两个同名播放列表，再被拉回本地变成
+  ///   「重复文件夹」）；同名不存在才真正创建；
   /// - 已上云且服务端仍在 → 名称不一致就改名，片单以本地为准做并集
   ///   （补服务端缺的、删服务端多出的）；
-  /// - 已上云但**服务端播放列表已不在**（被别处删除 / 上一版清理掉脏数据）→
-  ///   **用本地名称与片单重新创建**（v1.7.69 修复：之前只标 pending 永远卡重试）；
   /// - 服务端独有名非空播放列表 → 拉回本地（另一台设备新建的，保数据）；
-  ///   空名 → 留给 [_deleteJunkPlaylists] 删除。
+  ///   空名 → 留给 [_deleteJunkPlaylists] 删除；
+  /// - 收尾对当前服务器的收藏夹**按名字去重合并**（v2.0.16：历史同步事故产生的
+  ///   本地同名重复夹收敛为一个，片单取并集，多余的服务端播放列表删除）。
   ///
   /// 所有失败都写入 [diag]（含服务端返回的具体错误），不再静默。
   Future<List<FavoriteFolder>> _reconcileUpload(
@@ -704,6 +707,13 @@ class AppState extends ChangeNotifier {
     final s = _server!;
     final remoteById = <String, ServerPlaylist>{};
     for (final p in remote) remoteById[p.id] = p;
+    // 名字 → 播放列表（非空名，先到先得）：用于按名收养，防止重复创建
+    final remoteByName = <String, ServerPlaylist>{};
+    for (final p in remote) {
+      if (p.name.isNotEmpty && !remoteByName.containsKey(p.name)) {
+        remoteByName[p.name] = p;
+      }
+    }
     final out = <FavoriteFolder>[];
     final matchedRemote = <String>{};
 
@@ -718,22 +728,40 @@ class AppState extends ChangeNotifier {
       return f.copyWith(pendingSync: true);
     }
 
+    // 按名收养：服务端已有同名播放列表 → 直接绑定它（只补本地缺的片单，
+    // 不删服务端多出的，避免误删另一台设备刚加入的片子），不再新建。
+    Future<FavoriteFolder> adoptOrCreate(FavoriteFolder f) async {
+      final p = remoteByName[f.name];
+      if (p == null || matchedRemote.contains(p.id)) return createOnServer(f);
+      matchedRemote.add(p.id);
+      final toAdd = f.itemIds
+          .where((e) => !p.itemIds.contains(e))
+          .toList();
+      var ok = true;
+      if (toAdd.isNotEmpty && !await s.addToPlaylist(p.id, toAdd)) {
+        ok = false;
+        diag.add('「${f.name}」加片失败：${s.lastPlaylistError}');
+      }
+      return f.copyWith(playlistId: p.id, pendingSync: !ok);
+    }
+
     for (final f in _folders) {
       // 归属其它服务器的收藏夹：原样保留，不参与本次合并
       if (f.serverId != sid) {
         out.add(f);
         continue;
       }
-      // 纯本地（未上云）：尝试创建到服务端
+      // 纯本地（未上云）：先按名收养，收养不到再创建
       if (f.playlistId == null) {
-        out.add(await createOnServer(f));
+        out.add(await adoptOrCreate(f));
         continue;
       }
       matchedRemote.add(f.playlistId!);
       final p = remoteById[f.playlistId];
       if (p == null) {
-        // 服务端播放列表已消失 → 重新创建（v1.7.69：之前只标记，不重建）
-        out.add(await createOnServer(f));
+        // 服务端播放列表已消失 → 先按名收养同名播放列表（v2.0.16：旧逻辑
+        // 直接重建，是「服务端出现两个同名播放列表」的直接来源），再退到创建
+        out.add(await adoptOrCreate(f));
         continue;
       }
       // 已上云：把本地名称与片单推上去（APP 为准）
@@ -775,7 +803,41 @@ class AppState extends ChangeNotifier {
         ),
       );
     }
-    return out;
+
+    // 同名去重（v2.0.16）：历史同步 bug 会留下多个同名收藏夹（本地纯本地 +
+    // 云端拉回各一份等）。合并为一个：片单按加入顺序取并集；被合并夹若绑着
+    // 不同的服务端播放列表，那份多余的播放列表一并删除，保持两端一致。
+    final nameIndex = <String, int>{};
+    final merged = <FavoriteFolder>[];
+    final dupPlaylistIds = <String>{};
+    for (final f in out) {
+      if (f.serverId != sid) {
+        merged.add(f);
+        continue;
+      }
+      final i = nameIndex[f.name];
+      if (i == null) {
+        nameIndex[f.name] = merged.length;
+        merged.add(f);
+        continue;
+      }
+      final kept = merged[i];
+      final seen = Set<String>.from(kept.itemIds);
+      final union = [
+        ...kept.itemIds,
+        ...f.itemIds.where((e) => !seen.contains(e)),
+      ];
+      merged[i] = kept.copyWith(itemIds: union);
+      // 被合并夹绑着不同的服务端播放列表 → 多余的那份一并删除
+      final pid = f.playlistId;
+      if (pid != null && pid != merged[i].playlistId) {
+        dupPlaylistIds.add(pid);
+      }
+    }
+    for (final pid in dupPlaylistIds) {
+      await s.deletePlaylist(pid);
+    }
+    return merged;
   }
 
   /// 删除服务端上"空名且本地无对应"的播放列表（事故脏数据清理）。
