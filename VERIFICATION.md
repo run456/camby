@@ -1462,6 +1462,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 54. v2.0.18 字幕加粗开关 + 字体可切换（系统/仿宋）
+1. **字幕加粗开关**：`SubtitleStyle` 新增 `bold`（默认 true，对应影院风格截图），面板新增「加粗」Switch；MPV `sub-bold` 随开关切 `yes`/`no`，Flutter 叠加层 `fontWeight` 在 `w800`/`w500` 间切换。
+2. **字幕字体可切换**：`SubtitleStyle` 新增 `font` 枚举（`system`/`fangsong`），面板新增「字体」选择行（系统/仿宋）；Flutter 叠加层 `fontFamily: 'FangSong'`。仿宋采用**开源思源宋体 Noto Serif SC（OFL 可商用）**，按 GB2312 字符集子集化为 `assets/fonts/FangSong.ttf`（2.6MB，原 12MB），pubspec 注册 family `FangSong` 并改写 TTF 内部 family 名为 `FangSong`（两端一致）；MPV 链路选仿宋时把内置 ttf 抽到应用目录、`sub-fonts-dir` 暴露给 libmpv（按内部 family 名匹配）。偏好新增 `bold`/`font` 持久化键。
+3. **测试**：`camby_1738_test` 增补 `bold`/`font` 断言（含 `fontFamily` 与 `w500` 兜底）；`mpv_sub_style_test` 增补 `sub-fonts-dir`/`FangSong`/`_ensureFangSongFont` 守卫；全量 235 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.18-release-arm64.apk`（37MB）。
+
+---
+
 ## 53. v2.0.17 实测反馈 2 项（平板横幅模糊 + 字幕样式固定）
 1. **平板详情页横幅模糊对齐首页**：`_tabletBanner` 的 backdrop 原清晰直出（`memWidth 1200`），与首页 Hero（高斯模糊 sigma 40 + 低清采样 220）观感不一致。改为 `ImageFiltered(ImageFilter.blur(sigmaX:40, sigmaY:40))` 包 `CachedImage(memWidth:220)`，外层 `Transform.scale(1.12)` 防止模糊采样在圆角边缘露透明羽化；渐变压暗层（底部+左侧双向）不变。
 2. **字幕样式固定「影院风格」+ 面板只留大小/位置**：用户截图要求字幕为白色加粗 + 黑色描边。`SubtitleStyle` 删除 `opa/stroke/color` 字段与相应 `copyWith`/`toJson`/`fromJson`/`Store` 键，样式固定为**白字（`w800`）+ 8 向黑色硬描边**（`textStyle` getter 内联常量）；MPV 链路 `applySubtitleStyle` 固定下发 `sub-color=#FFFFFFFF` / `sub-border-color=#FF000000` / `sub-border-size=3` / 新增 `sub-bold=yes`（系统黑体加粗，零打包体积），删除已无用的 `_mpvColorWithAlpha`；设置面板 `SubtitleStyleSheet` 仅保留「大小」「位置」两行滑杆，移除描边/不透明度滑杆与颜色色板（`_palette`/`_colorRow`/`_ColorSwatch` 一并删除）。已存用户偏好只保留 size/pos 生效。字体采用系统黑体方案（Android 自带 Noto/MiSans/HarmonyOS 均为黑体系，观感一致）。
