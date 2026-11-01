@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Camby v2.0.14 · 影片详情-下部板块重设计（平板）</title>
+<style>
+  :root{
+    --bg:#0c0d12; --bg2:#111319; --card:rgba(255,255,255,.06);
+    --card-bd:rgba(255,255,255,.10); --txt:#f3f4f7; --muted:#9aa0ac;
+    --blue:#4f9cff; --blue2:#2f7fe8; --pink:#ff5c8a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05060a;color:var(--txt);font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;justify-content:center;padding:28px 16px}
+  .frame{width:1180px;background:linear-gradient(160deg,#16181f,#0b0c11);border-radius:20px;padding:0 0 28px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden}
+  .head{height:300px;background:
+      linear-gradient(90deg,rgba(0,0,0,.85),rgba(0,0,0,.15) 60%,transparent),
+      radial-gradient(120% 140% at 80% 10%,#3a5fb0,#1c2740 55%,#0b0c11);
+    position:relative;display:flex;align-items:flex-end;padding:30px}
+  .poster{width:172px;height:250px;border-radius:14px;margin-right:26px;background:linear-gradient(160deg,#5b7fd6,#2b3a66);box-shadow:0 14px 30px rgba(0,0,0,.5);flex:none}
+  .head .meta{display:flex;flex-direction:column;gap:10px}
+  .badges{display:flex;gap:8px;flex-wrap:wrap}
+  .badge{font-size:12px;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.14)}
+  .badge.gold{color:#ffd479}
+  .title{font-size:30px;font-weight:900;letter-spacing:-.5px}
+  .sub{font-size:13px;color:var(--muted)}
+  .ops{display:flex;gap:10px;margin-top:6px}
+  .op{font-size:13px;font-weight:700;padding:10px 16px;border-radius:12px}
+  .op.primary{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff}
+  .op.ghost{background:rgba(255,255,255,.10);border:1px solid var(--card-bd)}
+
+  .content{padding:0 30px}
+  /* 统一左缘：整段内容同一左右内距，标题与卡片内容同左线 */
+  .sec{margin-top:26px}
+  .sec-h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+  .sec-h .t{font-size:15px;font-weight:800;letter-spacing:-.2px}
+  .sec-h .n{font-size:10.5px;color:var(--muted)}
+
+  .glass{background:var(--card);border:1px solid var(--card-bd);border-radius:16px;padding:16px 18px;backdrop-filter:blur(14px)}
+
+  /* 剧情简介 */
+  .overview p{font-size:13px;line-height:1.7;color:#d7dae1}
+
+  /* 媒体信息：两列键值 */
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:8px 28px}
+  .kv .row{display:flex;justify-content:space-between;font-size:12px;border-bottom:1px dashed rgba(255,255,255,.07);padding-bottom:6px}
+  .kv .k{color:var(--muted)} .kv .v{color:#e7e9ee}
+
+  /* 主演：横向滚动头像 */
+  .cast{display:flex;gap:14px;overflow:hidden}
+  .actor{flex:none;width:72px;text-align:center}
+  .actor .av{width:64px;height:64px;border-radius:16px;background:linear-gradient(160deg,#6b7fd6,#2c3a66);border:1px solid rgba(255,255,255,.16);margin:0 auto 6px;display:flex;align-items:center;justify-content:center;color:#cfd6e6;font-size:22px}
+  .actor .nm{font-size:11px;color:#cfd3da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* 标签：与标题同左缘的 chip 流 */
+  .tags{display:flex;flex-wrap:wrap;gap:8px}
+  .tag{font-size:12px;padding:7px 13px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+  .tag.hl{background:rgba(79,156,255,.16);border-color:rgba(79,156,255,.4);color:#cfe4ff}
+
+  /* 剧照：横向滚动 16:9 */
+  .shots{display:flex;gap:12px;overflow:hidden}
+  .shot{flex:none;width:214px;height:120px;border-radius:12px;background:linear-gradient(135deg,#34405e,#1b2236);border:1px solid rgba(255,255,255,.10)}
+
+  /* 相似推荐 */
+  .similar{display:flex;gap:14px;overflow:hidden}
+  .sim{flex:none;width:96px}
+  .sim .p{width:96px;height:140px;border-radius:12px;background:linear-gradient(160deg,#55617f,#232b40);border:1px solid rgba(255,255,255,.10)}
+  .sim .nm{font-size:11px;color:#bcc2cc;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .note{margin:22px 30px 0;font-size:11.5px;color:var(--muted);line-height:1.7;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:14px 16px}
+  .note b{color:#cfd6e6}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="head">
+    <div class="poster"></div>
+    <div class="meta">
+      <div class="badges">
+        <span class="badge gold">★ 8.7</span>
+        <span class="badge">2160p</span>
+        <span class="badge">HEVC</span>
+        <span class="badge">AAC 6ch</span>
+      </div>
+      <div class="title">沙丘 2</div>
+      <div class="sub">2024 · 167 分钟 · 已看 90% · 主演：提莫西·查拉梅 · 赞达亚</div>
+      <div class="ops">
+        <span class="op primary">▶ 继续播放</span>
+        <span class="op ghost">↺ 从头播放</span>
+        <span class="op ghost">♥ 收藏</span>
+        <span class="op ghost">✓ 标记已看</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- 剧情简介 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">剧情简介</span></div>
+      <div class="glass overview">
+        <p>保罗·厄崔迪在荒漠星球厄拉科斯与弗雷曼人并肩，踏上对抗阴谋、重夺家族命运的征途。本集延续前作史诗质感，以宏大的视觉与沉静的叙事，呈现权力、信仰与生态交织的太空歌剧。</p>
+      </div>
+    </div>
+
+    <!-- 媒体信息 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">媒体信息</span></div>
+      <div class="glass">
+        <div class="kv">
+          <div class="row"><span class="k">封装</span><span class="v">MKV</span></div>
+          <div class="row"><span class="k">视频编码</span><span class="v">HEVC 2160p</span></div>
+          <div class="row"><span class="k">音频</span><span class="v">AAC 6ch</span></div>
+          <div class="row"><span class="k">文件大小</span><span class="v">14.8 GB</span></div>
+          <div class="row"><span class="k">入库时间</span><span class="v">2026-09-12</span></div>
+          <div class="row"><span class="k">分辨率</span><span class="v">3840×1608</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主演 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">主演</span></div>
+      <div class="cast">
+        <div class="actor"><div class="av">😀</div><div class="nm">提莫西·查拉梅</div></div>
+        <div class="actor"><div class="av">😀</div><div class="nm">赞达亚</div></div>
+        <div class="actor"><div class="av">😀</div><div class="nm">丽贝卡·弗格森</div></div>
+        <div class="actor"><div class="av">😀</div><div class="nm">哈维尔·巴登</div></div>
+        <div class="actor"><div class="av">😀</div><div class="nm">乔什·布洛林</div></div>
+      </div>
+    </div>
+
+    <!-- 标签 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">标签</span></div>
+      <div class="tags">
+        <span class="tag hl">中文字幕</span>
+        <span class="tag">科幻</span>
+        <span class="tag">冒险</span>
+        <span class="tag">史诗</span>
+        <span class="tag">改编</span>
+        <span class="tag">IMAX</span>
+      </div>
+    </div>
+
+    <!-- 剧照 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">剧照</span><span class="n">12 张</span></div>
+      <div class="shots">
+        <div class="shot"></div><div class="shot"></div><div class="shot"></div><div class="shot"></div>
+      </div>
+    </div>
+
+    <!-- 相似推荐 -->
+    <div class="sec">
+      <div class="sec-h"><span class="t">相似推荐</span></div>
+      <div class="similar">
+        <div class="sim"><div class="p"></div><div class="nm">沙丘</div></div>
+        <div class="sim"><div class="p"></div><div class="nm">银翼杀手2049</div></div>
+        <div class="sim"><div class="p"></div><div class="nm">星际穿越</div></div>
+        <div class="sim"><div class="p"></div><div class="nm">沙丘3</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>重设计要点（平板 / 手机共用下部结构，仅宽度与栅格列数随断点变化）</b><br/>
+    1. <b>统一左缘</b>：整段下部内容包裹在同一个左右内距（平板 30px / 手机 16px）的列里，<b>所有板块标题与其内容左缘严格对齐</b>，根治「标签标题与标签 chip 不在同一竖线」的 bug（旧版卡片内部 padding 与标签 Wrap 各自缩进导致错位）。<br/>
+    2. <b>剧情简介 / 媒体信息</b> 用液态玻璃卡片包裹；卡片内部标题不再另起一行与外层板块标题重复。<br/>
+    3. <b>主演</b> 横向滚动圆角头像（64px）+ 名字，点击进入演员页（已修复返回栈：详情→演员→详情 逐级返回）。<br/>
+    4. <b>标签</b> 为胶囊 chip 流，与「标签」标题同左缘；「中文字幕」高亮。<br/>
+    5. <b>剧照 / 相似推荐</b> 横向滚动条，标题右侧显示数量。<br/>
+    6. 中等档（840–1199）整体限宽居中（与 v2.0.12 横幅一致），扩展档（≥1200）占满内容区。
+  </div>
+</div>
+</body>
+</html>

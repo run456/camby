@@ -1452,6 +1452,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 51. v2.0.14 实测反馈（详情页重设计 + 图标 + 返回栈）
+1. **详情页下部板块重设计**：`_overviewCard(item, withTitle:false)` / `_mediaInfoCard(item, withTitle:false)` 平板右栏改用列左缘外部标题「剧情简介」「媒体信息」，标题与左栏所有板块（主演/标签/剧照/相似）严格同左缘，根治 16px 错位。手机端 `withTitle` 默认 true，玻璃卡片内嵌标题行为不变。
+2. **启动图标加白底（方案 A）**：`android/app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png` 五档重写为白底圆角方块（圆角 22%）+ 原蓝标 60%。预览见 `docs/logo_proposal.html`。
+3. **返回栈逐级返回 bug**：`DetailPage` 点演员 push 的 `PersonPage.onOpenDetail` 去掉 `Navigator.pop(context)`，直接复用 `widget.onOpenDetail`（逐级压栈）。手机+平板通用。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.14-release-arm64.apk`。
+
+---
+
 ## 50. v2.0.13 实测反馈 2 项
 
 1. **详情页重复播放按钮**：`DetailPage.build` 底部常驻播放区（`_ProgressPlayButton` + 重新播放圆钮 + 渐变模糊带）加 `if (!wide)` 仅手机渲染；平板横幅操作行已含播放入口。平板 `_tabletChildren` 末尾底部预留 `SizedBox(120)` → `32`（手机分支 120 保留，底部条仍在）。

@@ -298,7 +298,11 @@ class _DetailPageState extends State<DetailPage> {
   void _toast(String text) => showToast(context, text);
 
   /// 剧情简介：液态玻璃卡片（手机/平板共用）
-  Widget _overviewCard(MediaItem item) {
+  /// 剧情简介玻璃卡片。
+  /// [withTitle]：是否内嵌「剧情简介」标题。平板端改为列左缘外部标题（与
+  /// 主演/标签等板块统一左缘，根治「信息卡片标题比板块标题右缩」的对齐 bug），
+  /// 故传 false；手机端保持原样（默认 true）。
+  Widget _overviewCard(MediaItem item, {bool withTitle = true}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -321,8 +325,10 @@ class _DetailPageState extends State<DetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionLabel('剧情简介'),
-          const SizedBox(height: 8),
+          if (withTitle) ...[
+            const _SectionLabel('剧情简介'),
+            const SizedBox(height: 8),
+          ],
           GestureDetector(
             onTap: () => setState(() => _descExpanded = !_descExpanded),
             child: Text(
@@ -369,11 +375,17 @@ class _DetailPageState extends State<DetailPage> {
     final master = context.isExpanded;
 
     final left = _leftSections(item, tags);
+    // 右栏（扩展档）/ 并入栏（中等档）：剧情简介、媒体信息用「列左缘外部标题」，
+    // 与左栏 主演/标签/剧照/相似 的板块标题严格同左缘，根治标题缩进不齐
     final right = <Widget>[
-      _overviewCard(item),
+      const _SectionLabel('剧情简介'),
+      const SizedBox(height: 10),
+      _overviewCard(item, withTitle: false),
       if (item.filePath.isNotEmpty || item.fileSizeBytes > 0) ...[
         const SizedBox(height: 22),
-        _mediaInfoCard(item),
+        const _SectionLabel('媒体信息'),
+        const SizedBox(height: 10),
+        _mediaInfoCard(item, withTitle: false),
       ],
     ];
 
@@ -1360,16 +1372,18 @@ class _DetailPageState extends State<DetailPage> {
             scale: 0.96,
             onTap: () {
               if (p.id == null) return;
+              // v2.0.14：演员页只压栈、不弹自己。
+              // 旧实现给 PersonPage 的 onOpenDetail 里先 Navigator.pop(context)，
+              // context 是详情1的，pop 掉的正好是演员页自身 → 栈变成
+              // [首页→详情1→详情2]，返回就跳过了演员页。改成直接复用
+              // widget.onOpenDetail，与「相似推荐」卡片同一套（逐级压栈可逐级返回）。
               Navigator.push(
                 context,
                 CambyRoutes.fade(
                   builder: (_) => PersonPage(
                     person: p,
                     state: widget.state,
-                    onOpenDetail: (m, {String? heroTag}) {
-                      Navigator.pop(context);
-                      widget.onOpenDetail(m, heroTag: heroTag);
-                    },
+                    onOpenDetail: widget.onOpenDetail,
                   ),
                 ),
               );
@@ -1440,7 +1454,9 @@ class _DetailPageState extends State<DetailPage> {
 
   /// 媒体信息卡：文件路径（默认两行，超长折叠）+ 封装/大小/入库时间。
   /// 与剧情简介同款液态玻璃卡片；点按展开/收起，长按复制路径。
-  Widget _mediaInfoCard(MediaItem item) {
+  /// 媒体信息玻璃卡片。同 [_overviewCard]：平板端传 [withTitle]=false，
+  /// 由外部「媒体信息」标题统一左缘。
+  Widget _mediaInfoCard(MediaItem item, {bool withTitle = true}) {
     // URL 编码的路径（如挂载网盘）解码成中文显示
     String path = item.filePath;
     try {
@@ -1475,8 +1491,10 @@ class _DetailPageState extends State<DetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _SectionLabel('媒体信息'),
-          const SizedBox(height: 8),
+          if (withTitle) ...[
+            const _SectionLabel('媒体信息'),
+            const SizedBox(height: 8),
+          ],
           GestureDetector(
             onTap: () => setState(() => _mediaExpanded = !_mediaExpanded),
             onLongPress: () {
