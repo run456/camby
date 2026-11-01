@@ -110,7 +110,7 @@ void main() {
     await srv.close();
   });
 
-  test('全是他人账号 → 返回 null，但诊断信息给出原因', () async {
+  test('v2.0.12：全是他人账号（ID 体系对不上）→ 回退为全部播放统计，诊断说明口径', () async {
     final srv = await _startServer((req) async {
       if (req.uri.path.contains('AuthenticateByName')) {
         req.response
@@ -135,6 +135,13 @@ void main() {
                 'ItemId': 'itemX',
                 'UserId': 'ffffffff-0000-0000-0000-000000000009',
               },
+              {
+                'Type': 'PlaybackStart',
+                'Date': '2026-10-30T11:00:00.0000000Z',
+                'ItemId': 'itemY',
+                // 部分服务器日志里是另一套内部 Id（如纯数字）
+                'UserId': '1',
+              },
             ],
           }));
         await req.response.close();
@@ -147,9 +154,13 @@ void main() {
     final emby = _client(srv.port);
     await emby.authenticate();
     final summary = await emby.activityLog();
-    expect(summary, isNull);
-    expect(emby.lastActivityDiag, contains('日志播放 1 条'));
-    expect(emby.lastActivityDiag, contains('本账号 0 条'));
+    // 不再把「ID 对不上」当成没有数据：单账号服务器回退为全部播放
+    expect(summary, isNotNull);
+    expect(summary!.total, 2);
+    expect(summary.itemPlays.containsKey('itemX'), isTrue);
+    expect(summary.itemPlays.containsKey('itemY'), isTrue);
+    expect(emby.lastActivityDiag, contains('账号匹配 0 条'));
+    expect(emby.lastActivityDiag, contains('已按全部播放统计'));
     await srv.close();
   });
 }

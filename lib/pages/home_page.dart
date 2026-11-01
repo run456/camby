@@ -923,8 +923,9 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
             // ③ 竖版海报（识别主体）+ 右侧信息列
+            // v2.0.12 实测反馈：左间距 36 比上下 22 宽，统一为 22
             Padding(
-              padding: const EdgeInsets.fromLTRB(36, 22, 36, 22),
+              padding: const EdgeInsets.fromLTRB(22, 22, 36, 22),
               child: Row(
                 children: [
                   if (poster != null)

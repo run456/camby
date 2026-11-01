@@ -861,6 +861,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 标记 / 取消标记「已看」（服务端 UserData.Played + 本地同步）
+  /// v2.0.12：详情页横幅的「已看」按钮
+  Future<void> togglePlayed(MediaItem item) async {
+    final target = !item.userPlayed;
+    if (_server != null) {
+      try {
+        await _server!.markPlayed(item.id, played: target);
+      } catch (_) {
+        /* 服务端失败时仍更新本地状态 */
+      }
+    }
+    _items = _items
+        .map((e) => e.id == item.id ? e.copyWith(userPlayed: target) : e)
+        .toList();
+    _invalidateDerived();
+    notifyListeners();
+  }
+
   // ---------------- 多服务器 ----------------
 
   List<ServerProfile> _servers = const [];

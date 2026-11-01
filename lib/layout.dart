@@ -54,9 +54,10 @@ extension CambyLayout on BuildContext {
   /// 是否启用左侧导航栏（替代底部 Tab）。
   bool get useRail => isTablet;
 
-  /// 媒体栅格列数：扩展 7 列 / 中等 5 列 / 手机 3 列。
-  /// v2.0.9 实测反馈：平板 6/4 列封面偏大，加密到 7/5（对齐「全部收藏」观感）。
-  int get mediaGridColumns => isExpanded ? 7 : (isTablet ? 5 : 3);
+  /// 媒体栅格列数：扩展 7 列 / 中等 7 列 / 手机 3 列。
+  /// v2.0.9：平板 6/4 列封面偏大，加密到 7/5；
+  /// v2.0.12 实测反馈：中等档 5 列仍偏大，媒体库/演员页统一一行 7 个。
+  int get mediaGridColumns => isExpanded ? 7 : (isTablet ? 7 : 3);
 
   /// 收藏栅格列数：扩展 6 列 / 中等 5 列 / 手机 3 列。
   /// v2.0.9 实测反馈：一排 4 个浪费空间 → 中等 5、扩展 6。

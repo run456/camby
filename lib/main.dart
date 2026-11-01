@@ -442,6 +442,9 @@ class _AppShellState extends State<AppShell>
         children: [
           // v2.0.11 实测反馈：Rail 顶到屏幕最上面与状态栏重叠 → 避让系统状态栏
           SizedBox(height: MediaQuery.of(context).padding.top + 10),
+          // v2.0.12 实测反馈：搜索与 Tab 组的间距仍偏宽 ——
+          // _RailButton 自带上下 4dp 内距（相邻 Tab 之间 = 4+4 = 8），
+          // 这里不再额外加 SizedBox(8)，否则实际视觉间距是 16。
           // v2.0.10：搜索放最上面（首页上方）
           _RailButton(
             icon: Icons.search_rounded,
@@ -450,8 +453,6 @@ class _AppShellState extends State<AppShell>
             expanded: expanded,
             onTap: _openSearch,
           ),
-          // v2.0.11 实测反馈：搜索与 Tab 组的间距统一为按钮间标准间距（8）
-          const SizedBox(height: 8),
           // v2.0.9：弃用 NavigationRail（按钮 21dp 太小），
           // 改为液态玻璃按钮（选中项玻璃胶囊高亮 + 实时模糊）
           for (final (i, it) in GlassNavBar._items.indexed)

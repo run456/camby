@@ -1452,6 +1452,19 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 49. v2.0.12 实测反馈 6 项
+
+1. **详情页按 `docs/detail_tablet_proposal.html` 重适配（平板端全部重写，手机不动）**：头部横幅 330（backdrop 全宽铺底 + 双向渐变 + 悬浮海报 180×262 + 左下信息/操作 + 右下进度条）；操作行 = 立即/继续播放 + 从头播放 + 收藏 + 标记已看（新增 `EmbyServer.markPlayed` / `AppState.togglePlayed`）；扩展档双栏 1fr/340px；中等档横幅同款 + 限宽 760 居中单列；顶部避让状态栏。守卫测试同步更新（横幅 330 / 边距 24）。
+2. **统计页三卡数据（第四轮修复，真根因）**：`activityLog` 解析重构为两轮 —— 第一轮只统计本账号（归一化匹配），命中 0 条但日志里有播放时**回退为全部播放统计**，诊断文案改为「账号匹配 0 条（已按全部播放统计）」。实测服务器日志 UserId 与登录 GUID 属于两套 Id 体系，归一化也对不上。守卫测试 `activity_log_account_match_test` 改为锁定回退语义。
+3. **首页 Hero 海报左边距 36 → 22**，与上下间距一致。
+4. **Rail 搜索与首页间距**：删除额外 `SizedBox(8)`（此前视觉间距 = 8 + 4 + 4 = 16），现在与 Tab 间一致为 8。
+5. **媒体库一行 7 个**：`mediaGridColumns` 中等档 5 → 7（扩展档已是 7）。
+6. **演员页**：头部卡片避让状态栏；网格边距 28→24、行距 16→14、比例 0.52→0.55、列数随媒体库 7 列 —— 与媒体库完全一致。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.12-release-arm64.apk`。
+
+---
+
 ## 45. 每版固定验证清单（v2.0.7 起启用）
 
 平板/手机双端共存后，每版发布前**必须**按此清单执行（自动化部分已脚本化）。

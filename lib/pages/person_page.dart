@@ -167,7 +167,8 @@ class _PersonPageState extends State<PersonPage> {
                 SliverToBoxAdapter(
                   child: wide
                       ? Padding(
-                          padding: const EdgeInsets.fromLTRB(30, 14, 30, 0),
+                          // v2.0.12 实测反馈：头部卡片顶到状态栏，避让 padding.top
+                          padding: EdgeInsets.fromLTRB(30, topPad + 12, 30, 0),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(16),
                             child: SizedBox(
@@ -306,8 +307,9 @@ class _PersonPageState extends State<PersonPage> {
                       ],
                       const SizedBox(height: 16),
                       // 筛选选项（分段控件）：全部 / 电影 / 剧集 + 筛选入口
+                      // v2.0.12：平板左右边距与媒体库统一（24）
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        padding: EdgeInsets.symmetric(horizontal: wide ? 24 : 18),
                         child: Row(
                           children: [
                             Expanded(
@@ -366,18 +368,20 @@ class _PersonPageState extends State<PersonPage> {
                   )
                 else
                   SliverPadding(
+                    // v2.0.12 实测反馈：演员页网格与媒体库完全同一套参数
+                    // （边距 24 / 列距 10 / 行距 14 / 比例 0.55 / 一行 7 个）
                     padding: EdgeInsets.fromLTRB(
-                      wide ? 28 : 18,
+                      wide ? 24 : 16,
                       0,
-                      wide ? 28 : 18,
+                      wide ? 24 : 16,
                       40,
                     ),
                     sliver: SliverGrid(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: context.mediaGridColumns,
                         crossAxisSpacing: 10,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 0.52,
+                        mainAxisSpacing: 14,
+                        childAspectRatio: 0.55,
                       ),
                       delegate: SliverChildBuilderDelegate(
                         (c, i) => PosterCard(
