@@ -506,13 +506,21 @@ class _DetailPageState extends State<DetailPage> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // ① backdrop 全宽铺底
+              // ① backdrop 全宽铺底 + 高斯模糊（v2.0.17：与首页 Hero 同做法，
+              //    sigma 40 + 低清采样 220，模糊层更省内存；scale 1.12 防止
+              //    模糊采样在圆角边缘露出透明羽化）
               if (bgUrl != null)
                 RepaintBoundary(
-                  child: CachedImage(
-                    url: bgUrl,
-                    fit: BoxFit.cover,
-                    memWidth: 1200,
+                  child: Transform.scale(
+                    scale: 1.12,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                      child: CachedImage(
+                        url: bgUrl,
+                        fit: BoxFit.cover,
+                        memWidth: 220,
+                      ),
+                    ),
                   ),
                 )
               else

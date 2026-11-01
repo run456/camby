@@ -7,46 +7,31 @@ import 'package:flutter_test/flutter_test.dart';
 /// 字幕样式持久化 / 叠加层落位、文件名分辨率兜底。
 void main() {
   group('SubtitleStyle', () {
-    test('默认值与 copyWith', () {
+    test('默认值与 copyWith（仅大小/位置/偏移可调）', () {
       const s = SubtitleStyle();
       expect(s.size, 17);
       expect(s.pos, 0.12);
-      expect(s.stroke, 1.8);
-      expect(s.color, Colors.white);
 
-      final t = s.copyWith(size: 22, color: Colors.amber);
+      final t = s.copyWith(size: 22, pos: 0.2);
       expect(t.size, 22);
-      expect(t.color, Colors.amber);
+      expect(t.pos, 0.2);
       // 未指定的字段必须保持原值
-      expect(t.pos, s.pos);
-      expect(t.opa, s.opa);
+      expect(t.offset, s.offset);
       expect(s.size, 17, reason: 'copyWith 不能改动原对象');
     });
 
-    test('JSON 往返无损', () {
-      const s = SubtitleStyle(
-        size: 21.5,
-        pos: 0.3,
-        opa: 0.75,
-        stroke: 0,
-        offset: -0.08,
-        color: Color(0xFFA6FFB2),
-      );
+    test('JSON 往返只保留 size/pos/offset', () {
+      const s = SubtitleStyle(size: 21.5, pos: 0.3, offset: -0.08);
       final t = SubtitleStyle.fromJson(s.toJson());
       expect(t.size, 21.5);
       expect(t.pos, 0.3);
-      expect(t.opa, 0.75);
-      expect(t.stroke, 0);
       expect(t.offset, -0.08);
-      expect(t.color.toARGB32(), 0xFFA6FFB2);
     });
 
     test('残缺 JSON 回落到默认值', () {
       final t = SubtitleStyle.fromJson(<String, dynamic>{'size': 20});
       expect(t.size, 20);
       expect(t.pos, 0.12);
-      expect(t.stroke, 1.8);
-      expect(t.color, Colors.white);
     });
 
     test('bottomRatio = 位置 + 偏移，且被夹在 0~0.6', () {
@@ -63,14 +48,15 @@ void main() {
       );
     });
 
-    test('textStyle：关描边只有一层阴影，开描边是四向描边', () {
-      expect(const SubtitleStyle(stroke: 0).textStyle.shadows?.length, 1);
-      const s = SubtitleStyle(size: 24, opa: 0.5);
+    test('textStyle 固定影院风格：白字加粗 + 8 向黑描边', () {
+      const s = SubtitleStyle(size: 24);
       final ts = s.textStyle;
-      expect(ts.shadows?.length, 4);
+      // 8 向（含对角）均匀黑描边
+      expect(ts.shadows?.length, 8);
       expect(ts.fontSize, 24);
-      // 半透明 => alpha 127（255*0.5 取整）
-      expect(ts.color?.alpha, 128);
+      expect(ts.fontWeight, FontWeight.w800);
+      // 颜色恒为不透明白
+      expect(ts.color, const Color(0xFFFFFFFF));
     });
   });
 

@@ -342,17 +342,15 @@ class MpvController implements PlaybackController {
   ///   大小      → `sub-scale`        （1.0 = libmpv 默认字号）
   ///   垂直位置  → `sub-pos`          （0–100，**值越大越靠下**，与 App 的
   ///                                   bottomRatio 语义相反，需换算）
-  ///   时间偏移  → `sub-delay`        （秒，正值 = 字幕延后）
-  ///   颜色      → `sub-color`        （不透明度烤进 #AARRGGBB 的 alpha）
+  ///   字重      → `sub-bold` = yes   （系统黑体加粗，与 Flutter 叠加层同步）
+  ///   颜色      → `sub-color`        （v2.0.17 起固定白字 + 黑描边）
   ///   描边色    → `sub-border-color`
   ///
-  /// v1.7.57 实测两个事实（此前「面板调了没反应」的根因）：
-  /// 1. mpv **没有** `sub-opacity` 属性（0.36/0.37 均报 option not found），
-  ///    而旧实现把不透明度下发到它上面；media_kit 的 setProperty 走
-  ///    mpv_set_property_string 且**吞掉错误码、从不抛异常**，导致失败被
-  ///    try/catch 静默掩盖。现在不透明度直接合成进颜色的 alpha 通道。
-  /// 2. `sub-border-size` 是较新 mpv 的名字（旧版叫 `sub-outline-size`），
-  ///    Android 捆绑库版本不定 → 先写新名并回读校验，读不到再写旧名。
+  /// v2.0.17 起字幕样式固定为「影院风格」（白字加粗 + 黑描边），仅在 App 内
+  /// 开放大小 / 位置两项；颜色与描边不再下发用户可调值。
+  ///
+  /// `sub-border-size` 是较新 mpv 的名字（旧版叫 `sub-outline-size`），
+  /// Android 捆绑库版本不定 → 先写新名并回读校验，读不到再写旧名。
   @override
   Future<void> applySubtitleStyle(SubtitleStyle style) async {
     final platform = _player.platform;
@@ -365,13 +363,12 @@ class MpvController implements PlaybackController {
     /// sub-scale：以 [SubtitleStyle.baseSize] 为 1.0 基准
     final subScale = (style.size / SubtitleStyle.baseSize).clamp(0.3, 3.0);
 
-    /// 描边宽度（0 时连同边框色一起关掉）。
-    final borderSize = style.stroke <= 0 ? 0.0 : style.stroke;
+    /// 描边宽度：影院风格固定黑描边 3.0
+    const borderSize = 3.0;
 
-    /// 不透明度 → 颜色 alpha（0–255，FF = 不透明）
-    final alpha = (style.opa.clamp(0.0, 1.0) * 255).round();
-    final textColor = _mpvColorWithAlpha(style.color, alpha);
-    final borderColor = _mpvColorWithAlpha(const Color(0xFF000000), alpha);
+    /// 文字/描边颜色固定（v2.0.17 起样式固定为白字+黑描边，不再读用户调色）
+    const textColor = '#FFFFFFFF';
+    const borderColor = '#FF000000';
 
     Future<void> set(String name, String value) async {
       try {
@@ -398,6 +395,8 @@ class MpvController implements PlaybackController {
     await set('sub-scale', subScale.toStringAsFixed(3));
     await set('sub-pos', subPos.toStringAsFixed(2));
     await set('sub-color', textColor);
+    // 影院风格固定：白字 + 黑描边；加粗走系统黑体（与 Flutter 叠加层同步）
+    await set('sub-bold', 'yes');
     // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
     await setWithFallback('sub-border-color', 'sub-outline-color', borderColor);
     await setWithFallback(
@@ -431,16 +430,6 @@ class MpvController implements PlaybackController {
     } catch (_) {
       // 老版本 libmpv 无此属性，忽略
     }
-  }
-
-  /// Flutter [Color] + 0–255 alpha → libmpv 颜色串 `#AARRGGBB`。
-  ///
-  /// mpv 没有独立的 `sub-opacity` 属性（v1.7.57 实测），不透明度只能
-  /// 合成进颜色的 alpha 通道（00 = 全透明，FF = 不透明）。
-  static String _mpvColorWithAlpha(Color c, int alpha) {
-    final a = alpha.clamp(0, 255);
-    final v = (a << 24) | (c.toARGB32() & 0xFFFFFF);
-    return '#${v.toRadixString(16).padLeft(8, '0').toUpperCase()}';
   }
 
   @override
