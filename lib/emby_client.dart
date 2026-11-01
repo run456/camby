@@ -172,23 +172,11 @@ class EmbyServer {
   /// 播放地址
   /// direct=true  → 直连原片（省服务端资源，适合客户端能解码的容器）
   /// direct=false → HLS 自适应流（兼容性最好）
-  ///
-  /// [maxBitrate]（bps）为 1.7.38 新增：对应 Emby 的 MaxStreamingBitrate，
-  /// 播放页切换码率后，用它让服务端按该码率重新出流（转码链路），
-  /// 直连原片时服务端会忽略该参数。
-  String streamUrl(
-    String itemId, {
-    String? mediaSourceId,
-    bool direct = true,
-    int? maxBitrate,
-  }) {
+  String streamUrl(String itemId, {String? mediaSourceId, bool direct = true}) {
     final ms = mediaSourceId != null ? '&MediaSourceId=$mediaSourceId' : '';
-    // "&MaxStreamingBitrate=" 需与 APK libapp.so 中的字符串保持一致
-    final mb =
-        maxBitrate != null && maxBitrate > 0 ? '&MaxStreamingBitrate=$maxBitrate' : '';
     return direct
-        ? '$baseUrl/Videos/$itemId/stream?Static=true$ms$mb&api_key=$_token'
-        : '$baseUrl/Videos/$itemId/master.m3u8$ms$mb&api_key=$_token';
+        ? '$baseUrl/Videos/$itemId/stream?Static=true$ms&api_key=$_token'
+        : '$baseUrl/Videos/$itemId/master.m3u8$ms&api_key=$_token';
   }
 
   /// 从文件名推断分辨率高度（2160 / 1080 / 720 / 576 / 480 …）。
@@ -205,7 +193,8 @@ class EmbyServer {
     // 4K / 8K 写法
     if (RegExp(r'(?<![0-9a-z])8k(?![0-9a-z])').hasMatch(s)) return 4320;
     if (RegExp(r'(?<![0-9a-z])4k(?![0-9a-z])').hasMatch(s)) return 2160;
-    if (RegExp(r'(?<![0-9a-z])(uhd|uhdrip)(?![0-9a-z])').hasMatch(s)) return 2160;
+    if (RegExp(r'(?<![0-9a-z])(uhd|uhdrip)(?![0-9a-z])').hasMatch(s))
+      return 2160;
     if (RegExp(r'(?<![0-9a-z])hdrip(?![0-9a-z])').hasMatch(s)) return 720;
     return null;
   }
@@ -376,10 +365,7 @@ class EmbyServer {
       itemId,
       'Stopped',
       label: '停止播放上报',
-      extra: {
-        'PositionTicks': positionTicks,
-        if (played) 'Played': true,
-      },
+      extra: {'PositionTicks': positionTicks, if (played) 'Played': true},
     );
     _playSessionId = null;
     _sessionItemId = null;
@@ -432,7 +418,10 @@ class EmbyServer {
 
   /// 会话最后一拍的兜底：应用退出 / 播放页被系统回收时也要把 Stopped 发出去，
   /// 否则活动日志里只有「开始播放」，统计页的观看时长永远配不上对。
-  Future<void> flushPlaybackStop(int positionTicks, {bool played = false}) async {
+  Future<void> flushPlaybackStop(
+    int positionTicks, {
+    bool played = false,
+  }) async {
     final id = _sessionItemId;
     if (id == null || _playSessionId == null) return;
     await reportPlaybackStop(id, positionTicks, played: played);
@@ -564,10 +553,11 @@ class EmbyServer {
     final subtitles = <SubtitleTrackInfo>[];
     // Emby 的 MediaSourceId：字幕路由带上它才算「精确指定来源」，
     // 无此参数的部分服务器版本会直接 404
-    final sourceId = (j['MediaSources'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map((e) => e['Id'] as String?)
-        .firstWhere((e) => e != null && e.isNotEmpty, orElse: () => null) ??
+    final sourceId =
+        (j['MediaSources'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map((e) => e['Id'] as String?)
+            .firstWhere((e) => e != null && e.isNotEmpty, orElse: () => null) ??
         id;
     for (final s in streams) {
       final m = s as Map<String, dynamic>;
@@ -586,21 +576,25 @@ class EmbyServer {
       //   3) 同上去掉 0 段 —— 少数 Emby 版本只认这条
       //   4) /Videos/{id}/Subtitles/{idx}/Stream.ext —— 旧路由
       //   5) /Items/{id}/File?Path=… —— 文件直取，strm 的保底路径
-      final delivery = ((m['DeliveryUrl'] as String?) ??
-              (m['SubtitleDeliveryUrl'] as String?) ??
-              '')
-          .trim();
+      final delivery =
+          ((m['DeliveryUrl'] as String?) ??
+                  (m['SubtitleDeliveryUrl'] as String?) ??
+                  '')
+              .trim();
       final subPath = ((m['Path'] as String?) ?? '').trim();
-      final stdRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+      final stdRoute =
+          '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
           '0/Stream.$fmt?api_key=$_token';
-      final noZeroRoute = '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+      final noZeroRoute =
+          '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
           'Stream.$fmt?api_key=$_token';
-      final oldRoute = '$baseUrl/Videos/$id/Subtitles/$idx/'
+      final oldRoute =
+          '$baseUrl/Videos/$id/Subtitles/$idx/'
           'Stream.$fmt?api_key=$_token';
       final fileRoute = subPath.isEmpty
           ? ''
           : '$baseUrl/Items/$id/File'
-              '?Path=${Uri.encodeQueryComponent(subPath)}&api_key=$_token';
+                '?Path=${Uri.encodeQueryComponent(subPath)}&api_key=$_token';
 
       final ordered = <String>[
         if (delivery.isNotEmpty) _absolutize(delivery),
@@ -688,9 +682,8 @@ class EmbyServer {
       addedDaysAgo: _addedDays(j['DateCreated'] as String?),
       filePath: msPath,
       fileSizeBytes: msSize,
-      dateCreatedMs: DateTime.tryParse(
-        j['DateCreated'] as String? ?? '',
-      )?.millisecondsSinceEpoch,
+      dateCreatedMs: DateTime.tryParse(j['DateCreated'] as String? ?? '')
+          ?.millisecondsSinceEpoch,
       userPlayCount: (userData['PlayCount'] as int?) ?? 0,
       userPlayed: userData['Played'] == true,
       userFavorite: userData['IsFavorite'] == true,
@@ -1133,8 +1126,10 @@ class EmbyServer {
     if (_token == null || itemIds.isEmpty) return false;
     try {
       final ids = itemIds.map(Uri.encodeQueryComponent).join(',');
-      await _request('$baseUrl/Playlists/$playlistId/Items?Ids=$ids',
-          method: 'DELETE');
+      await _request(
+        '$baseUrl/Playlists/$playlistId/Items?Ids=$ids',
+        method: 'DELETE',
+      );
       return true;
     } catch (e) {
       lastPlaylistError = '移片失败: $e';
@@ -1164,9 +1159,17 @@ class EmbyServer {
       // 补空值保证形态完整（播放列表无这些元数据，补空不会丢数据）
       m['ProviderIds'] ??= <String, String>{};
       for (final f in const [
-        'Genres', 'Tags', 'Studios', 'People', 'GenreItems',
-        'ArtistItems', 'AlbumArtists', 'AirDays', 'LockedFields',
-        'ProductionLocations', 'Taglines',
+        'Genres',
+        'Tags',
+        'Studios',
+        'People',
+        'GenreItems',
+        'ArtistItems',
+        'AlbumArtists',
+        'AirDays',
+        'LockedFields',
+        'ProductionLocations',
+        'Taglines',
       ]) {
         m[f] ??= const [];
       }
@@ -1330,7 +1333,7 @@ class EmbyServer {
       req.headers.set(
         'Authorization',
         'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
-        'Version="1.0.0", Token="$_token"',
+            'Version="1.0.0", Token="$_token"',
       );
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       final res = await req.close().timeout(const Duration(seconds: 15));
@@ -1398,13 +1401,17 @@ class EmbyServer {
     }
     // AVI: "RIFF" + "AVI "
     if (b.length >= 12 &&
-        b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 &&
-        b[8] == 0x41 && b[9] == 0x56 && b[10] == 0x49) {
+        b[0] == 0x52 &&
+        b[1] == 0x49 &&
+        b[2] == 0x46 &&
+        b[3] == 0x46 &&
+        b[8] == 0x41 &&
+        b[9] == 0x56 &&
+        b[10] == 0x49) {
       return 'AVI';
     }
     return null;
   }
-
 
   /// 下载文本（字幕叠加层用），自动处理 UTF-8 / GBK 容错
   Future<String?> fetchText(String url) async {

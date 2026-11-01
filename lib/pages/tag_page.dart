@@ -137,14 +137,13 @@ class _TagPageState extends State<TagPage> {
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    gridDelegate:
-                        SliverGridDelegateWithFixedCrossAxisCount(
-                          // 平板（≥840）：与媒体库一致 6 列
-                          crossAxisCount: context.mediaGridColumns,
-                          crossAxisSpacing: 11,
-                          mainAxisSpacing: 16,
-                          childAspectRatio: 0.53,
-                        ),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      // 平板（≥840）：与媒体库一致 6 列
+                      crossAxisCount: context.mediaGridColumns,
+                      crossAxisSpacing: 11,
+                      mainAxisSpacing: 16,
+                      childAspectRatio: 0.53,
+                    ),
                     itemCount: items.length,
                     itemBuilder: (c, i) => PosterCard(
                       item: items[i],

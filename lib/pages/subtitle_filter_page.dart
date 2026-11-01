@@ -143,14 +143,13 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
                       physics: const BouncingScrollPhysics(
                         parent: AlwaysScrollableScrollPhysics(),
                       ),
-                      gridDelegate:
-                          SliverGridDelegateWithFixedCrossAxisCount(
-                            // 平板（≥840）：与媒体库一致 6 列
-                            crossAxisCount: context.mediaGridColumns,
-                            crossAxisSpacing: 11,
-                            mainAxisSpacing: 16,
-                            childAspectRatio: 0.55,
-                          ),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        // 平板（≥840）：与媒体库一致 6 列
+                        crossAxisCount: context.mediaGridColumns,
+                        crossAxisSpacing: 11,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 0.55,
+                      ),
                       itemCount: _items.length,
                       itemBuilder: (c, i) => PosterCard(
                         item: _items[i],
@@ -168,5 +167,4 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
       ),
     );
   }
-
 }

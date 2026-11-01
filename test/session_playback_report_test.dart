@@ -37,13 +37,13 @@ Future<String> _readBody(HttpRequest req) async {
 }
 
 EmbyServer _client(int port) => EmbyServer(
-      host: '127.0.0.1',
-      port: port,
-      secure: false,
-      username: 'u',
-      password: 'p',
-      kind: ServerKind.emby,
-    );
+  host: '127.0.0.1',
+  port: port,
+  secure: false,
+  username: 'u',
+  password: 'p',
+  kind: ServerKind.emby,
+);
 
 void main() {
   test('会话三事件：Playing → Progress → Stopped 依次正确发出', () async {
@@ -53,7 +53,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1'}}));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': 'u1'},
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -96,7 +101,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1'}}));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': 'u1'},
+            }),
+          );
         await req.response.close();
         return;
       }

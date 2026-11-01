@@ -77,8 +77,10 @@ void main() {
     expect(tablet.panelMaxW, 620);
     expect(tablet.subtitleScale, 1.6);
     // 平板每一项都不小于手机，且间距放大幅度 > 按钮放大幅度（设计稿意图）
-    expect(tablet.clusterGap / phone.clusterGap,
-        greaterThan(tablet.playBtn / phone.playBtn));
+    expect(
+      tablet.clusterGap / phone.clusterGap,
+      greaterThan(tablet.playBtn / phone.playBtn),
+    );
   });
 
   test('of()/forSize() 按屏幕短边取档（620 为界，横屏亦不误判）', () {

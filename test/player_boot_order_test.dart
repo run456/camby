@@ -35,12 +35,15 @@ void main() {
     expect(
       RegExp(r'^\s*_open\(\);', multiLine: true).hasMatch(initState),
       isFalse,
-      reason: 'initState 里直接调 _open() 会和读设置并发，'
+      reason:
+          'initState 里直接调 _open() 会和读设置并发，'
           '导致「设置里选 MPV 却总是开 Exo」',
     );
     expect(
-      RegExp(r'^\s*_applySavedPreferences\(\);', multiLine: true)
-          .hasMatch(initState),
+      RegExp(
+        r'^\s*_applySavedPreferences\(\);',
+        multiLine: true,
+      ).hasMatch(initState),
       isFalse,
       reason: '设置读取必须在 _boot() 里被 await，不能裸调',
     );
@@ -53,18 +56,13 @@ void main() {
 
     expect(iRead, greaterThanOrEqualTo(0), reason: '_boot 必须 await 读设置');
     expect(iOpen, greaterThanOrEqualTo(0), reason: '_boot 必须 await 开播');
-    expect(
-      iRead < iOpen,
-      isTrue,
-      reason: '读设置必须在开播之前完成，否则 _engine 还是默认值',
-    );
+    expect(iRead < iOpen, isTrue, reason: '读设置必须在开播之前完成，否则 _engine 还是默认值');
   });
 
   test('_applySavedPreferences 读的是设置页仍在用的键', () {
     // 防「设置页写一套、播放页读另一套」。
     // v1.7.50：STRM 优先 Exo 已下架，故不再读 set_strm_exo。
     expect(src.contains("prefs.getInt('set_play_engine')"), isTrue);
-    expect(src.contains("prefs.getInt('set_max_bitrate')"), isTrue);
     expect(src.contains("prefs.getInt('set_cache_size')"), isTrue);
     expect(src.contains("prefs.getBool('set_hw_decode')"), isTrue);
     expect(src.contains("prefs.getBool('set_record_history')"), isTrue);
@@ -76,8 +74,11 @@ void main() {
     // STRM 加载弹窗里点「切换 Exo」需要能驱动播放页，
     // 而不是重新推一个页面（那样进度、字幕全丢）
     expect(src.contains('Future<void> switchToExo()'), isTrue);
-    expect(src.contains('class PlayerPageState'), isTrue,
-        reason: 'State 要公开，外部才能通过 GlobalKey 拿到');
+    expect(
+      src.contains('class PlayerPageState'),
+      isTrue,
+      reason: 'State 要公开，外部才能通过 GlobalKey 拿到',
+    );
   });
 }
 

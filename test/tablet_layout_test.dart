@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// 1194×834 = 11 寸平板横屏，命中 medium 档（840–1199）。
 /// 外壳会注入「内容区宽 = 1194 - 96(Rail)」，测试直接给 1194 模拟整屏。
 const _tabletSize = Size(1194, 834);
+
 /// 1600×1000 = 大平板横屏，命中 expanded 档（≥1200，主从分栏生效）
 const _expandedSize = Size(1600, 1000);
 
@@ -57,8 +58,7 @@ void main() {
     expect(pageViewRect.left, moreOrLessEquals(30, epsilon: 0.5));
   });
 
-  testWidgets('平板扩展档（1600dp）详情：横幅 330 定高 + 主从分栏（v2.0.12 设计稿）',
-      (tester) async {
+  testWidgets('平板扩展档（1600dp）详情：横幅 330 定高 + 主从分栏（v2.0.12 设计稿）', (tester) async {
     tester.view.physicalSize = _expandedSize;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -90,8 +90,7 @@ void main() {
     expect(headRect.left, moreOrLessEquals(24, epsilon: 0.5));
   });
 
-  testWidgets('平板中等档（1194dp）详情：侧栏折叠，仍是单列',
-      (tester) async {
+  testWidgets('平板中等档（1194dp）详情：侧栏折叠，仍是单列', (tester) async {
     tester.view.physicalSize = _tabletSize;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -126,10 +125,7 @@ void main() {
     final state = AppState();
     await tester.pumpWidget(
       _wrap(
-        FavoritesPage(
-          state: state,
-          onOpenDetail: (_, {String? heroTag}) {},
-        ),
+        FavoritesPage(state: state, onOpenDetail: (_, {String? heroTag}) {}),
       ),
     );
     await tester.pump();

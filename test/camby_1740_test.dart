@@ -37,8 +37,10 @@ void main() {
         isTrue,
       );
       expect(
-        const SubtitleTrackInfo(index: 0, displayTitle: 'Chinese (CHS)')
-            .isChinese,
+        const SubtitleTrackInfo(
+          index: 0,
+          displayTitle: 'Chinese (CHS)',
+        ).isChinese,
         isTrue,
       );
     });
@@ -129,7 +131,9 @@ void main() {
       const t = SubtitleTrackInfo(
         index: 3,
         url: 'https://a/Videos/1/2/Subtitles/3/0/Stream.ass?api_key=t',
-        altUrls: ['https://a/Items/1/File?Path=%2Fmedia%2Fsub.chs.srt&api_key=t'],
+        altUrls: [
+          'https://a/Items/1/File?Path=%2Fmedia%2Fsub.chs.srt&api_key=t',
+        ],
       );
       final texts = t.textCandidates;
       expect(texts.first, contains('Stream.srt'));

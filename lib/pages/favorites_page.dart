@@ -221,12 +221,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return GridView.builder(
       key: const ValueKey('movies'),
       // v1.7.64：顶部留白 16 → 6，标题区与封面更紧凑
-      padding: EdgeInsets.fromLTRB(
-        18,
-        context.isTablet ? 2 : 6,
-        18,
-        112,
-      ),
+      padding: EdgeInsets.fromLTRB(18, context.isTablet ? 2 : 6, 18, 112),
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
@@ -555,8 +550,8 @@ class _StackTile extends StatelessWidget {
                 // 平板上封面按原生比例贴底后上边留白很大，角标悬在半空
                 const scale = 0.85;
                 final cw2 = w * scale;
-                final ch2 = MediaQuery.of(context).size.width >=
-                        kTabletBreakpoint
+                final ch2 =
+                    MediaQuery.of(context).size.width >= kTabletBreakpoint
                     ? math.min(h * scale, cw2 * 1.45)
                     : h * scale;
                 return Stack(
@@ -570,7 +565,8 @@ class _StackTile extends StatelessWidget {
                         depth,
                         w,
                         h,
-                        tablet: MediaQuery.of(context).size.width >=
+                        tablet:
+                            MediaQuery.of(context).size.width >=
                             kTabletBreakpoint,
                       ),
                     if (count > 0)
@@ -645,9 +641,7 @@ class _StackTile extends StatelessWidget {
     // 后层也用真实海报（依次取夹内第 2、3 张）；空夹才退到占位渐变
     MediaItem? item;
     if (covers.isNotEmpty) {
-      item = depth == 0
-          ? covers.first
-          : covers[depth % covers.length];
+      item = depth == 0 ? covers.first : covers[depth % covers.length];
     }
 
     Widget inner;
@@ -713,10 +707,7 @@ class _StackTile extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(13),
-        child: inner,
-      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(13), child: inner),
     );
 
     card = Transform.rotate(
@@ -792,11 +783,7 @@ class _SyncButtonState extends State<_SyncButton> {
                   color: Colors.white70,
                 ),
               )
-            : const Icon(
-                Icons.sync_rounded,
-                size: 18,
-                color: Colors.white70,
-              ),
+            : const Icon(Icons.sync_rounded, size: 18, color: Colors.white70),
       ),
     );
   }
@@ -814,7 +801,9 @@ class _SyncButtonState extends State<_SyncButton> {
       if (pending > 0) {
         // 失败诊断：把服务端返回的具体错误带给用户，不再只说"待重试"
         final d = widget.state.folderSyncDiag;
-        final detail = d.isEmpty ? '' : '：${d.length > 42 ? '${d.substring(0, 42)}…' : d}';
+        final detail = d.isEmpty
+            ? ''
+            : '：${d.length > 42 ? '${d.substring(0, 42)}…' : d}';
         showToast(
           context,
           '已同步 · $n 个收藏夹（$pending 个待重试）$detail',
@@ -861,51 +850,49 @@ class _NewFolderTile extends StatelessWidget {
               alignment: Alignment.bottomCenter,
               child: LayoutBuilder(
                 builder: (c, cons) {
-                  final tablet = MediaQuery.of(context).size.width >=
-                      kTabletBreakpoint;
+                  final tablet =
+                      MediaQuery.of(context).size.width >= kTabletBreakpoint;
                   final w = cons.maxWidth;
                   final h = cons.maxHeight;
                   final cw = w * 0.85;
-                  final ch = tablet
-                      ? math.min(h * 0.85, cw * 1.45)
-                      : h * 0.85;
+                  final ch = tablet ? math.min(h * 0.85, cw * 1.45) : h * 0.85;
                   final box = CustomPaint(
-                  painter: _DashedRRectPainter(
-                    radius: 14,
-                    color: Colors.white.withOpacity(0.26),
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(0.06),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.14),
+                    painter: _DashedRRectPainter(
+                      radius: 14,
+                      color: Colors.white.withOpacity(0.26),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withOpacity(0.06),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.14),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.add_rounded,
+                              size: 21,
+                              color: Colors.white,
                             ),
                           ),
-                          child: const Icon(
-                            Icons.add_rounded,
-                            size: 21,
-                            color: Colors.white,
+                          const SizedBox(height: 9),
+                          const Text(
+                            '新建收藏夹',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.muted,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 9),
-                        const Text(
-                          '新建收藏夹',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                   ); // CustomPaint
                   if (tablet) {
                     return SizedBox(width: cw, height: ch, child: box);

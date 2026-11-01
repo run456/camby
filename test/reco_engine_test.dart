@@ -86,10 +86,7 @@ void main() {
       final rnd1 = _FixedRandom(0.5);
       final rnd2 = _FixedRandom(0.5);
       final sd = RecoEngine.weight(mk('a', height: 1080), rnd1);
-      final uhd = RecoEngine.weight(
-        mk('a', height: 2160, hdr: true),
-        rnd2,
-      );
+      final uhd = RecoEngine.weight(mk('a', height: 2160, hdr: true), rnd2);
       expect(uhd, greaterThan(sd));
     });
 
@@ -104,9 +101,7 @@ void main() {
 
   group('挑选', () {
     test('已看完不进候选', () {
-      final src = [
-        for (var i = 0; i < 40; i++) mk('m$i', played: i < 20),
-      ];
+      final src = [for (var i = 0; i < 40; i++) mk('m$i', played: i < 20)];
       final got = RecoEngine.pick(src, recent: const {}, seed: 1);
       expect(got.length, 6);
       expect(got.any((e) => e.userPlayed), isFalse);
@@ -133,8 +128,16 @@ void main() {
 
     test('换种子后至少换掉一半', () {
       final src = library(50);
-      final a = RecoEngine.pick(src, recent: const {}, seed: 100).map((e) => e.id);
-      final b = RecoEngine.pick(src, recent: const {}, seed: 101).map((e) => e.id);
+      final a = RecoEngine.pick(
+        src,
+        recent: const {},
+        seed: 100,
+      ).map((e) => e.id);
+      final b = RecoEngine.pick(
+        src,
+        recent: const {},
+        seed: 101,
+      ).map((e) => e.id);
       final overlap = a.toSet().intersection(b.toSet()).length;
       expect(overlap, lessThanOrEqualTo(3), reason: '换一批应整批不同');
     });
@@ -193,13 +196,12 @@ void main() {
         recent: Map<String, int>.from(recent),
         seed: 11,
       );
-      expect(
-        second.map((e) => e.id).toList(),
-        again.map((e) => e.id).toList(),
-      );
+      expect(second.map((e) => e.id).toList(), again.map((e) => e.id).toList());
       // 且第二批与第一批完全不重叠
       expect(
-        first.map((e) => e.id).toSet()
+        first
+            .map((e) => e.id)
+            .toSet()
             .intersection(second.map((e) => e.id).toSet()),
         isEmpty,
       );

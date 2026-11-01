@@ -143,18 +143,12 @@ class PlayerPageState extends State<PlayerPage>
   double _emaBps = 0;
   int _emaAtMs = 0;
 
-  // ---- 1.7.38 新增：字幕样式 / 码率 / 硬解 / 播放上报 ----
+  // ---- 1.7.38 新增：字幕样式 / 硬解 / 播放上报 ----
   /// 叠加字幕的显示样式（持久化，见 SubtitleStyleStore）
   SubtitleStyle _subStyle = const SubtitleStyle();
 
   /// 设置页「记录观看历史」开关：关掉后既不上报，也不进「继续观看」
   bool _recordHistory = true;
-
-  /// 最大码率（bps）。null = 原片直连；有值时服务端按该码率转码。
-  int? _maxBitrate;
-
-  /// 设置页最大码率档位的映射（0=自动，其余为上限 bps）
-  static const List<int?> _bitrates = [null, 40000000, 20000000, 10000000];
 
   /// 设置页缓存档位 → MPV `demuxer-max-bytes`（字节）。档位越高越抗卡顿，内存占用越大。
   static const List<int> _cacheSizes = [512, 1024, 2048, 4096];
@@ -495,12 +489,10 @@ class PlayerPageState extends State<PlayerPage>
     try {
       final prefs = await SharedPreferences.getInstance();
       final eng = prefs.getInt('set_play_engine') ?? 0;
-      final br = prefs.getInt('set_max_bitrate') ?? 0;
       final cache = prefs.getInt('set_cache_size') ?? 0;
       // v1.7.50：尊重用户选的内核。之前 strm 条目会无视设置强制 Exo，
       // 表现为「设置选了 MPV，播放页却显示 Exo」，用户当成 bug 上报。
       _engine = eng == 1 ? PlaybackEngine.mpv : PlaybackEngine.exo;
-      _maxBitrate = _bitrates[br.clamp(0, _bitrates.length - 1)];
       _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
       // v1.7.50：自动连播 / strm 优先 Exo / ASS 特效的设置行已按设计稿移除，
       // 行为固定取默认值（开 / 开 / 开），字段保留供播放流程引用。
@@ -565,84 +557,6 @@ class PlayerPageState extends State<PlayerPage>
       ),
     );
     _resetHideTimer();
-  }
-
-  /// 切换最大码率：原片（不限制）/ 40M / 20M / 10M / 5M / 2M。
-  ///
-  /// Emby 侧用 MaxStreamingBitrate 参数让服务端按该码率重新出流，因此必须
-  /// **重建播放地址并保留当前进度**（与切内核同一套序列：记位置 → 重建 → seek 回原处）。
-  Future<void> _changeBitrate() async {
-    const presets = <(String, int?)>[
-      ('原片（不限码率）', null),
-      ('40 Mbps', 40000000),
-      ('20 Mbps', 20000000),
-      ('10 Mbps', 10000000),
-      ('5 Mbps', 5000000),
-      ('2 Mbps', 2000000),
-    ];
-    final picked = await _showGlassPanel<int>(
-      title: '选择码率',
-      subtitle: '外网播放可调低码率；服务端需开启转码权限',
-      // -1 哨兵代表「不限码率」：直接 pop null 与「点外部关闭」无法区分
-      options: presets
-          .map(
-            (e) => (
-              e.$1,
-              () => Navigator.pop(context, e.$2 ?? -1),
-              e.$2 == _maxBitrate,
-            ),
-          )
-          .toList(),
-    );
-    if (!mounted) return;
-    // 点暗层/手势返回关闭 → null，等同于「不改」。
-    // 以前直接往下走会把 null 当成「不限码率」，关个面板就把码率重置了。
-    if (picked == null) {
-      _resetHideTimer();
-      return;
-    }
-    await _applyBitrate(picked == -1 ? null : picked);
-  }
-
-  /// 应用码率：重建播放并从原位置续播
-  Future<void> _applyBitrate(int? bitrate) async {
-    if (bitrate == _maxBitrate) return;
-    final pos = _positionSeconds;
-    final wasPlaying = _isPlaying;
-    final url = widget.item.videoUrl;
-    setState(() {
-      _maxBitrate = bitrate;
-      _initializing = true;
-    });
-    await _player?.dispose();
-    _player = null;
-    if (url != null) {
-      var ok = false;
-      final srv = widget.state.server;
-      if (srv != null) {
-        ok = await _start(
-          _engine,
-          srv.streamUrl(
-            widget.item.id,
-            direct: bitrate == null,
-            maxBitrate: bitrate,
-          ),
-        );
-      }
-      if (!ok) ok = await _start(_engine, url);
-      if (ok && pos > 1) {
-        await _player?.seek(pos);
-        if (!wasPlaying) await _player?.pause();
-      }
-    }
-    if (!mounted) return;
-    setState(() => _initializing = false);
-    _resetHideTimer();
-    if (_maxBitrate == null) {
-      showToast(context, '已切到原片画质');
-    } else {
-      showToast(context, '码率上限 ${(_maxBitrate! ~/ 1000000)} Mbps');
-    }
   }
 
   /// 运行时开关硬件解码（1.7.38 新增）。MPV 热切 hwdec 属性；Exo 提示不支持。
@@ -737,28 +651,6 @@ class PlayerPageState extends State<PlayerPage>
         widget.item.id,
         (pos * 10000000).round(),
         played: played,
-      ),
-    );
-  }
-
-  /// 通用玻璃面板：码率 / 倍速 / 字幕等单选列表共用一套外观。
-  /// 与 _Sheet 的差异：多一行副标题（_InfoHeader），适合需要说明参数含义的场景。
-  Future<T?> _showGlassPanel<T>({
-    required String title,
-    String? subtitle,
-    required List<(String, VoidCallback, bool)> options,
-  }) {
-    _hideTimer?.cancel();
-    return Navigator.of(context).push<T>(
-      _GlassPanelRoute<T>(
-        builder: (ctx) => _Sheet(
-          title: title,
-          subtitle: subtitle,
-          children: [
-            for (final e in options)
-              _SheetRow(label: e.$1, selected: e.$3, onTap: e.$2),
-          ],
-        ),
       ),
     );
   }
@@ -1487,15 +1379,6 @@ class PlayerPageState extends State<PlayerPage>
       ? '关闭'
       : '${_subtitle!.languageLabel} · ${_subtitle!.codecLabel}';
 
-  /// 播放信息面板：码率一行
-  String _bitrateText() => _maxBitrate == null
-      ? '原片（不限 · 直连播放）'
-      : '≤ ${(_maxBitrate! ~/ 1000000)} Mbps（服务端转码）';
-
-  /// 码率按钮上的短标签（自动 / 20 Mbps）
-  String _bitrateShort() =>
-      _maxBitrate == null ? '自动' : '${(_maxBitrate! ~/ 1000000)} Mbps';
-
   /// 文件大小：0 表示服务端没给（strm 常见），显示「未知」而不是 0 B
   String _fmtSize(int bytes) {
     if (bytes <= 0) return '未知';
@@ -1720,7 +1603,6 @@ class PlayerPageState extends State<PlayerPage>
             _InfoRow(k: '封装', v: item.container),
             _InfoRow(k: '大小', v: _fmtSize(item.fileSizeBytes)),
             _InfoRow(k: '字幕', v: _subInfoText()),
-            _InfoRow(k: '码率上限', v: _bitrateText()),
             _InfoRow(
               k: '进度',
               v: '${_fmt(_positionSeconds)} / ${_fmt(_totalSeconds)}',
@@ -2364,11 +2246,6 @@ class PlayerPageState extends State<PlayerPage>
                           onTap: () => unawaited(_toggleHardware()),
                         ),
                         SizedBox(width: ui.chipGap),
-                        _Chip(
-                          label: '码率 · ${_bitrateShort()}',
-                          icon: Icons.speed_rounded,
-                          onTap: _changeBitrate,
-                        ),
                       ],
                     ),
                   ),
@@ -2778,9 +2655,8 @@ class _SubPick {
 }
 
 class _Sheet extends StatelessWidget {
-  const _Sheet({required this.title, required this.children, this.subtitle});
+  const _Sheet({required this.title, required this.children});
   final String title;
-  final String? subtitle;
   final List<Widget> children;
 
   @override
@@ -2831,20 +2707,6 @@ class _Sheet extends StatelessWidget {
                 ],
               ),
             ),
-            if (subtitle != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    subtitle!,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF9FB0CC),
-                    ),
-                  ),
-                ),
-              ),
             // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
             // 长内容自己滚，标题始终可见
             Flexible(

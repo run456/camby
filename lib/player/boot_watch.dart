@@ -46,8 +46,7 @@ class BootWatchPolicy {
   }) => engine == PlaybackEngine.mpv && waitedSecs >= showSwitchSecs;
 
   /// 是否显示「可能需要服务端插件预热」
-  static bool showPluginHint(double waitedSecs) =>
-      waitedSecs >= pluginHintSecs;
+  static bool showPluginHint(double waitedSecs) => waitedSecs >= pluginHintSecs;
 
   /// 三段进度点（连接 → 探测 → 缓冲）当前走到第几段（0 起）
   ///

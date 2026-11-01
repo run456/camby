@@ -24,10 +24,7 @@ void main() {
       reason: 'open 不能再无条件把字幕交给 MPV',
     );
     // 非 ASS 一律加载叠加层 cue
-    expect(
-      code.contains('!(p.nativeSubtitles && _isAssUrl(sub.url))'),
-      isTrue,
-    );
+    expect(code.contains('!(p.nativeSubtitles && _isAssUrl(sub.url))'), isTrue);
   });
 
   test('切换到文本字幕时先摘掉内核字幕，避免两份字幕重叠', () {
@@ -59,8 +56,10 @@ void main() {
     if (seg.contains('ignoring: !_controlsVisible')) {
       seg = seg.split('ignoring: !_controlsVisible').first;
     }
-    final overlay =
-        seg.split('\n').where((l) => !l.trim().startsWith('//')).join('\n');
+    final overlay = seg
+        .split('\n')
+        .where((l) => !l.trim().startsWith('//'))
+        .join('\n');
     expect(
       overlay.contains('BoxDecoration'),
       isFalse,

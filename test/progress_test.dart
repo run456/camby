@@ -43,10 +43,7 @@ void main() {
 
   test('更新后「继续观看」立刻能查到（无需重新拉库）', () {
     state.updateProgress(target.id, seconds: 3600, total: total);
-    expect(
-      state.continueWatching.any((e) => e.id == target.id),
-      isTrue,
-    );
+    expect(state.continueWatching.any((e) => e.id == target.id), isTrue);
   });
 
   test('copyWith 保留 resumeSeconds，不会被其它字段更新清掉', () {

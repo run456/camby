@@ -43,18 +43,19 @@ void main() {
 
     // v2.0.9：Rail 弃用 NavigationRail，改为自定义玻璃按钮条
     expect(find.byType(NavigationRail), findsNothing);
-    expect(find.byType(GlassNavBar), findsNothing,
-        reason: '平板不得出现底部 Tab 栏');
-    expect(find.byIcon(Icons.search_rounded), findsOneWidget,
-        reason: 'v2.0.9：搜索必须是 Rail 上的独立按钮');
+    expect(find.byType(GlassNavBar), findsNothing, reason: '平板不得出现底部 Tab 栏');
+    expect(
+      find.byIcon(Icons.search_rounded),
+      findsOneWidget,
+      reason: 'v2.0.9：搜索必须是 Rail 上的独立按钮',
+    );
     // 1194 是中等档：纯图标（无文字标签），5 个 Tab + 1 个搜索 = 6 个玻璃按钮
     expect(find.byIcon(Icons.home_rounded), findsOneWidget);
     expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
     expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
   });
 
-  testWidgets('手机端首页 Hero 仍是满幅海报（非 300 定高卡片）',
-      (tester) async {
+  testWidgets('手机端首页 Hero 仍是满幅海报（非 300 定高卡片）', (tester) async {
     tester.view.physicalSize = _phoneSize;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -107,9 +108,7 @@ void main() {
     final rows = tester.widgetList<Row>(find.byType(Row));
     final sideColumn = rows.where((r) {
       final kids = r.children;
-      return kids.any(
-        (w) => w is SizedBox && w.width == 380,
-      );
+      return kids.any((w) => w is SizedBox && w.width == 380);
     });
     expect(sideColumn, isEmpty, reason: '手机端不得出现平板 380px 侧栏');
     expect(tester.takeException(), isNull);
@@ -143,8 +142,10 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
 
       final listView = tester.widget<ListView>(find.byType(ListView).first);
-      expect(listView.padding!.resolve(TextDirection.ltr).left,
-          moreOrLessEquals(expectPad, epsilon: 0.5));
+      expect(
+        listView.padding!.resolve(TextDirection.ltr).left,
+        moreOrLessEquals(expectPad, epsilon: 0.5),
+      );
       expect(tester.takeException(), isNull);
     }
     addTearDown(tester.view.reset);

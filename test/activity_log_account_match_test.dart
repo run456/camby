@@ -31,13 +31,13 @@ Future<HttpServer> _startServer(
 const _myId = 'a1b2c3d4-0000-0000-0000-000000000001';
 
 EmbyServer _client(int port) => EmbyServer(
-      host: '127.0.0.1',
-      port: port,
-      secure: false,
-      username: 'u',
-      password: 'p',
-      kind: ServerKind.emby,
-    );
+  host: '127.0.0.1',
+  port: port,
+  secure: false,
+  username: 'u',
+  password: 'p',
+  kind: ServerKind.emby,
+);
 
 void main() {
   test('本账号播放不被误杀：GUID 带/不带连字符、大小写、空 UserId 都算本人', () async {
@@ -46,10 +46,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'AccessToken': 'tok',
-            'User': {'Id': _myId},
-          }));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': _myId},
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -57,37 +59,39 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'Items': [
-              // 本人：带连字符、大写
-              {
-                'Type': 'PlaybackStart',
-                'Date': '2026-10-30T10:00:00.0000000Z',
-                'ItemId': 'itemA',
-                'UserId': _myId.toUpperCase(),
-              },
-              // 本人：不带连字符、小写（同一账号的另一种写法）
-              {
-                'Type': 'PlaybackStop',
-                'Date': '2026-10-30T11:00:00.0000000Z',
-                'ItemId': 'itemA',
-                'UserId': _myId.replaceAll('-', '').toLowerCase(),
-              },
-              // 本人：播放事件没带 UserId（单账号服务器常态）
-              {
-                'Type': 'PlaybackStart',
-                'Date': '2026-10-30T12:00:00.0000000Z',
-                'ItemId': 'itemB',
-              },
-              // 别人的播放：必须排除
-              {
-                'Type': 'PlaybackStart',
-                'Date': '2026-10-30T13:00:00.0000000Z',
-                'ItemId': 'itemC',
-                'UserId': 'ffffffff-0000-0000-0000-000000000009',
-              },
-            ],
-          }));
+          ..write(
+            jsonEncode({
+              'Items': [
+                // 本人：带连字符、大写
+                {
+                  'Type': 'PlaybackStart',
+                  'Date': '2026-10-30T10:00:00.0000000Z',
+                  'ItemId': 'itemA',
+                  'UserId': _myId.toUpperCase(),
+                },
+                // 本人：不带连字符、小写（同一账号的另一种写法）
+                {
+                  'Type': 'PlaybackStop',
+                  'Date': '2026-10-30T11:00:00.0000000Z',
+                  'ItemId': 'itemA',
+                  'UserId': _myId.replaceAll('-', '').toLowerCase(),
+                },
+                // 本人：播放事件没带 UserId（单账号服务器常态）
+                {
+                  'Type': 'PlaybackStart',
+                  'Date': '2026-10-30T12:00:00.0000000Z',
+                  'ItemId': 'itemB',
+                },
+                // 别人的播放：必须排除
+                {
+                  'Type': 'PlaybackStart',
+                  'Date': '2026-10-30T13:00:00.0000000Z',
+                  'ItemId': 'itemC',
+                  'UserId': 'ffffffff-0000-0000-0000-000000000009',
+                },
+              ],
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -116,10 +120,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'AccessToken': 'tok',
-            'User': {'Id': _myId},
-          }));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': _myId},
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -127,23 +133,25 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'Items': [
-              {
-                'Type': 'PlaybackStart',
-                'Date': '2026-10-30T10:00:00.0000000Z',
-                'ItemId': 'itemX',
-                'UserId': 'ffffffff-0000-0000-0000-000000000009',
-              },
-              {
-                'Type': 'PlaybackStart',
-                'Date': '2026-10-30T11:00:00.0000000Z',
-                'ItemId': 'itemY',
-                // 部分服务器日志里是另一套内部 Id（如纯数字）
-                'UserId': '1',
-              },
-            ],
-          }));
+          ..write(
+            jsonEncode({
+              'Items': [
+                {
+                  'Type': 'PlaybackStart',
+                  'Date': '2026-10-30T10:00:00.0000000Z',
+                  'ItemId': 'itemX',
+                  'UserId': 'ffffffff-0000-0000-0000-000000000009',
+                },
+                {
+                  'Type': 'PlaybackStart',
+                  'Date': '2026-10-30T11:00:00.0000000Z',
+                  'ItemId': 'itemY',
+                  // 部分服务器日志里是另一套内部 Id（如纯数字）
+                  'UserId': '1',
+                },
+              ],
+            }),
+          );
         await req.response.close();
         return;
       }

@@ -34,13 +34,13 @@ Future<HttpServer> _startServer(
 }
 
 EmbyServer _client(int port) => EmbyServer(
-      host: '127.0.0.1',
-      port: port,
-      secure: false,
-      username: 'u',
-      password: 'p',
-      kind: ServerKind.emby,
-    );
+  host: '127.0.0.1',
+  port: port,
+  secure: false,
+  username: 'u',
+  password: 'p',
+  kind: ServerKind.emby,
+);
 
 void main() {
   test('改名 POST 的 body 必须含非 null 的 ProviderIds（否则 Emby 400）', () async {
@@ -50,7 +50,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1'}}));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': 'u1'},
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -59,13 +64,15 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({
-            'Id': 'pl1',
-            'Name': '人妻',
-            'Type': 'Playlist',
-            'Genres': const [],
-            'Tags': const [],
-          }));
+          ..write(
+            jsonEncode({
+              'Id': 'pl1',
+              'Name': '人妻',
+              'Type': 'Playlist',
+              'Genres': const [],
+              'Tags': const [],
+            }),
+          );
         await req.response.close();
         return;
       }
@@ -91,10 +98,16 @@ void main() {
     expect(ok, isTrue, reason: '带上 ProviderIds 后改名应成功');
     expect(posted, isNotNull);
     // 关键：body 必须有 ProviderIds 且非空引用（null 会在服务端 .ToList() 抛 400）
-    expect(posted!.containsKey('ProviderIds'), isTrue,
-        reason: '必须带上 ProviderIds 字段');
-    expect(posted!['ProviderIds'], isNotNull,
-        reason: 'ProviderIds 为 null 会被 Emby .ToList() 抛 400');
+    expect(
+      posted!.containsKey('ProviderIds'),
+      isTrue,
+      reason: '必须带上 ProviderIds 字段',
+    );
+    expect(
+      posted!['ProviderIds'],
+      isNotNull,
+      reason: 'ProviderIds 为 null 会被 Emby .ToList() 抛 400',
+    );
     expect(posted!['ProviderIds'], isA<Map>());
     // 名称确实改了
     expect(posted!['Name'], '人妻改名后');
@@ -108,7 +121,12 @@ void main() {
         req.response
           ..statusCode = 200
           ..headers.contentType = ContentType.json
-          ..write(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1'}}));
+          ..write(
+            jsonEncode({
+              'AccessToken': 'tok',
+              'User': {'Id': 'u1'},
+            }),
+          );
         await req.response.close();
         return;
       }

@@ -83,7 +83,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 120));
     }
 
-    expect(find.byType(SearchPage), findsOneWidget,
-        reason: '「我的」页搜索按钮应打开 SearchPage');
+    expect(
+      find.byType(SearchPage),
+      findsOneWidget,
+      reason: '「我的」页搜索按钮应打开 SearchPage',
+    );
   });
 }

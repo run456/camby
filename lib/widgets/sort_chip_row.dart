@@ -42,9 +42,7 @@ class SortChipRow extends StatelessWidget {
 
   Widget _chip(String label, SortField f) {
     final on = field == f;
-    final text = on
-        ? '$label ${ascending ? '↑' : '↓'}'
-        : label;
+    final text = on ? '$label ${ascending ? '↑' : '↓'}' : label;
     return LiquidPress(
       radius: 999,
       scale: 0.95,
@@ -98,8 +96,8 @@ void sortItemsBy(List items, SortField field, bool ascending) {
         return c != 0 ? c : (a.name as String).compareTo(b.name as String);
       case SortField.title:
         return (a.name as String).toLowerCase().compareTo(
-              (b.name as String).toLowerCase(),
-            );
+          (b.name as String).toLowerCase(),
+        );
       case SortField.rating:
         final c = (a.rating as double).compareTo(b.rating as double);
         return c != 0 ? c : (a.name as String).compareTo(b.name as String);

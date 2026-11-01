@@ -28,28 +28,36 @@ void main() {
   }
 
   test('中央拖动时间气泡订阅 _posNv，不再直接读 _scrubPos', () {
-    final block = section(
-      '拖动进度时的大时间提示',
-      '外挂字幕叠加层',
+    final block = section('拖动进度时的大时间提示', '外挂字幕叠加层');
+    expect(
+      block.contains('ValueListenableBuilder'),
+      isTrue,
+      reason: '气泡必须用 ValueListenableBuilder 订阅 _posNv 才能实时刷新',
     );
-    expect(block.contains('ValueListenableBuilder'), isTrue,
-        reason: '气泡必须用 ValueListenableBuilder 订阅 _posNv 才能实时刷新');
     expect(block.contains('_posNv'), isTrue);
     // 气泡文本应使用监听值 pos，而不是会冻结的 _scrubPos
-    expect(block.contains('_fmt(_scrubPos)'), isFalse,
-        reason: '_fmt(_scrubPos) 只在整页 setState 时重建，会冻结');
+    expect(
+      block.contains('_fmt(_scrubPos)'),
+      isFalse,
+      reason: '_fmt(_scrubPos) 只在整页 setState 时重建，会冻结',
+    );
   });
 
   test('亮度/音量指示条显示在手势对侧', () {
-    final block = section(
-      '亮度 / 音量指示',
-      '外挂字幕叠加层',
-    );
+    final block = section('亮度 / 音量指示', '外挂字幕叠加层');
     // v2.0.8：离边距离改由 PlayerUi.adjustEdge 提供（手机 48 / 平板 72）
-    expect(block.contains("left: _adjustSide == 'volume' ? ui.adjustEdge : null"),
-        isTrue, reason: '右半屏调音量 → 指示条显示在左侧');
-    expect(block.contains("right: _adjustSide == 'brightness' ? ui.adjustEdge : null"),
-        isTrue, reason: '左半屏调亮度 → 指示条显示在右侧');
+    expect(
+      block.contains("left: _adjustSide == 'volume' ? ui.adjustEdge : null"),
+      isTrue,
+      reason: '右半屏调音量 → 指示条显示在左侧',
+    );
+    expect(
+      block.contains(
+        "right: _adjustSide == 'brightness' ? ui.adjustEdge : null",
+      ),
+      isTrue,
+      reason: '左半屏调亮度 → 指示条显示在右侧',
+    );
     // 旧的同侧写法必须移除
     expect(block.contains("left: _adjustSide == 'brightness'"), isFalse);
     expect(block.contains("right: _adjustSide == 'volume'"), isFalse);

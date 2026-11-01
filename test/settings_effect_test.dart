@@ -46,7 +46,8 @@ void main() {
     expect(
       orphans,
       isEmpty,
-      reason: '这些设置在设置页有 UI，但 lib/ 里没有任何读取点 —— '
+      reason:
+          '这些设置在设置页有 UI，但 lib/ 里没有任何读取点 —— '
           '点了不会生效，属于假开关。\n'
           '要么接上消费端，要么把这个设置项删掉（本版不留「预留开关」）：\n'
           '${orphans.map((k) => '  · $k').join('\n')}',

@@ -65,7 +65,11 @@ class _StatsPageState extends State<StatsPage> {
       // 补齐 30 天序列（空天为 0）
       final out = <DailyPlayback>[];
       for (var i = 29; i >= 0; i--) {
-        final d = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+        final d = DateTime(
+          now.year,
+          now.month,
+          now.day,
+        ).subtract(Duration(days: i));
         final k =
             '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
         out.add(daily[k] ?? DailyPlayback(date: d, minutes: 0, plays: 0));
@@ -110,10 +114,7 @@ class _StatsPageState extends State<StatsPage> {
       final entries = activity.itemPlays.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
       for (final e in entries.take(5)) {
-        final nm =
-            itemById[e.key]?.name ??
-            resolvedNames[e.key] ??
-            '库外影片（已删除）';
+        final nm = itemById[e.key]?.name ?? resolvedNames[e.key] ?? '库外影片（已删除）';
         topWatched.add((nm, e.value));
       }
     } else {
@@ -125,10 +126,11 @@ class _StatsPageState extends State<StatsPage> {
       // v2.0.11：库列表 PlayCount 也全 0 时（部分服务器不带 UserData），
       // 用「已看历史」的条目级 PlayCount 兜底（普通用户权限 100% 可用）
       if (topWatched.isEmpty) {
-        final hist = widget.state.playedHistory
-            .where((e) => e.userPlayCount > 0)
-            .toList()
-          ..sort((a, b) => b.userPlayCount.compareTo(a.userPlayCount));
+        final hist =
+            widget.state.playedHistory
+                .where((e) => e.userPlayCount > 0)
+                .toList()
+              ..sort((a, b) => b.userPlayCount.compareTo(a.userPlayCount));
         for (final e in hist.take(5)) {
           topWatched.add((e.name, e.userPlayCount));
         }
@@ -146,7 +148,8 @@ class _StatsPageState extends State<StatsPage> {
       final histHours = List<int>.filled(24, 0);
       for (final e in widget.state.playedHistory) {
         final t = e.lastPlayedAt;
-        if (t != null && t > 0) histHours[DateTime.fromMillisecondsSinceEpoch(t).hour]++;
+        if (t != null && t > 0)
+          histHours[DateTime.fromMillisecondsSinceEpoch(t).hour]++;
       }
       if (histHours.fold<int>(0, (a, b) => a + b) > 0) hourBuckets = histHours;
     }
@@ -158,9 +161,7 @@ class _StatsPageState extends State<StatsPage> {
         ListView(
           padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
           // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
-          children: _tabletColumns(
-            wide,
-            [
+          children: _tabletColumns(wide, [
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Row(
@@ -261,14 +262,18 @@ class _StatsPageState extends State<StatsPage> {
                           : (widget.state.playedHistory.isNotEmpty
                                 ? '已看历史近似'
                                 : '无数据')),
-                ab: playback != null ||
+                ab:
+                    playback != null ||
                     activity != null ||
                     widget.state.playedHistory.isNotEmpty,
               ),
               child: _DailyBars(
-                daily: _buildDaily(playback, activity, widget.state.playedHistory),
-                playsOverride:
-                    playback?.totalPlays ?? activity?.total,
+                daily: _buildDaily(
+                  playback,
+                  activity,
+                  widget.state.playedHistory,
+                ),
+                playsOverride: playback?.totalPlays ?? activity?.total,
                 hint: diag,
               ),
             ),
@@ -282,19 +287,13 @@ class _StatsPageState extends State<StatsPage> {
                           ? '已看历史近似'
                           : '本地近似'),
               ),
-              child: _HourBars(
-                buckets: hourBuckets,
-                hint: diag,
-              ),
+              child: _HourBars(buckets: hourBuckets, hint: diag),
             ),
             const SizedBox(height: 10),
             _SectionCard(
               title: '最常看作品 Top',
               badge: _SourceBadge(text: activity != null ? '活动日志' : '播放次数'),
-              child: _TopItems(
-                entries: topWatched,
-                hint: diag,
-              ),
+              child: _TopItems(entries: topWatched, hint: diag),
             ),
             const SizedBox(height: 12),
 
@@ -329,8 +328,7 @@ class _StatsPageState extends State<StatsPage> {
                 overviewTitles: stats.missingOverviewTitles,
               ),
             ),
-          ],
-          ),
+          ]),
         ),
       ],
     );
@@ -1190,7 +1188,11 @@ class _TopItems extends StatelessWidget {
       final suffix = hint.isEmpty ? '' : '（$hint）';
       return Text(
         '暂无播放记录（服务端活动日志里没有本账号的播放$suffix）',
-        style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
+        style: const TextStyle(
+          fontSize: 11,
+          color: AppColors.muted,
+          height: 1.5,
+        ),
       );
     }
     return Column(
@@ -1324,7 +1326,11 @@ class _DailyBars extends StatelessWidget {
       final suffix = hint.isEmpty ? '' : '；$hint';
       return Text(
         '暂无每日观看数据（数据来自服务器活动日志$suffix）',
-        style: const TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
+        style: const TextStyle(
+          fontSize: 11,
+          color: AppColors.muted,
+          height: 1.5,
+        ),
       );
     }
     final maxMin = daily.fold<double>(

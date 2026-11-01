@@ -23,27 +23,45 @@ void main() {
   test('提示贴在对应按钮旁、同一水平线（无纵向 dy）', () {
     final block = tipBlock();
     // v2.0.3 改为水平贴边，不应再有「整体上移」的纵向位移
-    expect(block.contains('dy'), isFalse,
-        reason: 'v2.0.3 改为水平贴边，不应再有纵向 dy 位移');
+    expect(block.contains('dy'), isFalse, reason: 'v2.0.3 改为水平贴边，不应再有纵向 dy 位移');
     // v2.0.8：位移量不再写死，改走 PlayerUi 度量
-    expect(block.contains('ui.tipOffset'), isTrue,
-        reason: '位移必须由 PlayerUi.tipOffset 提供，平/板手机各一套');
+    expect(
+      block.contains('ui.tipOffset'),
+      isTrue,
+      reason: '位移必须由 PlayerUi.tipOffset 提供，平/板手机各一套',
+    );
     // -10 秒（快退，左侧）用负位移、+10 秒（快进，右侧）用正位移
-    expect(block.contains('-ui.tipOffset'), isTrue,
-        reason: '-10秒 应在快退钮左侧（负位移）');
-    expect(block.contains(': ui.tipOffset'), isTrue,
-        reason: '+10秒 应在快进钮右侧（正位移）');
+    expect(
+      block.contains('-ui.tipOffset'),
+      isTrue,
+      reason: '-10秒 应在快退钮左侧（负位移）',
+    );
+    expect(
+      block.contains(': ui.tipOffset'),
+      isTrue,
+      reason: '+10秒 应在快进钮右侧（正位移）',
+    );
     // 气泡宽度同样度量驱动，否则位移对不上
-    expect(block.contains('width: ui.tipW'), isTrue,
-        reason: '气泡宽需与位移同源，平板 112 / 手机 92');
+    expect(
+      block.contains('width: ui.tipW'),
+      isTrue,
+      reason: '气泡宽需与位移同源，平板 112 / 手机 92',
+    );
   });
 
   test('tipOffset 公式 = 播放钮半宽+间隔+快进退钮整宽+间隔+气泡半宽', () {
     for (final ui in <PlayerUi>[PlayerUi.phone(), PlayerUi.tablet()]) {
       final expectOffset =
-          ui.playBtn / 2 + ui.clusterGap + ui.sideBtn + ui.clusterGap + ui.tipW / 2;
-      expect(ui.tipOffset, closeTo(expectOffset, 0.001),
-          reason: '${ui.tablet ? "平板" : "手机"} tipOffset 公式不符');
+          ui.playBtn / 2 +
+          ui.clusterGap +
+          ui.sideBtn +
+          ui.clusterGap +
+          ui.tipW / 2;
+      expect(
+        ui.tipOffset,
+        closeTo(expectOffset, 0.001),
+        reason: '${ui.tablet ? "平板" : "手机"} tipOffset 公式不符',
+      );
     }
     // v2.0.3 定稿的手机数值必须保持 181（回归保护）
     expect(PlayerUi.phone().tipOffset, closeTo(181.0, 0.001));
@@ -55,8 +73,11 @@ void main() {
     for (final ui in <PlayerUi>[PlayerUi.phone(), PlayerUi.tablet()]) {
       final btnRightEdge = ui.playBtn / 2 + ui.clusterGap + ui.sideBtn;
       final tipLeftEdge = ui.tipOffset - ui.tipW / 2;
-      expect(tipLeftEdge, greaterThanOrEqualTo(btnRightEdge),
-          reason: '${ui.tablet ? "平板" : "手机"} 气泡压在快进钮上');
+      expect(
+        tipLeftEdge,
+        greaterThanOrEqualTo(btnRightEdge),
+        reason: '${ui.tablet ? "平板" : "手机"} 气泡压在快进钮上',
+      );
       // 且间距正好是一个 clusterGap
       expect(tipLeftEdge - btnRightEdge, closeTo(ui.clusterGap, 0.001));
     }
@@ -65,8 +86,11 @@ void main() {
   test('会话上报保留在生命周期钩子里（杀 App 前补发 Stopped）', () {
     expect(player.contains('WidgetsBindingObserver'), isTrue);
     expect(player.contains('addObserver(this)'), isTrue);
-    expect(player.contains('removeObserver(this)'), isTrue,
-        reason: '必须配对移除，否则 State 泄漏');
+    expect(
+      player.contains('removeObserver(this)'),
+      isTrue,
+      reason: '必须配对移除，否则 State 泄漏',
+    );
     expect(player.contains('didChangeAppLifecycleState'), isTrue);
   });
 }

@@ -7,14 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 MediaItem _m(String id, {int year = 2020, double rating = 7}) => MediaItem(
-      id: id,
-      name: '片$id',
-      overview: '',
-      colors: const [Color(0xFF101820), Color(0xFF203040)],
-      type: MediaType.movie,
-      year: year,
-      rating: rating,
-    );
+  id: id,
+  name: '片$id',
+  overview: '',
+  colors: const [Color(0xFF101820), Color(0xFF203040)],
+  type: MediaType.movie,
+  year: year,
+  rating: rating,
+);
 
 void main() {
   // ── 纯逻辑：sortItemsBy 排序与方向翻转 ──
@@ -63,10 +63,7 @@ void main() {
     final state = AppState();
     await tester.pumpWidget(
       MaterialApp(
-        home: SubtitleFilterPage(
-          state: state,
-          onOpenDetail: (_, {heroTag}) {},
-        ),
+        home: SubtitleFilterPage(state: state, onOpenDetail: (_, {heroTag}) {}),
       ),
     );
     await tester.pump();

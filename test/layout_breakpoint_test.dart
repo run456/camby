@@ -34,8 +34,9 @@ void main() {
     expect(await at(1660), Breakpoint.expanded); // MagicPad3 横屏 ≈1660
   });
 
-  testWidgets('isTablet / useRail 与 breakpoint 一致（≥840 启用左侧 Rail）',
-      (tester) async {
+  testWidgets('isTablet / useRail 与 breakpoint 一致（≥840 启用左侧 Rail）', (
+    tester,
+  ) async {
     Future<bool> tabletAt(double w) async {
       bool? r;
       await tester.pumpWidget(

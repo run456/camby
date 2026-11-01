@@ -23,13 +23,10 @@ void showToast(
   _current = entry;
   overlay.insert(entry);
   unawaited(
-    Future<void>.delayed(
-      duration + const Duration(milliseconds: 220),
-      () {
-        if (_current == entry) _current = null;
-        entry.remove();
-      },
-    ),
+    Future<void>.delayed(duration + const Duration(milliseconds: 220), () {
+      if (_current == entry) _current = null;
+      entry.remove();
+    }),
   );
 }
 
@@ -89,45 +86,45 @@ class _ToastBubbleState extends State<_ToastBubble>
                 // Material 提供正常 DefaultTextStyle，消除文字下的黄线。
                 type: MaterialType.transparency,
                 child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  // 纯深色玻璃：不用渐变描边（渐变叠在视频上会出现亮线）
-                  color: const Color(0xE6161C29),
-                  border: Border.all(color: Colors.white.withOpacity(0.16)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x4D000000),
-                      blurRadius: 18,
-                      offset: Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.icon != null) ...[
-                      Icon(widget.icon, size: 14, color: AppColors.accent),
-                      const SizedBox(width: 7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    // 纯深色玻璃：不用渐变描边（渐变叠在视频上会出现亮线）
+                    color: const Color(0xE6161C29),
+                    border: Border.all(color: Colors.white.withOpacity(0.16)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x4D000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 6),
+                      ),
                     ],
-                    Flexible(
-                      child: Text(
-                        widget.text,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                          height: 1.35,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.icon != null) ...[
+                        Icon(widget.icon, size: 14, color: AppColors.accent),
+                        const SizedBox(width: 7),
+                      ],
+                      Flexible(
+                        child: Text(
+                          widget.text,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            height: 1.35,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
                 ),
               ),
             ),

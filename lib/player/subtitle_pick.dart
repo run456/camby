@@ -97,10 +97,7 @@ class SubtitlePicker {
   ///  5. `auto` → 服务端默认轨，都没有就第一条
   ///
   /// 传空列表 → 返回空结果（片源没有任何字幕资源）。
-  static SubtitlePick pick(
-    List<SubtitleTrackInfo> tracks,
-    SubtitlePref pref,
-  ) {
+  static SubtitlePick pick(List<SubtitleTrackInfo> tracks, SubtitlePref pref) {
     if (tracks.isEmpty) return const SubtitlePick(null);
     if (pref == SubtitlePref.off) return const SubtitlePick(null);
 

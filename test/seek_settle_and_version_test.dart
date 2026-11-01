@@ -7,10 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-String _code(String path) => _read(path)
-    .split('\n')
-    .where((l) => !l.trim().startsWith('//'))
-    .join('\n');
+String _code(String path) =>
+    _read(path).split('\n').where((l) => !l.trim().startsWith('//')).join('\n');
 
 void main() {
   final player = _code('lib/pages/player_page.dart');

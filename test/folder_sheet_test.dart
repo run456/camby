@@ -59,12 +59,8 @@ void main() {
       final item = state.items.firstWhere((e) => e.id == itemId);
       await state.toggleFavorite(item);
       await state.setItemFolders(itemId, {a.id});
-      await state.toggleFavorite(
-        state.items.firstWhere((e) => e.id == itemId),
-      );
-      await state.toggleFavorite(
-        state.items.firstWhere((e) => e.id == itemId),
-      );
+      await state.toggleFavorite(state.items.firstWhere((e) => e.id == itemId));
+      await state.toggleFavorite(state.items.firstWhere((e) => e.id == itemId));
       expect(state.folderIdsOfItem(itemId), isEmpty);
       expect(
         state.items.firstWhere((e) => e.id == itemId).userFavorite,

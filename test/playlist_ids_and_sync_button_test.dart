@@ -18,10 +18,16 @@ void main() {
     test('createPlaylist 必须用 join(\',\') 序列化 Ids', () {
       expect(createIdx, greaterThanOrEqualTo(0));
       final seg = clientSrc.substring(createIdx, createIdx + 1600);
-      expect(seg.contains("'Ids'] = itemIds.join(',')"), isTrue,
-          reason: "Ids 应为逗号分隔字符串：body['Ids'] = itemIds.join(',')");
-      expect(seg.contains("'Ids': itemIds,"), isFalse,
-          reason: '禁止把 Ids 作为 JSON 数组发送（Emby 400）');
+      expect(
+        seg.contains("'Ids'] = itemIds.join(',')"),
+        isTrue,
+        reason: "Ids 应为逗号分隔字符串：body['Ids'] = itemIds.join(',')",
+      );
+      expect(
+        seg.contains("'Ids': itemIds,"),
+        isFalse,
+        reason: '禁止把 Ids 作为 JSON 数组发送（Emby 400）',
+      );
     });
 
     test('addToPlaylist 必须用 join(\',\') 序列化 Ids', () {
@@ -55,11 +61,17 @@ void main() {
       expect(layerIdx, greaterThanOrEqualTo(0));
       final endIdx = pageSrc.indexOf('Widget get _placeholder', layerIdx);
       final seg = pageSrc.substring(layerIdx, endIdx);
-      expect(seg.contains('Alignment.bottomCenter'), isTrue,
-          reason: '海报堆叠应贴底，避免标题与封面间距过宽');
+      expect(
+        seg.contains('Alignment.bottomCenter'),
+        isTrue,
+        reason: '海报堆叠应贴底，避免标题与封面间距过宽',
+      );
       // v1.7.66 的教训：外层贴底但内部 Center 会再次居中——禁止 _layer 内用 Center
-      expect(seg.contains('Center('), isFalse,
-          reason: '_layer 内不得再用 Center 把海报居中');
+      expect(
+        seg.contains('Center('),
+        isFalse,
+        reason: '_layer 内不得再用 Center 把海报居中',
+      );
     });
 
     test('新建收藏夹卡图标还原为 40（外框由 FractionallySizedBox 缩小）', () {
@@ -68,8 +80,11 @@ void main() {
       final m = RegExp(r'width: (\d+),\s*\n\s*height: \d+,').firstMatch(seg);
       expect(m, isNotNull);
       expect(int.parse(m!.group(1)!), 40, reason: '内部按钮还原 v1.7.63 尺寸');
-      expect(seg.contains('FractionallySizedBox'), isTrue,
-          reason: '虚线外框必须缩到 0.85 与海报卡一致');
+      expect(
+        seg.contains('FractionallySizedBox'),
+        isTrue,
+        reason: '虚线外框必须缩到 0.85 与海报卡一致',
+      );
       expect(seg.contains('heightFactor: 0.85'), isTrue);
     });
   });

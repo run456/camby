@@ -348,10 +348,7 @@ class AppState extends ChangeNotifier {
     String itemId, {
     int positionTicks = 0,
   }) {
-    return _server?.reportPlaybackStart(
-          itemId,
-          positionTicks: positionTicks,
-        ) ??
+    return _server?.reportPlaybackStart(itemId, positionTicks: positionTicks) ??
         Future.value();
   }
 
@@ -365,7 +362,6 @@ class AppState extends ChangeNotifier {
     return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
         Future.value();
   }
-
 
   /// 当前还有多少收藏夹上云待重试（pendingSync 标记）
   int get pendingSyncCount => _folders.where((f) => f.pendingSync).length;
@@ -460,7 +456,11 @@ class AppState extends ChangeNotifier {
       final pid = await _server!.createPlaylist(f.name, const []);
       if (pid != null) {
         _folders = _folders
-            .map((e) => e.id == f.id ? e.copyWith(playlistId: pid, pendingSync: false) : e)
+            .map(
+              (e) => e.id == f.id
+                  ? e.copyWith(playlistId: pid, pendingSync: false)
+                  : e,
+            )
             .toList();
         await _saveFolders();
         notifyListeners();
@@ -544,9 +544,10 @@ class AppState extends ChangeNotifier {
     }
     if (failedFids.isNotEmpty) {
       _folders = _folders
-          .map((e) => failedFids.contains(e.id)
-              ? e.copyWith(pendingSync: true)
-              : e)
+          .map(
+            (e) =>
+                failedFids.contains(e.id) ? e.copyWith(pendingSync: true) : e,
+          )
           .toList();
       await _saveFolders();
       notifyListeners();
@@ -655,7 +656,8 @@ class AppState extends ChangeNotifier {
     try {
       remote = await s.listPlaylists();
     } catch (e) {
-      folderSyncDiag = '拉取服务端播放列表失败：${s.lastPlaylistError.isNotEmpty ? s.lastPlaylistError : e}';
+      folderSyncDiag =
+          '拉取服务端播放列表失败：${s.lastPlaylistError.isNotEmpty ? s.lastPlaylistError : e}';
       notifyListeners();
       return _folders.where((f) => f.serverId == sid).length;
     }

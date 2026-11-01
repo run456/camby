@@ -138,14 +138,20 @@ void main() {
       // 播放页把 bottomRatio 换算成 sub-pos = (1 - bottomRatio) * 100
       final posNear = (1 - near.bottomRatio) * 100;
       final posFar = (1 - far.bottomRatio) * 100;
-      expect(posNear, greaterThan(posFar),
-          reason: '贴底应得到更大的 sub-pos（libmpv 值越大越靠下）');
+      expect(
+        posNear,
+        greaterThan(posFar),
+        reason: '贴底应得到更大的 sub-pos（libmpv 值越大越靠下）',
+      );
     });
 
     test('baseSize 作为 sub-scale 的 1.0 基准', () {
       const def = SubtitleStyle();
-      expect(def.size, SubtitleStyle.baseSize,
-          reason: '默认字号应与 baseSize 相同，保证默认 sub-scale = 1.0');
+      expect(
+        def.size,
+        SubtitleStyle.baseSize,
+        reason: '默认字号应与 baseSize 相同，保证默认 sub-scale = 1.0',
+      );
       expect(def.size / SubtitleStyle.baseSize, 1.0);
     });
 

@@ -37,7 +37,6 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  static const _bitrates = ['自动', '40 Mbps', '20 Mbps', '10 Mbps'];
   static const _caches = ['512 MB', '1 GB', '2 GB', '4 GB'];
 
   Map<String, dynamic> _s = {};
@@ -84,7 +83,6 @@ class _SettingsPageState extends State<SettingsPage> {
       _s = {
         'play_engine': prefs.getInt('set_play_engine') ?? 0,
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
-        'max_bitrate': prefs.getInt('set_max_bitrate') ?? 0,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
         'record_history': prefs.getBool('set_record_history') ?? true,
       };
@@ -219,17 +217,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: _Toggle(
                   value: _s['hw_decode'],
                   onChanged: (v) => _set('hw_decode', v),
-                ),
-              ),
-              _RowItem(
-                title: '最大码率',
-                desc: _bitrates[_s['max_bitrate']],
-                trailing: _Value(
-                  _bitrates[_s['max_bitrate']],
-                  onTap: () => _set(
-                    'max_bitrate',
-                    ((_s['max_bitrate'] as int) + 1) % _bitrates.length,
-                  ),
                 ),
               ),
               _RowItem(

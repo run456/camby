@@ -107,6 +107,7 @@ class Glass extends StatelessWidget {
   final double? height;
   final Gradient? gradient;
   final VoidCallback? onTap;
+
   /// 是否启用实时 BackdropFilter 模糊。播放页控件压在逐帧更新的视频之上，
   /// 开启模糊时每一帧都要重采样，中低端 GPU 会被拖垮（表现为唤出控件时
   /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。

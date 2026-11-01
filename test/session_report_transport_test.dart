@@ -38,19 +38,24 @@ Future<String> _readBody(HttpRequest req) async {
 }
 
 EmbyServer _client(int port) => EmbyServer(
-      host: '127.0.0.1',
-      port: port,
-      secure: false,
-      username: 'u',
-      password: 'p',
-      kind: ServerKind.emby,
-    );
+  host: '127.0.0.1',
+  port: port,
+  secure: false,
+  username: 'u',
+  password: 'p',
+  kind: ServerKind.emby,
+);
 
 Future<void> _auth(HttpRequest req) async {
   req.response
     ..statusCode = 200
     ..headers.contentType = ContentType.json
-    ..write(jsonEncode({'AccessToken': 'tok', 'User': {'Id': 'u1'}}));
+    ..write(
+      jsonEncode({
+        'AccessToken': 'tok',
+        'User': {'Id': 'u1'},
+      }),
+    );
   await req.response.close();
 }
 
@@ -63,10 +68,10 @@ void main() {
       final key = p.endsWith('/Sessions/Playing')
           ? 'start'
           : p.endsWith('/Sessions/Playing/Progress')
-              ? 'progress'
-              : p.endsWith('/Sessions/Stopped')
-                  ? 'stop'
-                  : null;
+          ? 'progress'
+          : p.endsWith('/Sessions/Stopped')
+          ? 'stop'
+          : null;
       if (key != null) {
         queries[key] = req.uri.queryParameters;
         await _readBody(req);
@@ -85,9 +90,15 @@ void main() {
     expect(queries['start']?['PlaySessionId'], isNotEmpty);
     expect(queries['start']?['PositionTicks'], '50000000');
     // 三个事件共用同一个 PlaySessionId，服务端才能算成一段播放
-    expect(queries['progress']?['PlaySessionId'], queries['start']?['PlaySessionId']);
+    expect(
+      queries['progress']?['PlaySessionId'],
+      queries['start']?['PlaySessionId'],
+    );
     expect(queries['progress']?['PositionTicks'], '600000000');
-    expect(queries['stop']?['PlaySessionId'], queries['start']?['PlaySessionId']);
+    expect(
+      queries['stop']?['PlaySessionId'],
+      queries['start']?['PlaySessionId'],
+    );
     expect(queries['stop']?['PositionTicks'], '900000000');
     expect(queries['stop']?['Played'], 'true');
     expect(emby.lastSessionError, isEmpty);
@@ -159,11 +170,18 @@ void main() {
       req.response
         ..statusCode = 200
         ..headers.contentType = ContentType.json
-        ..write(jsonEncode({
-          'Items': [
-            {'Id': 'm1', 'Name': '片一', 'Type': 'Movie', 'UserData': {'Played': true}},
-          ],
-        }));
+        ..write(
+          jsonEncode({
+            'Items': [
+              {
+                'Id': 'm1',
+                'Name': '片一',
+                'Type': 'Movie',
+                'UserData': {'Played': true},
+              },
+            ],
+          }),
+        );
       await req.response.close();
     });
     final emby = _client(srv.port);

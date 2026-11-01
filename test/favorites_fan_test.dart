@@ -49,20 +49,29 @@ void main() {
   test('后卡扇角收到 ±2.5° 左右（|angle| ≤ 0.05 rad）', () {
     for (final line in back) {
       final a = val(line, 0);
-      expect(a.abs(), lessThanOrEqualTo(0.05),
-          reason: '扇角过大、会压住相邻收藏夹: ${line.trim()}');
+      expect(
+        a.abs(),
+        lessThanOrEqualTo(0.05),
+        reason: '扇角过大、会压住相邻收藏夹: ${line.trim()}',
+      );
     }
   });
 
   test('后卡探出 ≤ 2%，整体缩放 ≤ 0.85', () {
     for (final line in back) {
-      expect(val(line, 1).abs(), lessThanOrEqualTo(0.020),
-          reason: '探出过大: ${line.trim()}');
+      expect(
+        val(line, 1).abs(),
+        lessThanOrEqualTo(0.020),
+        reason: '探出过大: ${line.trim()}',
+      );
     }
     final m = RegExp(r'const scale = (\d+\.\d+);').firstMatch(code);
     expect(m, isNotNull);
-    expect(double.parse(m!.group(1)!), lessThanOrEqualTo(0.85),
-        reason: '缩放过大，留给扇形的格内空间不足');
+    expect(
+      double.parse(m!.group(1)!),
+      lessThanOrEqualTo(0.85),
+      reason: '缩放过大，留给扇形的格内空间不足',
+    );
   });
 
   test('前卡微倾与后层上探保留（层次结构不变）', () {

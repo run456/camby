@@ -52,7 +52,7 @@ class LiquidPress extends StatefulWidget {
   final List<BoxShadow>? shadows;
 
   /// 是否把子内容裁进圆角。默认 true（按钮类）；
-  /// 子内容需要探出边界（如收藏页海报堆叠墙的后层卡）时传 false —— 
+  /// 子内容需要探出边界（如收藏页海报堆叠墙的后层卡）时传 false ——
   /// 按下高光层自带圆角装饰，不裁也不会溢出。
   final bool clip;
 
@@ -155,9 +155,7 @@ class _LiquidPressState extends State<LiquidPress> {
                       stops: const [0.0, 0.45, 1.0],
                     ),
                     // 玻璃被挤压 → 边缘高光更亮
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.30),
-                    ),
+                    border: Border.all(color: Colors.white.withOpacity(0.30)),
                   ),
                 ),
               ),

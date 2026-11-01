@@ -72,8 +72,7 @@ class RecoEngine {
 
     final recentSorted = recent.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final excluded =
-        recentSorted.take(recentLimit).map((e) => e.key).toSet();
+    final excluded = recentSorted.take(recentLimit).map((e) => e.key).toSet();
 
     final unplayed = excludeFinished
         ? source.where((i) => !isFinished(i)).toList()
@@ -90,15 +89,16 @@ class RecoEngine {
     }
 
     final rnd = math.Random(seed);
-    final scored = pool
-        .map(
-          (i) => MapEntry<MediaItem, double>(
-            i,
-            weight(i, rnd, preferFresh: preferFresh),
-          ),
-        )
-        .toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final scored =
+        pool
+            .map(
+              (i) => MapEntry<MediaItem, double>(
+                i,
+                weight(i, rnd, preferFresh: preferFresh),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
 
     return dedupe(scored.map((e) => e.key).toList(), take);
   }

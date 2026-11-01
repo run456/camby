@@ -235,7 +235,9 @@ class _SearchPageState extends State<SearchPage> {
         ? _results.first
         : (_hotPlayed.isNotEmpty
               ? _hotPlayed.first
-              : (widget.state.items.isNotEmpty ? widget.state.items.first : null));
+              : (widget.state.items.isNotEmpty
+                    ? widget.state.items.first
+                    : null));
     final url = seed?.posterUrl ?? seed?.backdropUrl;
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 380),
@@ -477,10 +479,7 @@ class _ModeTabs extends StatelessWidget {
         border: Border.all(color: Colors.white.withOpacity(0.12)),
       ),
       child: Row(
-        children: [
-          _seg(0, '影片', filmCount),
-          _seg(1, '演员', actorCount),
-        ],
+        children: [_seg(0, '影片', filmCount), _seg(1, '演员', actorCount)],
       ),
     );
   }
@@ -665,9 +664,7 @@ class _ActorGrid extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.white.withOpacity(0.08),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.16),
-                      ),
+                      border: Border.all(color: Colors.white.withOpacity(0.16)),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: url == null

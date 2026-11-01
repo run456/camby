@@ -128,12 +128,15 @@ class FavoriteFolder {
   final String name;
   final List<String> itemIds;
   final int createdAt;
+
   /// 归属的服务器 profile id（v1.7.65 新增）。
   /// 旧版收藏夹无此字段，多服务器时会把 A 的收藏夹渲染到 B 上；
   /// connect 时若为空会回填为当前激活服务器 id。
   final String? serverId;
+
   /// 同步到的服务端播放列表 Id（null = 仅本地，未上云）
   final String? playlistId;
+
   /// 上行标记：本收藏夹的「创建/改名/增删影片」上云失败时置位，
   /// 下次同步会重试并清除（v1.7.68，避免静默丢失）。
   final bool pendingSync;
@@ -144,16 +147,15 @@ class FavoriteFolder {
     String? serverId,
     String? playlistId,
     bool? pendingSync,
-  }) =>
-      FavoriteFolder(
-        id: id,
-        name: name ?? this.name,
-        itemIds: itemIds ?? this.itemIds,
-        createdAt: createdAt,
-        serverId: serverId ?? this.serverId,
-        playlistId: playlistId ?? this.playlistId,
-        pendingSync: pendingSync ?? this.pendingSync,
-      );
+  }) => FavoriteFolder(
+    id: id,
+    name: name ?? this.name,
+    itemIds: itemIds ?? this.itemIds,
+    createdAt: createdAt,
+    serverId: serverId ?? this.serverId,
+    playlistId: playlistId ?? this.playlistId,
+    pendingSync: pendingSync ?? this.pendingSync,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -226,15 +228,45 @@ class SubtitleTrackInfo {
   /// 中文用户的片源以中字为主，漏判的代价（标签不出现、不自动预选）远大于
   /// 误判的代价（多一个标签，用户还能自己换）。
   bool get isChinese {
-    const zhLangs = {'chi', 'zho', 'zh', 'zh-cn', 'zh-hans', 'zh-hant', 'chs', 'cht'};
+    const zhLangs = {
+      'chi',
+      'zho',
+      'zh',
+      'zh-cn',
+      'zh-hans',
+      'zh-hant',
+      'chs',
+      'cht',
+    };
     final lang = language.toLowerCase().trim();
     if (zhLangs.contains(lang)) return true;
 
     // 明确是外语的不翻转（保真）
     const foreign = {
-      'eng', 'en', 'jpn', 'ja', 'kor', 'ko', 'fre', 'fra', 'fr',
-      'ger', 'deu', 'de', 'spa', 'es', 'rus', 'ru', 'ita', 'it',
-      'por', 'pt', 'tha', 'th', 'vie', 'vi',
+      'eng',
+      'en',
+      'jpn',
+      'ja',
+      'kor',
+      'ko',
+      'fre',
+      'fra',
+      'fr',
+      'ger',
+      'deu',
+      'de',
+      'spa',
+      'es',
+      'rus',
+      'ru',
+      'ita',
+      'it',
+      'por',
+      'pt',
+      'tha',
+      'th',
+      'vie',
+      'vi',
     };
     final knownForeign = foreign.contains(lang);
 
@@ -249,7 +281,8 @@ class SubtitleTrackInfo {
     // 兜底：无语言标记的文本字幕（srt/ass/ssa/vtt/sub/smi）默认中文。
     // pgs/sup 是图片字幕，无法叠加渲染，不参与兜底。
     final c = codec.toLowerCase();
-    final isText = c.contains('srt') ||
+    final isText =
+        c.contains('srt') ||
         c.contains('subrip') ||
         c.contains('ass') ||
         c.contains('ssa') ||
@@ -275,7 +308,9 @@ class SubtitleTrackInfo {
       if (t.isEmpty) continue;
       if (zhTokens.contains(t)) return true;
       // zh-cn 会被切成 zh 和 cn，上面的集合已覆盖；这里补 chinese/zh_cn 之类
-      if (t == 'chinese' || t == 'mandarin' || t == 'simplified' ||
+      if (t == 'chinese' ||
+          t == 'mandarin' ||
+          t == 'simplified' ||
           t == 'traditional') {
         return true;
       }
@@ -285,10 +320,10 @@ class SubtitleTrackInfo {
 
   /// 所有候选地址：[url] 在前，[altUrls] 依次在后，去重且跳过空串。
   List<String> get candidates => <String>[
-        if ((url ?? '').isNotEmpty) url!,
-        for (final u in altUrls)
-          if (u.isNotEmpty && u != url) u,
-      ];
+    if ((url ?? '').isNotEmpty) url!,
+    for (final u in altUrls)
+      if (u.isNotEmpty && u != url) u,
+  ];
 
   String get codecLabel {
     final c = codec.toLowerCase();
@@ -531,6 +566,7 @@ class MediaItem {
     final p = filePath.toLowerCase();
     return p.endsWith('.strm') || container.toUpperCase() == 'STRM';
   }
+
   bool get hasAtmos =>
       audioCodec.contains('TrueHD') ||
       audioCodec.contains('ATMOS') ||

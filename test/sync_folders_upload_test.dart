@@ -6,14 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 /// 假服务端：记录所有上云调用，按测试需要返回播放列表。
 class _FakeServer extends EmbyServer {
   _FakeServer()
-      : super(
-          host: 'h',
-          port: 80,
-          secure: false,
-          username: 'u',
-          password: 'p',
-          kind: ServerKind.emby,
-        );
+    : super(
+        host: 'h',
+        port: 80,
+        secure: false,
+        username: 'u',
+        password: 'p',
+        kind: ServerKind.emby,
+      );
 
   final List<String> createdNames = [];
   final Map<String, String> renamed = {};
@@ -76,19 +76,18 @@ AppState _state(_FakeServer s, List<FavoriteFolder> folders) {
 void main() {
   test('上行模式：本地改名推到服务端，且服务端多出条目被补齐（APP 为准）', () async {
     final s = _FakeServer();
-    s.playlists = [ServerPlaylist('pl1', '云端旧名', ['m1'])];
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f1',
-          name: '本机新名',
-          itemIds: ['m1', 'm2'],
-          serverId: 's1',
-          playlistId: 'pl1',
-        ),
-      ],
-    );
+    s.playlists = [
+      ServerPlaylist('pl1', '云端旧名', ['m1']),
+    ];
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f1',
+        name: '本机新名',
+        itemIds: ['m1', 'm2'],
+        serverId: 's1',
+        playlistId: 'pl1',
+      ),
+    ]);
     final n = await st.syncFoldersFromServer();
     expect(n, 1);
     expect(s.renamed['pl1'], '本机新名'); // 名称以 APP 为准推上去
@@ -102,17 +101,14 @@ void main() {
   test('上行模式：本地纯本地收藏夹被创建到服务端', () async {
     final s = _FakeServer();
     s.playlists = const [];
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f2',
-          name: '新建夹',
-          itemIds: ['x1'],
-          serverId: 's1',
-        ), // playlistId == null
-      ],
-    );
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f2',
+        name: '新建夹',
+        itemIds: ['x1'],
+        serverId: 's1',
+      ), // playlistId == null
+    ]);
     await st.syncFoldersFromServer();
     expect(s.createdNames, contains('新建夹'));
     expect(st.folders.first.playlistId, 'pl_新建夹');
@@ -125,18 +121,15 @@ void main() {
       ServerPlaylist('plJunk', '', const []), // 事故脏数据 → 删
       ServerPlaylist('plOther', '另一台设备', ['z1']), // 其它设备 → 拉回
     ];
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f3',
-          name: '我的夹',
-          itemIds: ['m1'],
-          serverId: 's1',
-          playlistId: 'plMine',
-        ),
-      ],
-    );
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f3',
+        name: '我的夹',
+        itemIds: ['m1'],
+        serverId: 's1',
+        playlistId: 'plMine',
+      ),
+    ]);
     final n = await st.syncFoldersFromServer();
     expect(s.deleted, contains('plJunk'));
     expect(n, 2); // 我的夹 + 另一台设备
@@ -165,18 +158,15 @@ void main() {
   test('上行模式：服务端播放列表已消失 → 用本地名称与片单重新创建（v1.7.69）', () async {
     final s = _FakeServer();
     s.playlists = const []; // 服务端空（脏数据已被清理），本地还带着旧 playlistId
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f5',
-          name: '哈哈',
-          itemIds: ['m1'],
-          serverId: 's1',
-          playlistId: 'plStale', // 服务端已不存在
-        ),
-      ],
-    );
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f5',
+        name: '哈哈',
+        itemIds: ['m1'],
+        serverId: 's1',
+        playlistId: 'plStale', // 服务端已不存在
+      ),
+    ]);
     final n = await st.syncFoldersFromServer();
     expect(s.createdNames, contains('哈哈'), reason: '必须重新创建，不能只标 pending');
     final f = st.folders.first;
@@ -189,19 +179,18 @@ void main() {
   test('上行模式：改名失败 → pendingSync 置位且诊断带原因（v1.7.69）', () async {
     final s = _FakeServer();
     s.failRename = true;
-    s.playlists = [ServerPlaylist('pl1', '云端旧名', ['m1'])];
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f6',
-          name: '本机新名',
-          itemIds: ['m1'],
-          serverId: 's1',
-          playlistId: 'pl1',
-        ),
-      ],
-    );
+    s.playlists = [
+      ServerPlaylist('pl1', '云端旧名', ['m1']),
+    ];
+    final st = _state(s, [
+      FavoriteFolder(
+        id: 'f6',
+        name: '本机新名',
+        itemIds: ['m1'],
+        serverId: 's1',
+        playlistId: 'pl1',
+      ),
+    ]);
     await st.syncFoldersFromServer();
     expect(st.folders.first.pendingSync, isTrue);
     expect(st.pendingSyncCount, 1);
@@ -215,17 +204,9 @@ void main() {
     final s = _FakeServer();
     s.failCreate = true; // createPlaylist 永远失败
     s.playlists = const [];
-    final st = _state(
-      s,
-      [
-        FavoriteFolder(
-          id: 'f4',
-          name: '上云失败',
-          itemIds: const [],
-          serverId: 's1',
-        ),
-      ],
-    );
+    final st = _state(s, [
+      FavoriteFolder(id: 'f4', name: '上云失败', itemIds: const [], serverId: 's1'),
+    ]);
     await st.syncFoldersFromServer();
     expect(st.folders.first.pendingSync, isTrue);
     expect(st.pendingSyncCount, 1);

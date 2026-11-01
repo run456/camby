@@ -36,6 +36,7 @@ class Subtitles {
     Future<List<int>?> Function(String)? fetcher,
     String? fallbackUrl,
     List<String> altUrls = const <String>[],
+
     /// 取「注入通道最近一次失败原因」的回调（v1.7.28）。
     ///
     /// 体积超限 / 服务器返回视频本体这类判定发生在 [fetcher] 内部，
@@ -47,9 +48,7 @@ class Subtitles {
       if (url.isNotEmpty) url,
       for (final u in altUrls)
         if (u.isNotEmpty && u != url) u,
-      if (fallbackUrl != null &&
-          fallbackUrl.isNotEmpty &&
-          fallbackUrl != url)
+      if (fallbackUrl != null && fallbackUrl.isNotEmpty && fallbackUrl != url)
         fallbackUrl,
     ];
     if (urls.isEmpty) {
@@ -188,10 +187,7 @@ class Subtitles {
 
   static String? _toSrtUrl(String url) {
     if (!url.contains('Stream.')) return null;
-    return url.replaceFirst(
-      RegExp(r'Stream\.[A-Za-z0-9]+'),
-      'Stream.srt',
-    );
+    return url.replaceFirst(RegExp(r'Stream\.[A-Za-z0-9]+'), 'Stream.srt');
   }
 
   static final RegExp _timeRe = RegExp(

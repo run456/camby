@@ -31,8 +31,14 @@ void main() {
     server = await HttpServer.bind('127.0.0.1', 0);
     server.listen((req) async {
       final body = await utf8.decoder.bind(req).join();
-      records.add(_Record(req.method, req.uri.path,
-          Map<String, String>.from(req.uri.queryParameters), body));
+      records.add(
+        _Record(
+          req.method,
+          req.uri.path,
+          Map<String, String>.from(req.uri.queryParameters),
+          body,
+        ),
+      );
       final path = req.uri.path;
       Future<void> json(Object o) async {
         req.response.headers.contentType = ContentType.json;
@@ -41,7 +47,10 @@ void main() {
       }
 
       if (path.endsWith('/Users/AuthenticateByName')) {
-        await json({'AccessToken': 'tok123', 'User': {'Id': 'uid1'}});
+        await json({
+          'AccessToken': 'tok123',
+          'User': {'Id': 'uid1'},
+        });
       } else if (path == '/emby/Users/uid1/Playlists' ||
           path == '/emby/Playlists') {
         // 创建播放列表
@@ -65,7 +74,11 @@ void main() {
         });
       } else if (path == '/emby/Users/uid1/Items/PL1') {
         // GET 完整对象（rename 第一步）
-        await json({'Id': 'PL1', 'Name': '旧名', 'Genres': ['Drama']});
+        await json({
+          'Id': 'PL1',
+          'Name': '旧名',
+          'Genres': ['Drama'],
+        });
       } else if (path == '/emby/Items/PL1') {
         await json({'Id': 'PL1'});
       } else {
@@ -87,12 +100,12 @@ void main() {
     await server.close(force: true);
   });
 
-  test('createPlaylist：Name/Ids/UserId 走 URL query，body 为空，返回服务端 Id',
-      () async {
+  test('createPlaylist：Name/Ids/UserId 走 URL query，body 为空，返回服务端 Id', () async {
     final id = await es.createPlaylist('测试夹', ['i1', 'i2']);
     expect(id, 'PL1');
-    final create = records
-        .firstWhere((r) => r.path == '/emby/Users/uid1/Playlists');
+    final create = records.firstWhere(
+      (r) => r.path == '/emby/Users/uid1/Playlists',
+    );
     expect(create.method, 'POST');
     // v1.7.67 事故根因回归守卫：参数必须在 query 上
     expect(create.query['Name'], '测试夹');
@@ -109,8 +122,7 @@ void main() {
     expect(es.lastPlaylistError, isEmpty);
   });
 
-  test('createPlaylist：服务端 500 → 返回 null 且 lastPlaylistError 带状态码',
-      () async {
+  test('createPlaylist：服务端 500 → 返回 null 且 lastPlaylistError 带状态码', () async {
     createResponseBody = '__500__';
     final id = await es.createPlaylist('会失败', const []);
     expect(id, isNull);
@@ -120,11 +132,13 @@ void main() {
   test('renamePlaylist：先 GET 完整对象再 POST，写回携带原有字段', () async {
     final ok = await es.renamePlaylist('PL1', '新名');
     expect(ok, isTrue);
-    final get = records
-        .firstWhere((r) => r.path == '/emby/Users/uid1/Items/PL1');
+    final get = records.firstWhere(
+      (r) => r.path == '/emby/Users/uid1/Items/PL1',
+    );
     expect(get.method, 'GET');
     final post = records.firstWhere(
-        (r) => r.method == 'POST' && r.path == '/emby/Items/PL1');
+      (r) => r.method == 'POST' && r.path == '/emby/Items/PL1',
+    );
     final sent = jsonDecode(post.body) as Map<String, dynamic>;
     expect(sent['Name'], '新名');
     expect(sent['Genres'], ['Drama'], reason: '原字段不能被整包覆盖丢掉');

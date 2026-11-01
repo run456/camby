@@ -26,7 +26,10 @@ void main() {
 
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
     await tester.pumpWidget(
-      MaterialApp(theme: ThemeData.dark(), home: Scaffold(body: page)),
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: Scaffold(body: page),
+      ),
     );
     for (var i = 0; i < 6; i++) {
       await tester.pump(const Duration(milliseconds: 150));
@@ -48,11 +51,17 @@ void main() {
   });
 
   testWidgets('媒体库', (t) async {
-    await pumpPage(t, LibraryPage(state: state, onOpenDetail: (_, {String? heroTag}) {}));
+    await pumpPage(
+      t,
+      LibraryPage(state: state, onOpenDetail: (_, {String? heroTag}) {}),
+    );
   });
 
   testWidgets('收藏', (t) async {
-    await pumpPage(t, FavoritesPage(state: state, onOpenDetail: (_, {String? heroTag}) {}));
+    await pumpPage(
+      t,
+      FavoritesPage(state: state, onOpenDetail: (_, {String? heroTag}) {}),
+    );
   });
 
   testWidgets('数据', (t) async {
@@ -60,7 +69,13 @@ void main() {
   });
 
   testWidgets('我的（设置）', (t) async {
-    await pumpPage(t,
-        SettingsPage(state: state, onTabChanged: (_) {}, onOpenDetail: (item, {heroTag}) {}));
+    await pumpPage(
+      t,
+      SettingsPage(
+        state: state,
+        onTabChanged: (_) {},
+        onOpenDetail: (item, {heroTag}) {},
+      ),
+    );
   });
 }

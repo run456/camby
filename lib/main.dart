@@ -517,9 +517,7 @@ class _RailButton extends StatelessWidget {
               Icon(
                 icon,
                 size: expanded ? 24 : 23,
-                color: selected
-                    ? Colors.white
-                    : Colors.white.withOpacity(0.62),
+                color: selected ? Colors.white : Colors.white.withOpacity(0.62),
               ),
               if (expanded) ...[
                 const SizedBox(height: 3),
@@ -554,6 +552,7 @@ class GlassNavBar extends StatefulWidget {
   });
   final int index;
   final ValueChanged<int> onChanged;
+
   /// 双击「当前所在」Tab 唤起全局搜索（方案 C）；非当前 Tab 的点击照常切换
   final VoidCallback? onSearch;
 

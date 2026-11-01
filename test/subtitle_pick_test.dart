@@ -13,15 +13,14 @@ SubtitleTrackInfo tr({
   String title = '',
   bool isDefault = false,
   bool isForced = false,
-}) =>
-    SubtitleTrackInfo(
-      index: index,
-      language: lang,
-      displayTitle: title,
-      isDefault: isDefault,
-      isForced: isForced,
-      url: 'http://x/$index.srt',
-    );
+}) => SubtitleTrackInfo(
+  index: index,
+  language: lang,
+  displayTitle: title,
+  isDefault: isDefault,
+  isForced: isForced,
+  url: 'http://x/$index.srt',
+);
 
 void main() {
   group('SubtitlePref 编解码', () {
@@ -47,19 +46,13 @@ void main() {
 
   group('按语言选轨', () {
     test('选中中文轨（ISO 639-2 写法 chi）', () {
-      final tracks = [
-        tr(index: 0, lang: 'eng'),
-        tr(index: 1, lang: 'chi'),
-      ];
+      final tracks = [tr(index: 0, lang: 'eng'), tr(index: 1, lang: 'chi')];
       final pick = SubtitlePicker.pick(tracks, SubtitlePref.chinese);
       expect(pick.track?.index, 1);
     });
 
     test('选中中文轨（带地区的 zh-Hans）', () {
-      final tracks = [
-        tr(index: 0, lang: 'en'),
-        tr(index: 1, lang: 'zh-Hans'),
-      ];
+      final tracks = [tr(index: 0, lang: 'en'), tr(index: 1, lang: 'zh-Hans')];
       final pick = SubtitlePicker.pick(tracks, SubtitlePref.chinese);
       expect(pick.track?.index, 1);
     });
@@ -101,10 +94,7 @@ void main() {
 
     test('没有该语言时回落「跟随片源」，而不是直接不挂', () {
       // 用户设了中文但片源只有英文字幕：静默无字幕体验更差
-      final tracks = [
-        tr(index: 0, lang: 'eng'),
-        tr(index: 1, lang: 'jpn'),
-      ];
+      final tracks = [tr(index: 0, lang: 'eng'), tr(index: 1, lang: 'jpn')];
       final pick = SubtitlePicker.pick(tracks, SubtitlePref.chinese);
       expect(pick.track, isNotNull);
       expect(pick.track?.index, 0);
@@ -134,7 +124,10 @@ void main() {
     });
 
     test('片源一条字幕都没有 → 空结果（交给在线搜索）', () {
-      expect(SubtitlePicker.pick(const [], SubtitlePref.chinese).isEmpty, isTrue);
+      expect(
+        SubtitlePicker.pick(const [], SubtitlePref.chinese).isEmpty,
+        isTrue,
+      );
       expect(SubtitlePicker.pick(const [], SubtitlePref.auto).isEmpty, isTrue);
     });
 

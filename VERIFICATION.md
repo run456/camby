@@ -1452,6 +1452,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 52. v2.0.15 移除「选择码率」功能
+1. **功能删除**：服务端无转码，`MaxStreamingBitrate` 切换实际无效（直连原片服务端忽略参数；转码地址失败静默回退原片还弹虚假成功）。完整移除：播放页底栏码率胶囊 + 播放信息面板「码率上限」行 + `_changeBitrate`/`_applyBitrate`/`_bitrateText`/`_bitrateShort`/`_showGlassPanel`/`_maxBitrate`/`_bitrates` + 首播读 `set_max_bitrate`；设置页「最大码率」项；`streamUrl` 的 `maxBitrate` 参数。
+2. **连带清理**：`_showGlassPanel` 因唯一调用方 `_changeBitrate` 删除而变孤儿，一并移除；`_Sheet.subtitle` 参数此前仅 `_showGlassPanel` 传入，删除后清理死参数与死渲染分支。
+3. **测试**：`camby_1738_test` 删除 `Emby streamUrl 码率上限` group，`player_boot_order_test` 删除 `set_max_bitrate` 断言；总数 235 → 232。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 232 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.15-release-arm64.apk`。
+
+---
+
 ## 51. v2.0.14 实测反馈（详情页重设计 + 图标 + 返回栈）
 1. **详情页下部板块重设计**：`_overviewCard(item, withTitle:false)` / `_mediaInfoCard(item, withTitle:false)` 平板右栏改用列左缘外部标题「剧情简介」「媒体信息」，标题与左栏所有板块（主演/标签/剧照/相似）严格同左缘，根治 16px 错位。手机端 `withTitle` 默认 true，玻璃卡片内嵌标题行为不变。
 2. **启动图标加白底（方案 A）**：`android/app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png` 五档重写为白底圆角方块（圆角 22%）+ 原蓝标 60%。预览见 `docs/logo_proposal.html`。

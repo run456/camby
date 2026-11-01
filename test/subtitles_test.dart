@@ -78,10 +78,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,test
       codec: 'ass',
       url: 'https://x/Videos/1/2/Subtitles/0/Stream.ass?api_key=k',
     );
-    expect(
-      t.textUrl,
-      'https://x/Videos/1/2/Subtitles/0/Stream.srt?api_key=k',
-    );
+    expect(t.textUrl, 'https://x/Videos/1/2/Subtitles/0/Stream.srt?api_key=k');
   });
   test('ASS 的 Dialogue 行能解析成条目', () {
     const ass = """
@@ -107,7 +104,8 @@ Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\\an8}\u7b2c\u4e8c\\N\u6362\u
     const srt = '1\r\n00:00:01,000 --> 00:00:02,500\r\n\u4f60\u597d\r\n';
     final units = srt.codeUnits;
     final bytes = <int>[
-      0xFF, 0xFE,
+      0xFF,
+      0xFE,
       for (final u in units) ...[u & 0xFF, u >> 8],
     ];
     final cues = await Subtitles.load('x', fetcher: (_) async => bytes);

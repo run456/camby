@@ -269,30 +269,30 @@ class _PersonPageState extends State<PersonPage> {
                       // 姓名 + 出生日期（平板已放入头部卡片，不重复展示）
                       if (!wide)
                         Center(
-                        child: Column(
-                          children: [
-                            Text(
-                              p.name,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 23,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            if (_birth != null) ...[
-                              const SizedBox(height: 5),
+                          child: Column(
+                            children: [
                               Text(
-                                _birth!,
+                                p.name,
+                                textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.muted,
+                                  fontSize: 23,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.3,
                                 ),
                               ),
+                              if (_birth != null) ...[
+                                const SizedBox(height: 5),
+                                Text(
+                                  _birth!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
-                      ),
                       if (!wide && _overview.isNotEmpty) ...[
                         const SizedBox(height: 14),
                         Padding(
@@ -309,7 +309,9 @@ class _PersonPageState extends State<PersonPage> {
                       // 筛选选项（分段控件）：全部 / 电影 / 剧集 + 筛选入口
                       // v2.0.12：平板左右边距与媒体库统一（24）
                       Padding(
-                        padding: EdgeInsets.symmetric(horizontal: wide ? 24 : 18),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: wide ? 24 : 18,
+                        ),
                         child: Row(
                           children: [
                             Expanded(

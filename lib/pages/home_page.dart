@@ -496,89 +496,98 @@ class _HomePageState extends State<HomePage> {
                               ),
                             )
                           : AspectRatio(
-                        aspectRatio: heroAspect,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            // 整块 PageView 共用一层 ShaderMask（每帧 1 层，
-                            // 而不是原来「每页 1 层 × 左右两页」），保留底部渐隐观感
-                            ShaderMask(
-                              blendMode: BlendMode.dstIn,
-                              shaderCallback: (rect) => const LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.white,
-                                  Colors.white,
-                                  Colors.transparent,
-                                ],
-                                stops: [0.0, 0.62, 1.0],
-                              ).createShader(rect),
-                              child: PageView.builder(
-                                controller: _heroController,
-                                physics: const PageScrollPhysics(),
-                                itemCount: _heroPool.isEmpty
-                                    ? 1
-                                    : _heroPool.length,
-                                onPageChanged: _onHeroChanged,
-                                itemBuilder: (c, i) {
-                                  final item = _heroPool.isEmpty
-                                      ? _hero
-                                      : _heroPool[i % _heroPool.length];
-                                  final url =
-                                      item.posterUrlFor(_heroDecodeWidth) ??
-                                      item.backdropUrl;
-                                  return RepaintBoundary(
-                                    child: LiquidPress(
-                                      onTap: () => widget.onOpenDetail(
-                                        item,
-                                        heroTag: 'home-hero-${item.id}',
-                                      ),
-                                      radius: 16,
-                                      scale: 0.98,
-                                      glow: 0.20,
-                                      child: url != null
-                                          ? PosterHero(
-                                              tag: 'home-hero-${item.id}',
-                                              url: url,
-                                              fromRadius: 0,
-                                              memWidth: _heroDecodeWidth,
-                                              child: CachedImage(
-                                                url: url,
-                                                memWidth: _heroDecodeWidth,
-                                              ),
-                                            )
-                                          : DecoratedBox(
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                  colors: [
-                                                    item.colors.first
-                                                        .withOpacity(0.95),
-                                                    AppColors.bg,
-                                                  ],
-                                                ),
-                                              ),
+                              aspectRatio: heroAspect,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  // 整块 PageView 共用一层 ShaderMask（每帧 1 层，
+                                  // 而不是原来「每页 1 层 × 左右两页」），保留底部渐隐观感
+                                  ShaderMask(
+                                    blendMode: BlendMode.dstIn,
+                                    shaderCallback: (rect) =>
+                                        const LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            Colors.white,
+                                            Colors.white,
+                                            Colors.transparent,
+                                          ],
+                                          stops: [0.0, 0.62, 1.0],
+                                        ).createShader(rect),
+                                    child: PageView.builder(
+                                      controller: _heroController,
+                                      physics: const PageScrollPhysics(),
+                                      itemCount: _heroPool.isEmpty
+                                          ? 1
+                                          : _heroPool.length,
+                                      onPageChanged: _onHeroChanged,
+                                      itemBuilder: (c, i) {
+                                        final item = _heroPool.isEmpty
+                                            ? _hero
+                                            : _heroPool[i % _heroPool.length];
+                                        final url =
+                                            item.posterUrlFor(
+                                              _heroDecodeWidth,
+                                            ) ??
+                                            item.backdropUrl;
+                                        return RepaintBoundary(
+                                          child: LiquidPress(
+                                            onTap: () => widget.onOpenDetail(
+                                              item,
+                                              heroTag: 'home-hero-${item.id}',
                                             ),
+                                            radius: 16,
+                                            scale: 0.98,
+                                            glow: 0.20,
+                                            child: url != null
+                                                ? PosterHero(
+                                                    tag: 'home-hero-${item.id}',
+                                                    url: url,
+                                                    fromRadius: 0,
+                                                    memWidth: _heroDecodeWidth,
+                                                    child: CachedImage(
+                                                      url: url,
+                                                      memWidth:
+                                                          _heroDecodeWidth,
+                                                    ),
+                                                  )
+                                                : DecoratedBox(
+                                                    decoration: BoxDecoration(
+                                                      gradient: LinearGradient(
+                                                        begin:
+                                                            Alignment.topLeft,
+                                                        end: Alignment
+                                                            .bottomRight,
+                                                        colors: [
+                                                          item.colors.first
+                                                              .withOpacity(
+                                                                0.95,
+                                                              ),
+                                                          AppColors.bg,
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ),
+                                          ),
+                                        );
+                                      },
                                     ),
-                                  );
-                                },
+                                  ),
+                                  // 文字叠在海报下半区（独立 notifier：翻页只刷这一块）
+                                  Positioned(
+                                    left: 18,
+                                    right: 18,
+                                    bottom: 16,
+                                    child: ValueListenableBuilder<MediaItem>(
+                                      valueListenable: _heroVN,
+                                      builder: (context, h, _) =>
+                                          _heroContent(h),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            // 文字叠在海报下半区（独立 notifier：翻页只刷这一块）
-                            Positioned(
-                              left: 18,
-                              right: 18,
-                              bottom: 16,
-                              child: ValueListenableBuilder<MediaItem>(
-                                valueListenable: _heroVN,
-                                builder: (context, h, _) => _heroContent(h),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
 
                     // 继续观看
@@ -587,7 +596,9 @@ class _HomePageState extends State<HomePage> {
                       SliverToBoxAdapter(
                         child: Builder(
                           builder: (context) {
-                            final pad = tablet ? 12.0 : 16.0; // v2.0.11: 左间距 = 卡间 gap
+                            final pad = tablet
+                                ? 12.0
+                                : 16.0; // v2.0.11: 左间距 = 卡间 gap
                             final gap = tablet ? 12.0 : 12.0;
                             // 手机保持原全宽大卡（16:9）
                             // v2.0.9 实测反馈：一屏 7 张封面太小 → 5 张
@@ -652,7 +663,9 @@ class _HomePageState extends State<HomePage> {
                           builder: (context) {
                             // v2.0.9 实测反馈：与「按媒体库」行统一 ——
                             // 一屏 7 张整卡 + 露出下一张一小截（peek 0.35）
-                            final w = (cw - 24 - 8 * 12) / 7.35; // v2.0.11: 左右 12 与 gap 统一
+                            final w =
+                                (cw - 24 - 8 * 12) /
+                                7.35; // v2.0.11: 左右 12 与 gap 统一
                             return SizedBox(
                               height: w * 1.45 + 44,
                               child: ListView.builder(
@@ -715,7 +728,9 @@ class _HomePageState extends State<HomePage> {
                       ...state.views.map((v) {
                         final row = _rows[v.id] ?? const <MediaItem>[];
                         // 一屏 7 张整卡 + 露出下一张一小截（v2.0.9 与最近添加统一）
-                        final rowW = tablet ? (cw - 24 - 7 * 12) / 7.35 : 118.0; // v2.0.11: 左右 12
+                        final rowW = tablet
+                            ? (cw - 24 - 7 * 12) / 7.35
+                            : 118.0; // v2.0.11: 左右 12
                         return SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -816,47 +831,47 @@ class _HomePageState extends State<HomePage> {
               left: 0,
               right: 0,
               child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 14, 0),
-                child: Row(
-                  children: [
-                    const Spacer(),
-                    _Pill(
-                      onTap: () => state.refresh(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            state.demoMode || state.offline
-                                ? Icons.wifi_off_rounded
-                                : Icons.wifi_rounded,
-                            size: 13,
-                            color: state.demoMode || state.offline
-                                ? AppColors.muted
-                                : AppColors.primary,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            state.demoMode
-                                ? '演示'
-                                : (state.offline
-                                      ? '离线'
-                                      : '${state.items.length}'),
-                            style: const TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 8, 14, 0),
+                  child: Row(
+                    children: [
+                      const Spacer(),
+                      _Pill(
+                        onTap: () => state.refresh(),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              state.demoMode || state.offline
+                                  ? Icons.wifi_off_rounded
+                                  : Icons.wifi_rounded,
+                              size: 13,
+                              color: state.demoMode || state.offline
+                                  ? AppColors.muted
+                                  : AppColors.primary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Text(
+                              state.demoMode
+                                  ? '演示'
+                                  : (state.offline
+                                        ? '离线'
+                                        : '${state.items.length}'),
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -997,9 +1012,7 @@ class _HomePageState extends State<HomePage> {
                 valueListenable: _heroVN,
                 builder: (context, h, _) {
                   final n = _heroPool.length.clamp(1, 6);
-                  final cur = _heroPool.isEmpty
-                      ? 0
-                      : _heroPool.indexOf(h) % n;
+                  final cur = _heroPool.isEmpty ? 0 : _heroPool.indexOf(h) % n;
                   return Row(
                     children: [
                       for (var i = 0; i < n; i++)
@@ -1048,7 +1061,8 @@ class _HomePageState extends State<HomePage> {
                       label: item.rating.toStringAsFixed(1),
                       gold: true,
                     ),
-                  if (item.isTrue4K) _Badge(icon: Icons.hd_rounded, label: '2160p'),
+                  if (item.isTrue4K)
+                    _Badge(icon: Icons.hd_rounded, label: '2160p'),
                   _Badge(
                     icon: Icons.movie_creation_outlined,
                     label: item.videoCodec,
@@ -1081,10 +1095,7 @@ class _HomePageState extends State<HomePage> {
                   if (item.isTrue4K) '2160P' else '1080P',
                   if (genre != null) genre,
                 ].join('  ·  '),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFFD3DEF0),
-                ),
+                style: const TextStyle(fontSize: 13, color: Color(0xFFD3DEF0)),
               ),
               if (item.overview.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -1104,10 +1115,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         // v2.0.10：换一批从卡左下（会被海报挡住）挪进信息列底部
-        if (withShuffle) ...[
-          const SizedBox(height: 12),
-          _shuffleButton(),
-        ],
+        if (withShuffle) ...[const SizedBox(height: 12), _shuffleButton()],
       ],
     );
   }

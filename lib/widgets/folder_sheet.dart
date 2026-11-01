@@ -373,9 +373,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                       color: _fav ? null : Colors.white.withOpacity(0.07),
                       border: _fav
                           ? null
-                          : Border.all(
-                              color: Colors.white.withOpacity(0.14),
-                            ),
+                          : Border.all(color: Colors.white.withOpacity(0.14)),
                       boxShadow: _fav
                           ? const [
                               BoxShadow(
@@ -444,9 +442,7 @@ class _FolderSheetState extends State<_FolderSheet> {
             child: CachedImage(
               url: _item.posterUrlFor(200),
               memWidth: 200,
-              errorWidget: Container(
-                color: Colors.white.withOpacity(0.08),
-              ),
+              errorWidget: Container(color: Colors.white.withOpacity(0.08)),
             ),
           ),
         ),
@@ -469,10 +465,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                 _fav ? '已收藏 · 选择要归入的收藏夹' : '未收藏 · 点红心即可加入收藏',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 10.5,
-                  color: AppColors.muted,
-                ),
+                style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
               ),
             ],
           ),
@@ -491,9 +484,7 @@ class _FolderSheetState extends State<_FolderSheet> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(13),
         color: Colors.white.withOpacity(_fav ? 0.05 : 0.03),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.14),
-        ),
+        border: Border.all(color: Colors.white.withOpacity(0.14)),
       ),
       child: Row(
         children: [

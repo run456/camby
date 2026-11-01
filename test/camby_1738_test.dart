@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// v1.7.38 新增逻辑的回归测试：
-/// 字幕样式持久化 / 叠加层落位、Emby 码率上限参数、文件名分辨率兜底。
+/// 字幕样式持久化 / 叠加层落位、文件名分辨率兜底。
 void main() {
   group('SubtitleStyle', () {
     test('默认值与 copyWith', () {
@@ -71,36 +71,6 @@ void main() {
       expect(ts.fontSize, 24);
       // 半透明 => alpha 127（255*0.5 取整）
       expect(ts.color?.alpha, 128);
-    });
-  });
-
-  group('Emby streamUrl 码率上限', () {
-    EmbyServer server() => EmbyServer(
-          host: 'example.com',
-          port: 8096,
-          secure: true,
-          username: 'u',
-        );
-
-    test('不带码率时不追加 MaxStreamingBitrate', () {
-      final url = server().streamUrl('42');
-      expect(url, contains('Static=true'));
-      expect(url, isNot(contains('MaxStreamingBitrate')));
-    });
-
-    test('带码率时追加参数（转码地址同理）', () {
-      final direct = server().streamUrl('42', maxBitrate: 20000000);
-      expect(direct, contains('&MaxStreamingBitrate=20000000'));
-      final hls = server().streamUrl('42', direct: false, maxBitrate: 1);
-      expect(hls, contains('master.m3u8'));
-      expect(hls, contains('&MaxStreamingBitrate=1'));
-    });
-
-    test('0 / 负数视为「不限」，不追加参数', () {
-      expect(server().streamUrl('42', maxBitrate: 0),
-          isNot(contains('MaxStreamingBitrate')));
-      expect(server().streamUrl('42', maxBitrate: -1),
-          isNot(contains('MaxStreamingBitrate')));
     });
   });
 

@@ -13,13 +13,22 @@ void main() {
   final fav = File('lib/pages/favorites_page.dart').readAsStringSync();
 
   test('播放页接入 WakelockPlus：ticker 翻转触发 + dispose 解除', () {
-    expect(player.contains("import 'package:wakelock_plus/wakelock_plus.dart'"),
-        isTrue, reason: '缺少 wakelock_plus 导入');
-    expect(player.contains('WakelockPlus.toggle(enable: shouldStayOn)'),
-        isTrue, reason: '必须按状态翻转触发，不能每帧都调');
+    expect(
+      player.contains("import 'package:wakelock_plus/wakelock_plus.dart'"),
+      isTrue,
+      reason: '缺少 wakelock_plus 导入',
+    );
+    expect(
+      player.contains('WakelockPlus.toggle(enable: shouldStayOn)'),
+      isTrue,
+      reason: '必须按状态翻转触发，不能每帧都调',
+    );
     expect(player.contains('_wakelockOn'), isTrue);
-    expect(player.contains('WakelockPlus.disable()'), isTrue,
-        reason: '退出播放页必须解除常亮');
+    expect(
+      player.contains('WakelockPlus.disable()'),
+      isTrue,
+      reason: '退出播放页必须解除常亮',
+    );
   });
 
   test('亮度/音量指示条：进度条 ≥ 150、离边 ≥ 48dp', () {
@@ -27,11 +36,17 @@ void main() {
     expect(i, greaterThanOrEqualTo(0));
     final block = player.substring(i, player.indexOf('外挂字幕叠加层', i));
     // v2.0.8：数值改由 PlayerUi 提供（手机 150/48、平板 190/72）
-    expect(block.contains('height: ui.adjustBarH'), isTrue,
-        reason: '进度条高度必须走度量，旧的 88 太矮');
+    expect(
+      block.contains('height: ui.adjustBarH'),
+      isTrue,
+      reason: '进度条高度必须走度量，旧的 88 太矮',
+    );
     expect(block.contains('height: 88'), isFalse, reason: '旧的矮进度条还在');
-    expect(block.contains('? ui.adjustEdge : null'), isTrue,
-        reason: '离边距离必须走度量，旧的 22dp 太贴边');
+    expect(
+      block.contains('? ui.adjustEdge : null'),
+      isTrue,
+      reason: '离边距离必须走度量，旧的 22dp 太贴边',
+    );
     // 手机端不得小于 v1.7.64 定稿的下限
     expect(PlayerUi.phone().adjustBarH, greaterThanOrEqualTo(150));
     expect(PlayerUi.phone().adjustEdge, greaterThanOrEqualTo(48));
@@ -41,8 +56,11 @@ void main() {
   });
 
   test('收藏页标题区与封面收紧（网格顶留白 ≤ 6）', () {
-    expect(fav.contains('EdgeInsets.fromLTRB(18, 6, 18, 112)'), isTrue,
-        reason: '影片/演员网格顶部留白应收至 6');
+    expect(
+      fav.contains('EdgeInsets.fromLTRB(18, 6, 18, 112)'),
+      isTrue,
+      reason: '影片/演员网格顶部留白应收至 6',
+    );
     expect(fav.contains('EdgeInsets.fromLTRB(18, 16, 18, 112)'), isFalse);
     expect(fav.contains('EdgeInsets.fromLTRB(18, 18, 18, 112)'), isFalse);
   });
