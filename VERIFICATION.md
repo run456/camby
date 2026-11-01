@@ -1462,6 +1462,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 53. v2.0.17 实测反馈 2 项（平板横幅模糊 + 字幕样式固定）
+1. **平板详情页横幅模糊对齐首页**：`_tabletBanner` 的 backdrop 原清晰直出（`memWidth 1200`），与首页 Hero（高斯模糊 sigma 40 + 低清采样 220）观感不一致。改为 `ImageFiltered(ImageFilter.blur(sigmaX:40, sigmaY:40))` 包 `CachedImage(memWidth:220)`，外层 `Transform.scale(1.12)` 防止模糊采样在圆角边缘露透明羽化；渐变压暗层（底部+左侧双向）不变。
+2. **字幕样式固定「影院风格」+ 面板只留大小/位置**：用户截图要求字幕为白色加粗 + 黑色描边。`SubtitleStyle` 删除 `opa/stroke/color` 字段与相应 `copyWith`/`toJson`/`fromJson`/`Store` 键，样式固定为**白字（`w800`）+ 8 向黑色硬描边**（`textStyle` getter 内联常量）；MPV 链路 `applySubtitleStyle` 固定下发 `sub-color=#FFFFFFFF` / `sub-border-color=#FF000000` / `sub-border-size=3` / 新增 `sub-bold=yes`（系统黑体加粗，零打包体积），删除已无用的 `_mpvColorWithAlpha`；设置面板 `SubtitleStyleSheet` 仅保留「大小」「位置」两行滑杆，移除描边/不透明度滑杆与颜色色板（`_palette`/`_colorRow`/`_ColorSwatch` 一并删除）。已存用户偏好只保留 size/pos 生效。字体采用系统黑体方案（Android 自带 Noto/MiSans/HarmonyOS 均为黑体系，观感一致）。
+3. **测试**：`camby_1738_test` 的 `SubtitleStyle` group 改为断言固定影院风格（白字加粗 + 8 阴影 + w800）；`mpv_sub_style_test` 改为守卫固定白字/黑描边/sub-bold 与不变量（无 sub-opacity、无 _mpvColorWithAlpha、setWithFallback 回退保留）；总数 235 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.17-release-arm64.apk`。
+
+---
+
 ## 52. v2.0.15 移除「选择码率」功能
 1. **功能删除**：服务端无转码，`MaxStreamingBitrate` 切换实际无效（直连原片服务端忽略参数；转码地址失败静默回退原片还弹虚假成功）。完整移除：播放页底栏码率胶囊 + 播放信息面板「码率上限」行 + `_changeBitrate`/`_applyBitrate`/`_bitrateText`/`_bitrateShort`/`_showGlassPanel`/`_maxBitrate`/`_bitrates` + 首播读 `set_max_bitrate`；设置页「最大码率」项；`streamUrl` 的 `maxBitrate` 参数。
 2. **连带清理**：`_showGlassPanel` 因唯一调用方 `_changeBitrate` 删除而变孤儿，一并移除；`_Sheet.subtitle` 参数此前仅 `_showGlassPanel` 传入，删除后清理死参数与死渲染分支。
