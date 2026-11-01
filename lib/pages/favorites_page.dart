@@ -221,17 +221,24 @@ class _FavoritesPageState extends State<FavoritesPage> {
     return GridView.builder(
       key: const ValueKey('movies'),
       // v1.7.64：顶部留白 16 → 6，标题区与封面更紧凑
-      padding: const EdgeInsets.fromLTRB(18, 6, 18, 112),
+      padding: EdgeInsets.fromLTRB(
+        18,
+        context.isTablet ? 2 : 6,
+        18,
+        112,
+      ),
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
       ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         // v1.7.70：一行 2 个 → 3 个（间距与宽高比同步收窄，标题/片数不挤压）
         // 平板：设计稿 .collection 收藏 5 列
+        // v2.0.11 实测反馈：平板瓦片过高（封面贴底对齐，上方空白很大），
+        // 平板瓦片按内容高度收窄（0.54 → 0.66）并收紧行距；手机不动
         crossAxisCount: context.favoriteGridColumns,
         crossAxisSpacing: 12,
-        mainAxisSpacing: 18,
-        childAspectRatio: 0.54,
+        mainAxisSpacing: context.isTablet ? 12.0 : 18.0,
+        childAspectRatio: context.isTablet ? 0.66 : 0.54,
       ),
       itemCount: tiles,
       itemBuilder: (c, i) {

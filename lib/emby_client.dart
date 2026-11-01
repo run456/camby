@@ -1616,9 +1616,12 @@ class EmbyServer {
   /// 本人（单账号服务器里播放事件没有 UserId 是常态）。
   Future<ActivitySummary?> activityLog({int limit = 800}) async {
     try {
+      // v2.0.11：不再传 HasUserId=true —— 部分服务器版本加了该参数后
+      // 日志直接为空（实测「统计页又没数据」），且客户端本就自行按
+      // UserId 归一化过滤，服务端过滤并非必需
       final json = await _getAny(
         '$baseUrl/System/ActivityLog/Entries',
-        query: {'HasUserId': 'true', 'Limit': '$limit'},
+        query: {'Limit': '$limit'},
       );
       if (json is! Map) return null;
       final list = json['Items'];

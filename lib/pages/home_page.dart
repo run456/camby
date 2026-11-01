@@ -467,7 +467,14 @@ class _HomePageState extends State<HomePage> {
                     SliverToBoxAdapter(
                       child: tablet
                           ? Padding(
-                              padding: const EdgeInsets.fromLTRB(30, 12, 30, 0),
+                              // v2.0.11 实测反馈：平板 Hero 顶到状态栏里了 →
+                              // 避让系统状态栏（手机满幅压到状态栏下是原设计，不动）
+                              padding: EdgeInsets.fromLTRB(
+                                30,
+                                MediaQuery.of(context).padding.top + 12,
+                                30,
+                                0,
+                              ),
                               child: SizedBox(
                                 height: 300,
                                 child: ClipRRect(
@@ -580,7 +587,7 @@ class _HomePageState extends State<HomePage> {
                       SliverToBoxAdapter(
                         child: Builder(
                           builder: (context) {
-                            final pad = tablet ? 24.0 : 16.0;
+                            final pad = tablet ? 12.0 : 16.0; // v2.0.11: 左间距 = 卡间 gap
                             final gap = tablet ? 12.0 : 12.0;
                             // 手机保持原全宽大卡（16:9）
                             // v2.0.9 实测反馈：一屏 7 张封面太小 → 5 张
@@ -645,13 +652,13 @@ class _HomePageState extends State<HomePage> {
                           builder: (context) {
                             // v2.0.9 实测反馈：与「按媒体库」行统一 ——
                             // 一屏 7 张整卡 + 露出下一张一小截（peek 0.35）
-                            final w = (cw - 48 - 8 * 12) / 7.35;
+                            final w = (cw - 24 - 8 * 12) / 7.35; // v2.0.11: 左右 12 与 gap 统一
                             return SizedBox(
                               height: w * 1.45 + 44,
                               child: ListView.builder(
                                 scrollDirection: Axis.horizontal,
                                 padding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
+                                  horizontal: 12,
                                 ),
                                 itemCount: state.recentlyAdded.take(20).length,
                                 itemBuilder: (c, i) {
@@ -708,7 +715,7 @@ class _HomePageState extends State<HomePage> {
                       ...state.views.map((v) {
                         final row = _rows[v.id] ?? const <MediaItem>[];
                         // 一屏 7 张整卡 + 露出下一张一小截（v2.0.9 与最近添加统一）
-                        final rowW = tablet ? (cw - 48 - 7 * 12) / 7.35 : 118.0;
+                        final rowW = tablet ? (cw - 24 - 7 * 12) / 7.35 : 118.0; // v2.0.11: 左右 12
                         return SliverToBoxAdapter(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -801,11 +808,14 @@ class _HomePageState extends State<HomePage> {
           ),
 
           // 顶部栏（v1.7.70：去掉 CAMBY/服务器信息与搜索按钮，只留右上连接状态）
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
+          // v2.0.11 实测反馈：平板上连接状态移进 Hero 滚动卡内右上角，
+          // 不再悬浮在页面顶层（手机保持原悬浮）
+          if (!tablet)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
               bottom: false,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 8, 14, 0),
@@ -943,7 +953,42 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
-            // ④ 右下页码点（.hero .dots）
+            // ④ 右上连接状态（v2.0.11 从页面顶层悬浮移入卡内）
+            Positioned(
+              right: 16,
+              top: 14,
+              child: _Pill(
+                onTap: () => widget.state.refresh(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.state.demoMode || widget.state.offline
+                          ? Icons.wifi_off_rounded
+                          : Icons.wifi_rounded,
+                      size: 13,
+                      color: widget.state.demoMode || widget.state.offline
+                          ? AppColors.muted
+                          : AppColors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      widget.state.demoMode
+                          ? '演示'
+                          : (widget.state.offline
+                                ? '离线'
+                                : '${widget.state.items.length}'),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // ⑤ 右下页码点（.hero .dots）
             Positioned(
               right: 16,
               bottom: 14,
@@ -1333,7 +1378,13 @@ class _RowHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 0, 18, 11),
+      // v2.0.11：平板与卡片行左间距（12）对齐
+      padding: EdgeInsets.fromLTRB(
+        context.isTablet ? 12.0 : 18.0,
+        0,
+        context.isTablet ? 12.0 : 18.0,
+        11,
+      ),
       child: Row(
         children: [
           Text(

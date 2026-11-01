@@ -34,14 +34,44 @@ class _StatsPageState extends State<StatsPage> {
     if (mounted) setState(() {});
   }
 
-  /// 每日观看时长：插件逐日数据优先，否则用活动日志配对时长补 30 天序列
+  /// 每日观看时长：插件逐日数据优先 → 活动日志配对时长 →
+  /// v2.0.11 已看历史近似（DatePlayed 当天按片长计 1 次，日志/插件都不可用时兜底）
   static List<DailyPlayback> _buildDaily(
     PlaybackReport? playback,
     ActivitySummary? activity,
+    List<MediaItem> history,
   ) {
     if (playback != null && playback.daily.isNotEmpty) return playback.daily;
     final dm = activity?.dailyMinutes;
-    if (dm == null || dm.isEmpty) return const [];
+    if (dm == null || dm.isEmpty) {
+      if (history.isEmpty) return const [];
+      final now = DateTime.now();
+      final daily = <String, DailyPlayback>{};
+      for (final e in history) {
+        final t = e.lastPlayedAt;
+        if (t == null || t <= 0) continue;
+        final d = DateTime.fromMillisecondsSinceEpoch(t);
+        if (now.difference(d).inDays > 30) continue;
+        final k =
+            '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+        final cur = daily[k];
+        daily[k] = DailyPlayback(
+          date: DateTime(d.year, d.month, d.day),
+          minutes: (cur?.minutes ?? 0) + e.runtimeMin,
+          plays: (cur?.plays ?? 0) + 1,
+        );
+      }
+      if (daily.isEmpty) return const [];
+      // 补齐 30 天序列（空天为 0）
+      final out = <DailyPlayback>[];
+      for (var i = 29; i >= 0; i--) {
+        final d = DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+        final k =
+            '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+        out.add(daily[k] ?? DailyPlayback(date: d, minutes: 0, plays: 0));
+      }
+      return out;
+    }
     final now = DateTime.now();
     return List.generate(30, (i) {
       final d = DateTime(
@@ -92,13 +122,33 @@ class _StatsPageState extends State<StatsPage> {
       for (final e in mostPlayed.take(5)) {
         topWatched.add((e.name, e.userPlayCount));
       }
+      // v2.0.11：库列表 PlayCount 也全 0 时（部分服务器不带 UserData），
+      // 用「已看历史」的条目级 PlayCount 兜底（普通用户权限 100% 可用）
+      if (topWatched.isEmpty) {
+        final hist = widget.state.playedHistory
+            .where((e) => e.userPlayCount > 0)
+            .toList()
+          ..sort((a, b) => b.userPlayCount.compareTo(a.userPlayCount));
+        for (final e in hist.take(5)) {
+          topWatched.add((e.name, e.userPlayCount));
+        }
+      }
     }
 
-    // 时段：活动日志优先，其次本地最后播放时间
+    // 时段：活动日志优先，其次已看历史的最后播放时间，再次本地
     var hourBuckets = stats.hourBuckets;
     if (activity != null) {
       final ab = activity.hourBuckets;
       if (ab.fold<int>(0, (a, b) => a + b) > 0) hourBuckets = ab;
+    } else {
+      // v2.0.11：活动日志不可用（部分服务器返回空）时，用「已看历史」
+      // 每条的 DatePlayed 小时分布近似（普通用户权限即可拿到）
+      final histHours = List<int>.filled(24, 0);
+      for (final e in widget.state.playedHistory) {
+        final t = e.lastPlayedAt;
+        if (t != null && t > 0) histHours[DateTime.fromMillisecondsSinceEpoch(t).hour]++;
+      }
+      if (histHours.fold<int>(0, (a, b) => a + b) > 0) hourBuckets = histHours;
     }
 
     return Stack(
@@ -206,19 +256,32 @@ class _StatsPageState extends State<StatsPage> {
               badge: _SourceBadge(
                 text: playback != null
                     ? 'B 插件'
-                    : (activity != null ? '活动日志' : '无数据'),
-                ab: playback != null || activity != null,
+                    : (activity != null
+                          ? '活动日志'
+                          : (widget.state.playedHistory.isNotEmpty
+                                ? '已看历史近似'
+                                : '无数据')),
+                ab: playback != null ||
+                    activity != null ||
+                    widget.state.playedHistory.isNotEmpty,
               ),
               child: _DailyBars(
-                daily: _buildDaily(playback, activity),
-                playsOverride: playback?.totalPlays ?? activity?.total,
+                daily: _buildDaily(playback, activity, widget.state.playedHistory),
+                playsOverride:
+                    playback?.totalPlays ?? activity?.total,
                 hint: diag,
               ),
             ),
             const SizedBox(height: 10),
             _SectionCard(
               title: '播放时段统计',
-              badge: _SourceBadge(text: activity != null ? '活动日志' : '本地近似'),
+              badge: _SourceBadge(
+                text: activity != null
+                    ? '活动日志'
+                    : (widget.state.playedHistory.isNotEmpty
+                          ? '已看历史近似'
+                          : '本地近似'),
+              ),
               child: _HourBars(
                 buckets: hourBuckets,
                 hint: diag,
