@@ -14,6 +14,8 @@ class SubtitleStyle {
     this.size = 17,
     this.pos = 0.12,
     this.offset = 0.0,
+    this.bold = true,
+    this.font = SubtitleFont.system,
   });
 
   /// 字号（dp）
@@ -25,26 +27,40 @@ class SubtitleStyle {
   /// 相对标准位置的微调（可为负），用于躲开画面下方的硬字幕
   final double offset;
 
+  /// 是否加粗（v2.0.18 起可切换）。默认开启，对应影院风格截图
+  final bool bold;
+
+  /// 字体（v2.0.18 起可切换）
+  final SubtitleFont font;
+
   SubtitleStyle copyWith({
     double? size,
     double? pos,
     double? offset,
+    bool? bold,
+    SubtitleFont? font,
   }) => SubtitleStyle(
     size: size ?? this.size,
     pos: pos ?? this.pos,
     offset: offset ?? this.offset,
+    bold: bold ?? this.bold,
+    font: font ?? this.font,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'size': size,
     'pos': pos,
     'offset': offset,
+    'bold': bold,
+    'font': font.index,
   };
 
   factory SubtitleStyle.fromJson(Map<String, dynamic> j) => SubtitleStyle(
     size: (j['size'] as num?)?.toDouble() ?? 17,
     pos: (j['pos'] as num?)?.toDouble() ?? 0.12,
     offset: (j['offset'] as num?)?.toDouble() ?? 0.0,
+    bold: (j['bold'] as bool?) ?? true,
+    font: SubtitleFont.values[(j['font'] as int?)?.clamp(0, SubtitleFont.values.length - 1) ?? 0],
   );
 
   /// 字号基准（dp）：libmpv 的 `sub-scale = 1.0` 按这个字号对齐，
@@ -60,7 +76,8 @@ class SubtitleStyle {
   TextStyle get textStyle => TextStyle(
     fontSize: size,
     height: 1.32,
-    fontWeight: FontWeight.w800,
+    fontWeight: bold ? FontWeight.w800 : FontWeight.w500,
+    fontFamily: font == SubtitleFont.fangsong ? 'FangSong' : null,
     color: _textColor,
     shadows: <Shadow>[
       for (final o in <Offset>[
@@ -75,12 +92,23 @@ class SubtitleStyle {
   double get bottomRatio => (pos + offset).clamp(0.0, 0.6);
 }
 
+/// 字幕字体（v2.0.18 起可切换）
+enum SubtitleFont {
+  /// 系统黑体（Android 自带 Noto / MiSans / HarmonyOS，均为黑体系）
+  system,
+
+  /// 仿宋：需内置字体文件，通过 pubspec 注册 family 名 `FangSong`
+  fangsong,
+}
+
 /// 字幕样式的持久化读写
 abstract final class SubtitleStyleStore {
   // 键名与 APK libapp.so 中提取到的字符串保持一致
   static const String kSize = 'camby_sub_size';
   static const String kPos = 'camby_sub_pos';
   static const String kOffset = 'camby_sub_offset';
+  static const String kBold = 'camby_sub_bold';
+  static const String kFont = 'camby_sub_font';
 
   /// 读取历史样式；没有记录时返回默认值
   static Future<SubtitleStyle> load() async {
@@ -92,6 +120,10 @@ abstract final class SubtitleStyleStore {
         size: prefs.getDouble(kSize) ?? 17,
         pos: prefs.getDouble(kPos) ?? 0.12,
         offset: prefs.getDouble(kOffset) ?? 0.0,
+        bold: prefs.getBool(kBold) ?? true,
+        font: SubtitleFont.values[
+          (prefs.getInt(kFont) ?? 0).clamp(0, SubtitleFont.values.length - 1)
+        ],
       );
     } catch (_) {
       return const SubtitleStyle();
@@ -104,6 +136,8 @@ abstract final class SubtitleStyleStore {
       await prefs.setDouble(kSize, s.size);
       await prefs.setDouble(kPos, s.pos);
       await prefs.setDouble(kOffset, s.offset);
+      await prefs.setBool(kBold, s.bold);
+      await prefs.setInt(kFont, s.font.index);
     } catch (_) {
       /* 样式存不下不影响播放 */
     }
@@ -268,6 +302,13 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                           onLive: (v) => _emit(_style.copyWith(pos: v)),
                           onCommit: (v) => _commit(_style.copyWith(pos: v)),
                         ),
+                        // v2.0.18：加粗开关 + 字体选择（仅两项非位置/大小的补充项）
+                        _switchRow(
+                          label: '加粗',
+                          value: _style.bold,
+                          onChanged: (v) => _commit(_style.copyWith(bold: v)),
+                        ),
+                        _fontRow(),
                       ],
                     ),
                   ),
@@ -336,6 +377,111 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF7FA8EE),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 「加粗」开关行：左侧标签 + 右侧蓝色 Switch
+  Widget _switchRow({
+    required String label,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 8, 22, 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Expanded(child: const SizedBox.shrink()),
+          Transform.scale(
+            scale: 0.8,
+            child: Switch(
+              value: value,
+              activeColor: AppColors.accent,
+              activeTrackColor: AppColors.accent.withOpacity(0.5),
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: Colors.white.withOpacity(0.25),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 字体选择行：系统黑体 / 仿宋（仿宋需内置字体文件，pubspec 注册 family `FangSong`）
+  Widget _fontRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 4, 22, 6),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 76,
+            child: Text(
+              '字体',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: SubtitleFont.values.map((f) {
+                final selected = _style.font == f;
+                final label = switch (f) {
+                  SubtitleFont.system => '系统',
+                  SubtitleFont.fangsong => '仿宋',
+                };
+                return Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: GestureDetector(
+                    onTap: () => _commit(_style.copyWith(font: f)),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15),
+                        color: selected
+                            ? AppColors.accent
+                            : Colors.white.withOpacity(0.10),
+                        border: Border.all(
+                          color: selected
+                              ? const Color(0x66FFFFFF)
+                              : Colors.white.withOpacity(0.14),
+                        ),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: selected
+                              ? Colors.white
+                              : const Color(0xFFC9D6EA),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
         ],

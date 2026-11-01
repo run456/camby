@@ -49,5 +49,10 @@ void main() {
     expect(code.contains("'sub-border-size'"), isTrue);
     expect(code.contains("'sub-outline-size'"), isTrue);
     expect(code.contains('setWithFallback'), isTrue);
+
+    // 6. 仿宋字体：内置 ttf 通过 sub-fonts-dir 暴露给 mpv，family 名 FangSong
+    expect(code.contains("'sub-fonts-dir'"), isTrue, reason: 'mpv 需字体目录才能按 family 名匹配');
+    expect(code.contains("'FangSong'"), isTrue, reason: '内置仿宋 family 名');
+    expect(code.contains('_ensureFangSongFont'), isTrue, reason: '启动需抽取内置字体文件');
   });
 }

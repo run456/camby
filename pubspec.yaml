@@ -1,7 +1,7 @@
 name: camby
 description: "Camby · Android 端 Emby 播放器（Yamby 的能力 + EplayerX 的页面 + 数据总结）"
 publish_to: 'none'
-version: 2.0.17+217
+version: 2.0.18+218
 
 environment:
   sdk: ^3.13.0
@@ -30,3 +30,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/FangSong.ttf
+  fonts:
+    - family: FangSong
+      fonts:
+        - asset: assets/fonts/FangSong.ttf

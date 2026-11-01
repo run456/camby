@@ -7,31 +7,45 @@ import 'package:flutter_test/flutter_test.dart';
 /// 字幕样式持久化 / 叠加层落位、文件名分辨率兜底。
 void main() {
   group('SubtitleStyle', () {
-    test('默认值与 copyWith（仅大小/位置/偏移可调）', () {
+    test('默认值与 copyWith（大小/位置/偏移/加粗/字体可调）', () {
       const s = SubtitleStyle();
       expect(s.size, 17);
       expect(s.pos, 0.12);
+      expect(s.bold, isTrue, reason: '默认加粗（影院风格）');
+      expect(s.font, SubtitleFont.system);
 
-      final t = s.copyWith(size: 22, pos: 0.2);
+      final t = s.copyWith(size: 22, pos: 0.2, bold: false, font: SubtitleFont.fangsong);
       expect(t.size, 22);
       expect(t.pos, 0.2);
+      expect(t.bold, isFalse);
+      expect(t.font, SubtitleFont.fangsong);
       // 未指定的字段必须保持原值
       expect(t.offset, s.offset);
       expect(s.size, 17, reason: 'copyWith 不能改动原对象');
     });
 
-    test('JSON 往返只保留 size/pos/offset', () {
-      const s = SubtitleStyle(size: 21.5, pos: 0.3, offset: -0.08);
+    test('JSON 往返只保留 size/pos/offset/bold/font', () {
+      const s = SubtitleStyle(
+        size: 21.5,
+        pos: 0.3,
+        offset: -0.08,
+        bold: false,
+        font: SubtitleFont.fangsong,
+      );
       final t = SubtitleStyle.fromJson(s.toJson());
       expect(t.size, 21.5);
       expect(t.pos, 0.3);
       expect(t.offset, -0.08);
+      expect(t.bold, isFalse);
+      expect(t.font, SubtitleFont.fangsong);
     });
 
-    test('残缺 JSON 回落到默认值', () {
+    test('残缺 JSON 回落到默认值（加粗默认开、字体默认系统）', () {
       final t = SubtitleStyle.fromJson(<String, dynamic>{'size': 20});
       expect(t.size, 20);
       expect(t.pos, 0.12);
+      expect(t.bold, isTrue);
+      expect(t.font, SubtitleFont.system);
     });
 
     test('bottomRatio = 位置 + 偏移，且被夹在 0~0.6', () {
@@ -48,15 +62,18 @@ void main() {
       );
     });
 
-    test('textStyle 固定影院风格：白字加粗 + 8 向黑描边', () {
-      const s = SubtitleStyle(size: 24);
-      final ts = s.textStyle;
-      // 8 向（含对角）均匀黑描边
-      expect(ts.shadows?.length, 8);
-      expect(ts.fontSize, 24);
-      expect(ts.fontWeight, FontWeight.w800);
-      // 颜色恒为不透明白
-      expect(ts.color, const Color(0xFFFFFFFF));
+    test('textStyle：加粗开=w800、关=w500；仿宋套 fontFamily', () {
+      final boldOn = const SubtitleStyle(size: 24).textStyle;
+      expect(boldOn.shadows?.length, 8);
+      expect(boldOn.fontWeight, FontWeight.w800);
+      expect(boldOn.color, const Color(0xFFFFFFFF));
+      expect(boldOn.fontFamily, isNull);
+
+      final boldOff = const SubtitleStyle(size: 24, bold: false).textStyle;
+      expect(boldOff.fontWeight, FontWeight.w500);
+
+      final fang = const SubtitleStyle(font: SubtitleFont.fangsong).textStyle;
+      expect(fang.fontFamily, 'FangSong');
     });
   });
 

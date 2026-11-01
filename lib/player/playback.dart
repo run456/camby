@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../widgets/subtitle_style_sheet.dart';
@@ -342,7 +345,9 @@ class MpvController implements PlaybackController {
   ///   大小      → `sub-scale`        （1.0 = libmpv 默认字号）
   ///   垂直位置  → `sub-pos`          （0–100，**值越大越靠下**，与 App 的
   ///                                   bottomRatio 语义相反，需换算）
-  ///   字重      → `sub-bold` = yes   （系统黑体加粗，与 Flutter 叠加层同步）
+  ///   字重      → `sub-bold` = yes/no（随用户加粗开关，与 Flutter 叠加层同步）
+  ///   字体      → `sub-font`         （仿宋走内置 FangSong，否则用默认；
+  ///                                   内置字体需 pubspec 注册并向 mpv 暴露）
   ///   颜色      → `sub-color`        （v2.0.17 起固定白字 + 黑描边）
   ///   描边色    → `sub-border-color`
   ///
@@ -395,8 +400,17 @@ class MpvController implements PlaybackController {
     await set('sub-scale', subScale.toStringAsFixed(3));
     await set('sub-pos', subPos.toStringAsFixed(2));
     await set('sub-color', textColor);
-    // 影院风格固定：白字 + 黑描边；加粗走系统黑体（与 Flutter 叠加层同步）
-    await set('sub-bold', 'yes');
+    // 影院风格固定：白字 + 黑描边；加粗随用户开关（与 Flutter 叠加层同步）
+    await set('sub-bold', style.bold ? 'yes' : 'no');
+    // 字体：仿宋走内置字体文件（pubspec 注册 family 名 FangSong），否则用默认
+    if (style.font == SubtitleFont.fangsong) {
+      await set('sub-font', 'FangSong');
+      // mpv 按内部 family 名匹配字体，需把内置 ttf 暴露给它的字体目录
+      final dir = await _ensureFangSongFont();
+      if (dir != null) await set('sub-fonts-dir', dir);
+    } else {
+      await set('sub-font', '');
+    }
     // 字幕恒用黑描边，任何画面上都读得清（与叠加层 Shadow 同策略）
     await setWithFallback('sub-border-color', 'sub-outline-color', borderColor);
     await setWithFallback(
@@ -417,6 +431,29 @@ class MpvController implements PlaybackController {
   ///
   /// 注意顺序：必须在字幕已挂载之后设置才稳，部分版本在无字幕时设置
   /// 会被忽略，所以这里设完再补一次 `sub-visibility`。
+  /// 把内置的 `FangSong.ttf` 抽到应用私有目录，返回该目录路径（供 mpv
+  /// `sub-fonts-dir` 使用）。仅抽一次（[__fontReady] 守卫），后续直接复用。
+  ///
+  /// mpv 在 Android 上不读 fontconfig，而是扫描 `sub-fonts-dir` 里的 ttf/otf
+  /// 按内部 family 名匹配；Flutter 已把字体打进 asset，这里取出交给 mpv。
+  static bool __fontReady = false;
+  static Future<String?> _ensureFangSongFont() async {
+    try {
+      final base = await getApplicationDocumentsDirectory();
+      final dir = Directory('${base.path}/subfonts');
+      await dir.create(recursive: true);
+      final file = File('${dir.path}/FangSong.ttf');
+      if (!__fontReady || !await file.exists()) {
+        final bytes = await rootBundle.load('assets/fonts/FangSong.ttf');
+        await file.writeAsBytes(bytes.buffer.asUint8List());
+        __fontReady = true;
+      }
+      return dir.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<void> setAssRendering(bool on) async {
     final platform = _player.platform;

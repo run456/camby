@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.17 (217)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.18 (218)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -120,6 +120,11 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.18 (218) 字幕加粗开关 + 字体可切换（系统/仿宋）
+- **字幕加粗开关**：`SubtitleStyle` 新增 `bold` 字段（默认 true，对应影院风格截图），面板新增「加粗」Switch；MPV 链路 `sub-bold` 随开关切换为 `yes`/`no`，Flutter 叠加层 `fontWeight` 在 `w800`/`w500` 间切换。用户想要细字幕可自行关掉
+- **字幕字体可切换**：`SubtitleStyle` 新增 `font` 枚举（`system` / `fangsong`），面板新增「字体」选择行（系统 / 仿宋）；Flutter 叠加层通过 `fontFamily: 'FangSong'` 渲染。仿宋字体采用**开源思源宋体（Noto Serif SC，OFL 可商用）**，按 GB2312 字符集子集化为 `assets/fonts/FangSong.ttf`（2.6MB，原 12MB），在 pubspec 注册 family 名 `FangSong` 并同步改 TTF 内部 family 名为 `FangSong` 保证两端一致；MPV 链路在选仿宋时把内置 ttf 抽到应用目录并通过 `sub-fonts-dir` 暴露给 libmpv（按内部 family 名匹配）。字幕偏好新增 `bold`/`font` 持久化键
+- **测试**：`camby_1738_test` 的 `SubtitleStyle` group 增补 `bold`/`font` 断言（含 `fontFamily` 与 `w500` 兜底）；`mpv_sub_style_test` 增补 `sub-fonts-dir`/`FangSong`/`_ensureFangSongFont` 守卫
 
 ### v2.0.17 (217) 实测反馈 2 项
 - **平板详情页横幅模糊对齐首页**：`_tabletBanner` 的 backdrop 原来是清晰直出（`memWidth 1200`），与首页 Hero（高斯模糊 sigma 40 + 低清采样 220）观感不一致。改为同款 `ImageFiltered` 高斯模糊（sigma 40 + `memWidth 220`），外层 `Transform.scale(1.12)` 防止模糊羽化在圆角边缘露透明。渐变压暗层不变
