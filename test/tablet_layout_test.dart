@@ -98,6 +98,23 @@ void main() {
     final headRect = tester.getRect(headFinder);
     expect(headRect.height, moreOrLessEquals(330, epsilon: 0.5));
     expect(headRect.left, moreOrLessEquals(24, epsilon: 0.5));
+
+    // v2.0.19：悬浮海报在横幅内上下等距（垂直居中，间距 = (330-262)/2 = 34）
+    Rect? posterRect;
+    for (final w in tester.widgetList<ClipRRect>(find.byType(ClipRRect))) {
+      final r = tester.getRect(find.byWidget(w));
+      if ((r.height - 262).abs() < 1) {
+        posterRect = r;
+        break;
+      }
+    }
+    if (posterRect != null) {
+      expect(posterRect.top - headRect.top, moreOrLessEquals(34, epsilon: 1),
+          reason: '海报顶距 = (330-262)/2');
+      expect(headRect.bottom - posterRect.bottom,
+          moreOrLessEquals(34, epsilon: 1),
+          reason: '海报底距 = (330-262)/2，上下等距');
+    }
   });
 
   testWidgets('平板中等档（1194dp）详情：侧栏折叠，仍是单列', (tester) async {

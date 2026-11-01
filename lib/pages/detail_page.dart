@@ -563,11 +563,13 @@ class _DetailPageState extends State<DetailPage> {
                   ),
                 ),
               ),
-              // ④ 悬浮海报 + 左下信息/操作
+              // ④ 悬浮海报 + 信息/操作列（v2.0.19 按实测反馈重排）：
+              //    海报与背景框上下、左右等距（330-262)/2 = 34；
+              //    信息列垂直居中不再贴底，顺序 = 媒体徽章 → 标题 →
+              //    元信息 → 播放按钮（左）+ 观看进度（右）同一水平行
               Padding(
-                padding: const EdgeInsets.fromLTRB(26, 0, 26, 24),
+                padding: const EdgeInsets.symmetric(horizontal: 34),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     if (posterUrl != null)
                       Container(
@@ -599,19 +601,9 @@ class _DetailPageState extends State<DetailPage> {
                       ),
                     if (posterUrl != null) const SizedBox(width: 26),
                     Expanded(child: _bannerInfo(item, progress)),
-                    // 右下进度条占位，避免操作按钮与进度重叠
-                    if (progress > 0.001) const SizedBox(width: 250),
                   ],
                 ),
               ),
-              // ⑤ 右下观看进度（设计稿 .prog）
-              if (progress > 0.001)
-                Positioned(
-                  right: 28,
-                  bottom: 26,
-                  width: 240,
-                  child: _bannerProgress(item, progress),
-                ),
             ],
           ),
         ),
@@ -619,7 +611,8 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 横幅信息列：徽章 / 标题 / 元信息 / 操作按钮（底部对齐）
+  /// 横幅信息列（垂直居中）：徽章 → 标题 → 元信息 →
+  /// [播放按钮行（左） + 观看进度（右）] 同一水平行
   Widget _bannerInfo(MediaItem item, double progress) {
     final actors = item.people
         .take(3)
@@ -685,6 +678,11 @@ class _DetailPageState extends State<DetailPage> {
           ),
         ),
         const SizedBox(height: 14),
+        // 观看进度信息：靠右（实测反馈 v2.0.19，位于元信息与播放按钮之间）
+        if (progress > 0.001) ...[
+          SizedBox(width: 220, child: _bannerProgress(item, progress)),
+          const SizedBox(height: 12),
+        ],
         _bannerActions(item, progress),
       ],
     );
@@ -767,13 +765,13 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 右下观看进度（设计稿 .prog）：百分比 + 剩余分钟 + 细进度条
+  /// 观看进度（设计稿 .prog）：百分比 + 剩余分钟 + 细进度条（横幅按钮行右侧）
   Widget _bannerProgress(MediaItem item, double progress) {
     final remainMin = item.runtimeMin > 0
         ? (item.runtimeMin * (1 - progress)).round()
         : null;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(

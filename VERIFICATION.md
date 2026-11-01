@@ -1462,6 +1462,16 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 55. v2.0.19 平板详情页横幅信息区重排（实测反馈）
+1. **海报等距**：`_tabletBanner` 内层 Padding `fromLTRB(26,0,26,24)` + `CrossAxisAlignment.end`（海报贴底：上 44/下 24/左 26）→ `symmetric(horizontal: 34)` + 默认居中：海报垂直居中，上下 = (330-262)/2 = 34，水平 34，四边等宽。
+2. **信息列居中**：徽章/标题/元信息不再贴底，与海报中线对齐。
+3. **信息流顺序**（用户指定）：媒体徽章 → 标题 → 元信息 → **观看进度（右对齐：百分比+剩余分钟+细进度条）** → 播放按钮行。观看进度从 `Positioned(right:28,bottom:26)` 悬浮块挪进 `_bannerInfo` 信息列（宽 220、右对齐），删除按钮区右侧 `SizedBox(width:250)` 占位 hack；`_bannerProgress` 文字改 `CrossAxisAlignment.end`。
+4. **测试**：`tablet_layout_test` 增补海报上下等距守卫（顶距/底距 = 34±1，poster 缺失时跳过）；全量 235 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.19-release-arm64.apk`。
+
+---
+
 ## 54. v2.0.18 字幕加粗开关 + 字体可切换（系统/仿宋）
 1. **字幕加粗开关**：`SubtitleStyle` 新增 `bold`（默认 true，对应影院风格截图），面板新增「加粗」Switch；MPV `sub-bold` 随开关切 `yes`/`no`，Flutter 叠加层 `fontWeight` 在 `w800`/`w500` 间切换。
 2. **字幕字体可切换**：`SubtitleStyle` 新增 `font` 枚举（`system`/`fangsong`），面板新增「字体」选择行（系统/仿宋）；Flutter 叠加层 `fontFamily: 'FangSong'`。仿宋采用**开源思源宋体 Noto Serif SC（OFL 可商用）**，按 GB2312 字符集子集化为 `assets/fonts/FangSong.ttf`（2.6MB，原 12MB），pubspec 注册 family `FangSong` 并改写 TTF 内部 family 名为 `FangSong`（两端一致）；MPV 链路选仿宋时把内置 ttf 抽到应用目录、`sub-fonts-dir` 暴露给 libmpv（按内部 family 名匹配）。偏好新增 `bold`/`font` 持久化键。
