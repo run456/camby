@@ -191,11 +191,14 @@ class _StatsPageState extends State<StatsPage> {
             const SizedBox(height: 10),
 
             // 完成率 + 最近播放 10 部
+            // v2.0.21：库存覆盖率与完成率高度重复，覆盖率数据（已看/库内/未看）
+            // 并入观看完成率卡片，独立卡片移除
             _SectionCard(
               title: '观看完成率',
               child: _CompletionCard(
                 stats: stats,
                 recent: widget.state.recentPlayedItems,
+                total: items.length,
               ),
             ),
             const SizedBox(height: 10),
@@ -305,17 +308,6 @@ class _StatsPageState extends State<StatsPage> {
                   items: widget.state.continueWatching.take(5).toList(),
                 ),
               ),
-            const SizedBox(height: 10),
-
-            // ── 库存覆盖率 ──
-            _SectionCard(
-              title: '库存覆盖率',
-              child: _CoverageGauge(
-                rate: stats.watchCoverage,
-                watched: stats.watchedCount,
-                total: items.length,
-              ),
-            ),
             const SizedBox(height: 10),
 
             // ── 数据质量（最后）──
@@ -698,9 +690,16 @@ class _OverviewGrid extends StatelessWidget {
 
 /// 完成率 + 最近播放 10 部（含完成度）
 class _CompletionCard extends StatelessWidget {
-  const _CompletionCard({required this.stats, required this.recent});
+  const _CompletionCard({
+    required this.stats,
+    required this.recent,
+    required this.total,
+  });
   final LibraryStats stats;
   final List<MediaItem> recent;
+
+  /// 库内总片数（v2.0.21 并入库存覆盖率数据用）
+  final int total;
 
   @override
   Widget build(BuildContext context) {
@@ -755,6 +754,17 @@ class _CompletionCard extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 10),
+
+        // v2.0.21：库存覆盖率数据并入（已看 / 库内 / 未看）
+        Container(height: 1, color: Colors.white.withOpacity(0.07)),
+        const SizedBox(height: 8),
+        _CoverageGauge(
+          rate: stats.watchCoverage,
+          watched: stats.watchedCount,
+          total: total,
+        ),
+
         if (list.isNotEmpty) ...[
           const SizedBox(height: 10),
           Container(height: 1, color: Colors.white.withOpacity(0.07)),

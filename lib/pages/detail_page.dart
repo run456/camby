@@ -765,13 +765,16 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 观看进度（设计稿 .prog）：百分比 + 剩余分钟 + 细进度条（横幅按钮行右侧）
+  /// 观看进度（设计稿 .prog）：百分比 + 剩余分钟 + 细进度条（元信息与播放按钮之间）
+  /// v2.0.21：文字与进度条改为靠左对齐；进度条满宽、填充从左往右
+  /// （旧实现 Column crossAxis.end + 轨道随内容收缩被右对齐，观感是
+  /// 「从右往左走」，现轨道 width:double.infinity 定满宽、Align 靠左锚定）
   Widget _bannerProgress(MediaItem item, double progress) {
     final remainMin = item.runtimeMin > 0
         ? (item.runtimeMin * (1 - progress)).round()
         : null;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
@@ -784,7 +787,9 @@ class _DetailPageState extends State<DetailPage> {
           borderRadius: BorderRadius.circular(3),
           child: Container(
             height: 5,
+            width: double.infinity,
             color: Colors.white.withOpacity(0.15),
+            alignment: Alignment.centerLeft,
             child: FractionallySizedBox(
               alignment: Alignment.centerLeft,
               widthFactor: progress.clamp(0.02, 1.0),

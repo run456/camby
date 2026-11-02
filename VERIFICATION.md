@@ -1472,6 +1472,16 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 57. v2.0.21 实测反馈 3 项（首页播放列表隐藏 + 统计卡片合并 + 进度条方向）
+1. **首页隐藏「播放列表」**：`emby_client.userViews` 过滤条件加 `collectionType == 'playlists'`，collectionType 缺失时名称兜底加「播放列表」/`playlists`。收藏夹同步出的 Playlist 视图与合集/BoxSets 一致不进首页（媒体库列表其余消费方同步受益）。
+2. **统计页「库存覆盖率」并入「观看完成率」**：删除独立 `_SectionCard(库存覆盖率)`；`_CompletionCard` 加 `total` 参数，卡片内在完成率圈环描述行之后加分隔线 + `_CoverageGauge(rate: watchCoverage, watched: watchedCount, total)`，覆盖率圈环（紫色）与「已看 X / 库内 Y 部\n还有 Z 部 未看」文案原样保留。手机流式列表与平板 `_tabletColumns` 双栏共用同一 children 列表，一处修改两端生效。
+3. **平板详情观看进度靠左 + 从左往右**：`_bannerProgress` 列 `crossAxisAlignment.end` → `start`；进度轨道 `Container` 加 `width: double.infinity` + `alignment: Alignment.centerLeft`。旧实现轨道宽度随 `FractionallySizedBox` 收缩（≈220×progress）且被 `crossAxis.end` 推到右缘，填充虽锚左但整体观感「从右往左走」；新轨道恒定满宽 220、填充自左缘向右生长。
+4. **测试**：`test/views_filter_http_test.dart`（真 socket 假 Emby：movies/boxsets/playlists/无类型「播放列表」/tvshows → 只剩 movies+tvshows；**教训**：与 `testWidgets` 同文件时 flutter_test 初始化 binding 后全局 `HttpOverrides` 劫持 HttpClient，所有真 socket 请求变 400，故 HTTP 假服务测试必须独立成文件）；`test/v2021_ui_test.dart`（完成率卡片在、覆盖率卡片无、数据质量收尾，长列表需 `scrollUntilVisible` 后断言）；`tablet_layout_test` 增补 220 块左缘 = 文字左缘 = 填充条左缘、填充宽 = 220×progress 断言。全量 239 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 239 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.21-release-arm64.apk`。
+
+---
+
 ## 56. v2.0.20 收藏夹改名 400（实测反馈）
 1. **问题**：用户服务器对 `POST /Items/{id}`（UpdateItem）无论整包还是最小 body 都返回 400（「人妻」改名永远失败，手机/平板端同步均报 400）。v2.0.4 的「补 ProviderIds 空字典」与 v2.0.16 的「最小 body 重试」在该服务器均不奏效。
 2. **根因**：该 Emby 实例的 UpdateItem 端点对播放列表改名路径死 400（与字段是否完整无关），而创建/删除/加片为独立端点、实测可用。

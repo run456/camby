@@ -162,4 +162,65 @@ void main() {
     expect(find.text('全部'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('平板详情：观看进度与进度条靠左对齐、从左往右填充（v2.0.21）', (tester) async {
+    tester.view.physicalSize = _expandedSize;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final state = AppState();
+    final item = demoLibrary.firstWhere(
+      (e) => (e.resumeProgress ?? 0) > 0.001 && (e.resumeProgress ?? 0) < 1,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        DetailPage(
+          item: item,
+          state: state,
+          onPlay: (item, subtitle, {resume = false}) {},
+          onOpenDetail: (_, {String? heroTag}) {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+
+    final progressText = find.textContaining('观看进度');
+    expect(progressText, findsOneWidget);
+
+    // 包裹进度信息的 220 定宽块（内含「观看进度」文字）
+    SizedBox? box;
+    for (final b in tester.widgetList<SizedBox>(
+      find.byWidgetPredicate((w) => w is SizedBox && w.width == 220),
+    )) {
+      if (tester.any(find.descendant(of: find.byWidget(b), matching: progressText))) {
+        box = b;
+        break;
+      }
+    }
+    expect(box, isNotNull, reason: '观看进度信息应包在 220 定宽容器内');
+    final boxRect = tester.getRect(find.byWidget(box!));
+
+    // 靠左对齐：文字左缘 = 220 块左缘（旧实现 crossAxis.end 右对齐）
+    final textRect = tester.getRect(progressText);
+    expect(textRect.left, moreOrLessEquals(boxRect.left, epsilon: 0.5),
+        reason: '观看进度文字应靠左');
+
+    // 从左往右填充：FractionallySizedBox 锚定左缘，填充宽 = 220 × 进度
+    final fsFinder = find.descendant(
+      of: find.byWidget(box),
+      matching: find.byType(FractionallySizedBox),
+    );
+    expect(fsFinder, findsOneWidget);
+    final fs = tester.widget<FractionallySizedBox>(fsFinder);
+    expect(fs.alignment, Alignment.centerLeft, reason: '填充必须从左缘锚定');
+    final fillRect = tester.getRect(
+      find.descendant(of: fsFinder, matching: find.byType(DecoratedBox)).first,
+    );
+    expect(fillRect.left, moreOrLessEquals(boxRect.left, epsilon: 0.5),
+        reason: '填充条左缘 = 轨道左缘（从左往右走）');
+    final p = (item.resumeProgress ?? 0).clamp(0.02, 1.0);
+    expect(fillRect.width, moreOrLessEquals(220 * p, epsilon: 1.0));
+  });
 }

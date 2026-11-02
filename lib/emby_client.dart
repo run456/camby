@@ -712,6 +712,8 @@ class EmbyServer {
   /// 媒体库列表：GET /Users/{id}/Views
   ///
   /// 「合集 / BoxSets」是虚拟聚合库，首页不展示。
+  /// v2.0.21：收藏夹同步出的「播放列表」视图（collectionType=playlists）
+  /// 同样不是媒体库，首页一并隐藏。
   /// 名称判断只对 collectionType 缺失的库生效，避免误伤名字里带「合集」的正常库。
   Future<List<LibraryView>> userViews() async {
     final json = await _getJson('$baseUrl/Users/$_userId/Views');
@@ -729,15 +731,19 @@ class EmbyServer {
         })
         .where((v) {
           final t = (v.collectionType ?? '').toLowerCase();
-          if (t == 'boxsets' || t == 'collections') return false;
+          if (t == 'boxsets' || t == 'collections' || t == 'playlists') {
+            return false;
+          }
           if (v.collectionType == null || v.collectionType!.isEmpty) {
             final n = v.name.trim();
             final ln = n.toLowerCase();
             if (n == '合集' ||
                 n.endsWith('合集') ||
+                n == '播放列表' ||
                 ln == 'collections' ||
                 ln == 'boxsets' ||
-                ln == 'box sets') {
+                ln == 'box sets' ||
+                ln == 'playlists') {
               return false;
             }
           }
