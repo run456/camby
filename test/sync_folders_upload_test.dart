@@ -35,13 +35,17 @@ class _FakeServer extends EmbyServer {
   }
 
   @override
-  Future<bool> renamePlaylist(String id, String name) async {
+  Future<String?> renamePlaylist(
+    String id,
+    String name, {
+    List<String>? itemIds,
+  }) async {
     if (failRename) {
       lastPlaylistError = '改名失败: 请求失败 (500)';
-      return false;
+      return null;
     }
     renamed[id] = name;
-    return true;
+    return id; // 假服务端不改 Id，调用方不会走「换绑后跳过加片」分支
   }
 
   @override

@@ -1144,19 +1144,26 @@ class EmbyServer {
   /// PlaylistItems 的引用）整包覆盖导致丢片。
   ///
   /// v2.0.4 修复：Emby 的 `ItemUpdateService.UpdateItem` 会对
-  /// `request.ProviderIds` 直接 `.ToList()`（`ItemUpdateService.cs:327`），
-  /// 而上面的 GET **默认不返回** `ProviderIds` 字段
-  ///（`DtoService.cs:861` 仅在请求 `ItemFields.ProviderIds` 时才塞进 DTO），
-  /// 于是回传的 DTO 里 `ProviderIds` 为 null → `ArgumentNullException: source`
-  /// → **400**（社区贴也指向缺失的 ProviderIds）。播放列表本就没有 ProviderIds，
-  /// 这里补空字典（连同其它集合字段一并补空，防不同版本再踩同款坑）即可。
-  /// v2.0.16 兜底：部分 Emby 版本对回传 DTO 里某个集合/引用字段仍判 400
-  ///（用户实测「人妻」改名永远 400，v2.0.4 的补空字段方案在 该服务器上不够）。
-  /// 播放列表本身没有简介/厂牌等元数据，名字是唯一要改的字段 —— 整包 POST
-  /// 失败后改用**最小 body**（{Id, Name} + v2.0.4 那套空集合）重试一次。
-  /// 播放列表的片单由 /Playlists/{id}/Items 独立接口管理，UpdateItem 不碰它。
-  Future<bool> renamePlaylist(String playlistId, String name) async {
-    if (_token == null) return false;
+  /// `request.ProviderIds` 直接 `.ToList()`，而 GET 默认不返回 `ProviderIds`
+  /// → null → 400。补空字典/空集合。
+  /// v2.0.16 兜底：最小 body 重试。
+  /// v2.0.20：用户服务器对 `POST /Items/{id}` 两种 body 都仍 400（实测
+  /// 「人妻」改名永远失败）。补两层：
+  /// ③ **完整字段回传** —— GET 带 `Fields=ProviderIds,PlaylistItems,…`
+  ///    （引用/集合字段给真实值而非补空，部分 Emby 版本只认这个）；
+  /// ④ **重建式改名**（终极兜底，必成）—— 用创建/删除接口（实测可用）
+  ///    新建目标名列表（片单按 [itemIds]，即本地片单）→ 删除旧列表。
+  ///    播放列表 Id 会变，调用方（_reconcileUpload）拿到返回的新 Id 换绑。
+  ///    若服务端已有目标名残留列表（上轮删旧失败）则复用它并补差集，幂等。
+  ///
+  /// 成功返回（可能变化的）播放列表 Id；失败返回 null（原因见
+  /// [lastPlaylistError]）。
+  Future<String?> renamePlaylist(
+    String playlistId,
+    String name, {
+    List<String>? itemIds,
+  }) async {
+    if (_token == null) return null;
     Object? lastErr;
     // ① 整包回传（保其它元数据字段原样）
     try {
@@ -1181,7 +1188,7 @@ class EmbyServer {
         m[f] ??= const [];
       }
       await _postJsonReturning('$baseUrl/Items/$playlistId', m);
-      return true;
+      return playlistId;
     } catch (e) {
       lastErr = e;
     }
@@ -1197,10 +1204,68 @@ class EmbyServer {
         'Studios': const [],
         'People': const [],
       });
-      return true;
+      return playlistId;
+    } catch (e) {
+      lastErr = e;
+    }
+    // ③ 完整字段回传：GET 带 Fields 让服务端吐出真实的集合/引用值
+    //   （PlaylistItems 引用原样带回，UpdateItem 才不挑刺）
+    try {
+      final m = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$playlistId',
+        query: const {
+          'Fields':
+              'ProviderIds,Genres,Tags,Studios,People,GenreItems,'
+                  'ArtistItems,AlbumArtists,PlaylistItems',
+        },
+      );
+      m['Name'] = name;
+      m['ProviderIds'] ??= <String, String>{};
+      await _postJsonReturning('$baseUrl/Items/$playlistId', m);
+      return playlistId;
+    } catch (e) {
+      lastErr = e;
+    }
+    // ④ 重建式改名：绕开 UpdateItem 端点（该服务器上永远 400）。
+    //    创建/删除/加片接口均为独立端点，实测可用。
+    try {
+      final lists = await listPlaylists();
+      final old = lists.where((p) => p.id == playlistId).toList();
+      final oldItems = old.isEmpty ? const <String>[] : old.first.itemIds;
+      // 上轮「新列表已建但删旧失败」的残留 → 复用，防止每次重试都新建
+      String? target;
+      for (final p in lists) {
+        if (p.name == name && p.id != playlistId) {
+          target = p.id;
+          break;
+        }
+      }
+      if (target != null) {
+        final have = Set<String>.from(
+          lists.firstWhere((p) => p.id == target).itemIds,
+        );
+        final missing = (itemIds ?? oldItems)
+            .where((e) => !have.contains(e))
+            .toList();
+        if (missing.isNotEmpty) await addToPlaylist(target, missing);
+      } else {
+        target = await createPlaylist(name, itemIds ?? oldItems);
+      }
+      if (target == null) {
+        lastPlaylistError =
+            '改名失败: 重建播放列表失败（$lastErr / $lastPlaylistError）';
+        return null;
+      }
+      if (!await deletePlaylist(playlistId)) {
+        lastPlaylistError =
+            '改名失败: 新列表已建但删除旧列表失败（$lastPlaylistError），'
+                '下轮同步自动重试';
+        return null;
+      }
+      return target;
     } catch (e) {
       lastPlaylistError = '改名失败: $lastErr / $e';
-      return false;
+      return null;
     }
   }
 

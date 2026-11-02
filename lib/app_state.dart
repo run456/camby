@@ -485,8 +485,9 @@ class AppState extends ChangeNotifier {
     await _saveFolders();
     final pid = folderById(id)?.playlistId;
     if (pid != null && _server != null) {
+      // v2.0.20：renamePlaylist 现在返回「可能变化的最终 Id」，null 表示失败
       final ok = await _server!.renamePlaylist(pid, t);
-      if (!ok) {
+      if (ok == null) {
         _folders = _folders
             .map((e) => e.id == id ? e.copyWith(pendingSync: true) : e)
             .toList();
@@ -767,9 +768,20 @@ class AppState extends ChangeNotifier {
       // 已上云：把本地名称与片单推上去（APP 为准）
       var ok = true;
       if (p.name != f.name) {
-        if (!await s.renamePlaylist(f.playlistId!, f.name)) {
+        // v2.0.20：renamePlaylist 返回最终 Id（重建式改名会换 Id），换绑后
+        // 新列表片单已按本地建好，直接跳过本轮加/移片
+        final newPid = await s.renamePlaylist(
+          f.playlistId!,
+          f.name,
+          itemIds: f.itemIds,
+        );
+        if (newPid == null) {
           ok = false;
           diag.add('「${f.name}」改名失败：${s.lastPlaylistError}');
+        } else if (newPid != f.playlistId) {
+          matchedRemote.add(newPid);
+          out.add(f.copyWith(playlistId: newPid, pendingSync: false));
+          continue;
         }
       }
       final serverSet = Set<String>.from(p.itemIds);

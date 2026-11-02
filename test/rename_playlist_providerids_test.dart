@@ -95,7 +95,7 @@ void main() {
     await emby.authenticate();
     final ok = await emby.renamePlaylist('pl1', '人妻改名后');
 
-    expect(ok, isTrue, reason: '带上 ProviderIds 后改名应成功');
+    expect(ok, 'pl1', reason: 'v2.0.20 带上 ProviderIds 后改名应成功并返回 Id');
     expect(posted, isNotNull);
     // 关键：body 必须有 ProviderIds 且非空引用（null 会在服务端 .ToList() 抛 400）
     expect(
@@ -160,7 +160,7 @@ void main() {
     final emby = _client(srv.port);
     await emby.authenticate();
     final ok = await emby.renamePlaylist('plx', '新名字');
-    expect(ok, isTrue, reason: '修复后 body 带 ProviderIds，服务端不再 400');
+    expect(ok, 'plx', reason: 'v2.0.20 修复后 body 带 ProviderIds，服务端不再 400');
     await srv.close();
   });
 }

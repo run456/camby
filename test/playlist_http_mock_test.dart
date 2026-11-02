@@ -131,7 +131,7 @@ void main() {
 
   test('renamePlaylist：先 GET 完整对象再 POST，写回携带原有字段', () async {
     final ok = await es.renamePlaylist('PL1', '新名');
-    expect(ok, isTrue);
+    expect(ok, 'PL1', reason: 'v2.0.20 成功后返回播放列表 Id');
     final get = records.firstWhere(
       (r) => r.path == '/emby/Users/uid1/Items/PL1',
     );

@@ -1472,6 +1472,19 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 56. v2.0.20 收藏夹改名 400（实测反馈）
+1. **问题**：用户服务器对 `POST /Items/{id}`（UpdateItem）无论整包还是最小 body 都返回 400（「人妻」改名永远失败，手机/平板端同步均报 400）。v2.0.4 的「补 ProviderIds 空字典」与 v2.0.16 的「最小 body 重试」在该服务器均不奏效。
+2. **根因**：该 Emby 实例的 UpdateItem 端点对播放列表改名路径死 400（与字段是否完整无关），而创建/删除/加片为独立端点、实测可用。
+3. **修复——`renamePlaylist` 四层兜底**：① 整包回传（保其它元数据）；② 最小 body 重试（仅名字 + 空集合）；③ 完整字段回传（GET 带 `Fields=ProviderIds,PlaylistItems,…` 取真实引用值再 POST）；④ **重建式改名（终极兜底，必成）**：用 `createPlaylist(目标名, 本地片单)` 新建列表 → `deletePlaylist(旧列表)` 删除旧列表，彻底绕开 UpdateItem。若 `listPlaylists` 已存在同名残留（上轮删旧失败）则复用并补差集，保证幂等。
+4. **返回语义变更**：`renamePlaylist` 由 `Future<bool>` 改为 `Future<String?>`——成功返回**可能变化**的最终播放列表 Id（重建式改名会换 Id），失败返回 null（原因见 `lastPlaylistError`）。调用方随之调整：
+   - `_reconcileUpload`（上行同步）：拿到 `newPid != f.playlistId` 时换绑 `f.playlistId=newPid`、标记已同步并 `continue`（片单已随新列表建好，跳过本轮加/移片）。
+   - `renameFolder`（手动改名）：`ok == null` 判定失败、置 `pendingSync`。
+5. **测试**：`sync_folders_upload_test` 假服务端 `renamePlaylist` 同步改 `String?` 签名（失败返 null）；`playlist_http_mock_test` / `rename_playlist_providerids_test` 的 `ok` 断言由 `isTrue` 改为断言返回 Id。全量 235 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 235 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.20-release-arm64.apk`。
+
+---
+
 ## 54. v2.0.18 字幕加粗开关 + 字体可切换（系统/仿宋）
 1. **字幕加粗开关**：`SubtitleStyle` 新增 `bold`（默认 true，对应影院风格截图），面板新增「加粗」Switch；MPV `sub-bold` 随开关切 `yes`/`no`，Flutter 叠加层 `fontWeight` 在 `w800`/`w500` 间切换。
 2. **字幕字体可切换**：`SubtitleStyle` 新增 `font` 枚举（`system`/`fangsong`），面板新增「字体」选择行（系统/仿宋）；Flutter 叠加层 `fontFamily: 'FangSong'`。仿宋采用**开源思源宋体 Noto Serif SC（OFL 可商用）**，按 GB2312 字符集子集化为 `assets/fonts/FangSong.ttf`（2.6MB，原 12MB），pubspec 注册 family `FangSong` 并改写 TTF 内部 family 名为 `FangSong`（两端一致）；MPV 链路选仿宋时把内置 ttf 抽到应用目录、`sub-fonts-dir` 暴露给 libmpv（按内部 family 名匹配）。偏好新增 `bold`/`font` 持久化键。
