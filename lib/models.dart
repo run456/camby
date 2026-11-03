@@ -1132,20 +1132,12 @@ class LibraryStats {
   /// 标签数据来源：Tags 为空时回退 Genres（部分媒体库把标签写在分类里）
   final String tagSource;
 
-  /// 本地累计播放达到「已看」的门槛（秒）：15 分钟
-  static const int kLocalPlayWatchedThreshold = 900;
-
-  static LibraryStats compute(
-    List<MediaItem> items, {
-    Map<String, int> localPlaySeconds = const {},
-  }) {
+  static LibraryStats compute(List<MediaItem> items) {
     final movies = items.where((e) => e.isMovie).length;
     final series = items.where((e) => e.isSeries).length;
     final totalMin = items.fold<int>(0, (a, e) => a + e.runtimeMin);
     bool _isWatched(MediaItem e) =>
-        e.userPlayed ||
-        (e.resumeProgress ?? 0) > 0.9 ||
-        (localPlaySeconds[e.id] ?? 0) >= kLocalPlayWatchedThreshold;
+        e.userPlayed || (e.resumeProgress ?? 0) > 0.9;
     final watched = items.where(_isWatched).toList();
     final watchedMin = watched.fold<int>(0, (a, e) => a + e.runtimeMin);
     final playCount = items.fold<int>(0, (a, e) => a + e.userPlayCount);
@@ -1200,9 +1192,14 @@ class LibraryStats {
       }
     }
 
-    // 偏好演员
+    // 偏好演员：以「继续观看」中的影片为统计对象（v2.0.25 起，去掉本地累计
+    // 播放时长规则；只统计续播进度在 1%~99% 之间的影片，即真正在看的片）。
+    final continuing = items.where((e) {
+      final r = e.resumeProgress ?? 0;
+      return r > 0.01 && r < 0.99;
+    });
     final personFreq = <String, int>{};
-    for (final e in watched) {
+    for (final e in continuing) {
       for (final p in e.people.take(5)) {
         personFreq[p.name] = (personFreq[p.name] ?? 0) + 1;
       }

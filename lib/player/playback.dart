@@ -61,7 +61,11 @@ abstract class PlaybackController {
   set fit(PlaybackFit v);
 
   Widget buildView();
-  Future<void> open(String url, {String? subtitleUrl});
+  Future<void> open(
+    String url, {
+    String? subtitleUrl,
+    String? audioCodec,
+  });
   Future<void> play();
   Future<void> pause();
 
@@ -182,7 +186,11 @@ class ExoController implements PlaybackController {
   }
 
   @override
-  Future<void> open(String url, {String? subtitleUrl}) async {
+  Future<void> open(
+    String url, {
+    String? subtitleUrl,
+    String? audioCodec,
+  }) async {
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     _c = c;
     await c.initialize();
@@ -484,7 +492,11 @@ class MpvController implements PlaybackController {
   }
 
   @override
-  Future<void> open(String url, {String? subtitleUrl}) async {
+  Future<void> open(
+    String url, {
+    String? subtitleUrl,
+    String? audioCodec,
+  }) async {
     // libmpv 默认 hwdec=no（纯软解）。设置页「硬件解码优先」打开时走
     // MediaCodec 硬解，解码失败 mpv 会自动回退软解（auto-safe 语义）。
     try {
@@ -508,6 +520,20 @@ class MpvController implements PlaybackController {
         // 默认 60s 太久：黑屏要等一分钟才暴露问题。30s 足够慢速源，也能
         // 让「10 秒无首帧自动回退 Exo」先一步生效。
         await platform.setProperty('network-timeout', '30');
+        // v2.0.25：杜比视界 Profile 5 用 IPT 色彩空间，需播放器做 IPT→BT.2020
+        // 转换，否则画面整体发绿。让 libmpv 处理 DV 的 RPU 元数据；当地
+        // 播放器不支持 DV 时自动转为 SDR/标准色域。无 DV 的片源此属性为
+        // no-op，不影响普通 HDR/SDR 画面。
+        await platform.setProperty('dovi', 'yes');
+        // v2.0.25：TrueHD / DTS-HD MA 等无损多声道经 ffmpeg 解码后是 7.1 PCM，
+        // Android 的 AudioTrack 常因声道掩码不支持而直接不出声（表现即「无声」）。
+        // 仅对这类编码强制立体声下混，保证有声音；其余编码保持原声道不动。
+        if (audioCodec != null &&
+            (audioCodec.contains('TrueHD') ||
+                audioCodec.contains('DTS-HD') ||
+                audioCodec.contains('DTS-HDMA'))) {
+          await platform.setProperty('audio-channels', 'stereo');
+        }
       }
     } catch (_) {}
     await _player.open(

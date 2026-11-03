@@ -1619,3 +1619,12 @@ bash tools/verify_release.sh --build
 3. **服务器切换 UI 重做（操作隐蔽 / 提示不清）**：取消「长按列表编辑」的隐藏操作，改为每张卡片右侧显式铅笔「编辑」+ 垃圾桶「删除」；非当前服务器新增渐变「切换」按钮并给明确反馈（「正在切换到『X』…」→「已切换到『X』」/ 失败显示去前缀的具体原因）；当前服务器卡片加青色描边 + 「当前」徽标 + 状态行（● 已连接 / ● 离线（显示缓存）/ ○ 点按卡片切换）；区块加操作提示行，空状态重复文案去重。
 
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` 245 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.24-release-arm64.apk`（36.9MB）。
+
+---
+
+## 61. v2.0.25 播放兼容修复 + 偏好演员口径调整（实测反馈）
+1. **杜比视界绿屏修复**：DV Profile 5 用 IPT 色彩空间，需 IPT→BT.2020 转换否则整体发绿。`MpvController.open` 新增 `dovi=yes` 属性（无 DV 时为 no-op）；抽象 `open` 签名与 `ExoController` 同步加 `audioCodec` 参数。Exo 内核 MediaCodec 无法解码 DV P5 会静默黑屏，故 DV 片走 MPV 内核。
+2. **TrueHD / DTS-HD MA 无声修复**：`open()` 新增 `audioCodec` 参数并透传到 MPV；`player_page._start` 起播时传 `widget.item.audioCodec`。检测到 TrueHD / DTS-HD / DTS-HDMA 时强制 `audio-channels=stereo` 立体声下混 —— 这类无损多声道解码成 7.1 PCM 后 Android AudioTrack 常因声道掩码不支持而直接不出声，下混后可正常出声，其余编码保持原声道。
+3. **偏好演员口径调整 + 移除本地累计规则**：`LibraryStats.compute` 移除 `localPlaySeconds` 参数及「已看」判定中的 15 分钟本地累计条件；偏好演员改为统计「继续观看」影片（续播进度 1%~99%）的演员。同步移除 app_state / player_page 整套本地累计播放秒数 machinery（`_localPlaySeconds`、`addLocalPlaySeconds` / `flushLocalPlaySeconds` / 计时器 / 落盘 / 恢复加载）与 `test/local_play_watched_test.dart`；`_kActorExplain` 文案改为描述「继续观看」口径。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 241 全过（移除 4 个已废弃用例）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.25-release-arm64.apk`（≈36.9MB）。

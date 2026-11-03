@@ -193,11 +193,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
-  LibraryStats get stats =>
-      _statsCache ??= LibraryStats.compute(
-        _items,
-        localPlaySeconds: _localPlaySeconds,
-      );
+  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items);
 
   List<MediaItem> get recentlyAdded {
     final cached = _recentCache;
@@ -407,90 +403,6 @@ class AppState extends ChangeNotifier {
   // ---------------- 本地累计播放秒数（已看口径补强，v2.0.23） ----------------
   //
   // 服务端 resumeProgress 只记录「当前播放头位置」，无法反映「累计看了多久」。
-  // 用户反馈：一部影片累计播放超过 15 分钟就算「已看」。这里在本地按条目累加
-  // 实际播放时长（只在播放态计时，暂停/退出不计入），作为「已看」的第三条判定。
-  // 与 Emby 的 UserData 互不干扰：本地计数独立持久化，重装/换端会重置（属预期）。
-
-  /// itemId -> 本地累计播放秒数
-  final Map<String, int> _localPlaySeconds = {};
-
-  /// 本地累计达到「已看」的门槛（秒）：15 分钟
-  static const int localPlayWatchedThreshold = 900;
-
-  int localPlaySeconds(String id) => _localPlaySeconds[id] ?? 0;
-
-  bool _isWatchedByLocal(String id) =>
-      (_localPlaySeconds[id] ?? 0) >= localPlayWatchedThreshold;
-
-  /// 累加某条目本地播放秒数；跨过门槛（变为已看）时让统计派生缓存失效，
-  /// 并把「已看」回写服务器（多设备可见，仅在已连接时触发，失败静默）。
-  void addLocalPlaySeconds(String id, int deltaSec) {
-    if (deltaSec <= 0) return;
-    final was = _isWatchedByLocal(id);
-    _localPlaySeconds[id] = (_localPlaySeconds[id] ?? 0) + deltaSec;
-    final now = _isWatchedByLocal(id);
-    if (was != now) {
-      _invalidateDerived();
-      // 本地累计越过 15 分钟门槛 → 把「已看」回写服务器 UserData，
-      // 让网页端 / 其他设备也能看到这部已看（秒数本身服务端无对应字段，只同步布尔）。
-      if (now && _server != null) unawaited(_syncLocalWatchedToServer(id));
-    }
-    _schedulePersistPlaySeconds();
-  }
-
-  /// 本地累计播放越过 15 分钟门槛 → 把「已看」回写服务器 UserData。
-  /// 仅已连接时触发；失败静默处理（本地已判为已看，下次同步再补）。
-  Future<void> _syncLocalWatchedToServer(String id) async {
-    final s = _server;
-    if (s == null) return;
-    try {
-      await s.markPlayed(id, played: true);
-    } catch (_) {
-      /* 失败静默：本地已判为已看 */
-    }
-  }
-
-  /// 立即落盘（播放页退出 / 切后台时调用，避免 30s 防抖窗口内丢数据）
-  void flushLocalPlaySeconds() {
-    _playSecPersistTimer?.cancel();
-    unawaited(_persistLocalPlaySeconds());
-  }
-
-  Timer? _playSecPersistTimer;
-  void _schedulePersistPlaySeconds() {
-    _playSecPersistTimer?.cancel();
-    _playSecPersistTimer = Timer(
-      const Duration(seconds: 30),
-      () => unawaited(_persistLocalPlaySeconds()),
-    );
-  }
-
-  Future<void> _persistLocalPlaySeconds() async {
-    if (disablePersistence) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'local_play_seconds_json',
-        jsonEncode(_localPlaySeconds),
-      );
-    } catch (_) {}
-  }
-
-  Future<void> _loadLocalPlaySeconds() async {
-    if (disablePersistence) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('local_play_seconds_json');
-      if (raw == null || raw.isEmpty) return;
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      _localPlaySeconds
-        ..clear()
-        ..addAll({
-          for (final e in data.entries) e.key: (e.value as num).toInt(),
-        });
-    } catch (_) {}
-  }
-
   // ---------------- 收藏夹（本地索引） + 演员收藏 ----------------
 
   List<FavoriteFolder> _folders = const [];
@@ -1141,7 +1053,6 @@ class AppState extends ChangeNotifier {
     await _loadCache();
     await _loadFolders();
     await _loadPendingProgress();
-    await _loadLocalPlaySeconds();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(
