@@ -345,6 +345,32 @@ class _ServersSection extends StatelessWidget {
     if (ok == true) await state.deleteServer(p.id);
   }
 
+  /// 切换服务器：给出明确反馈（进行中 / 成功 / 失败原因）。
+  /// 已是当前服务器则直接打开编辑，避免无意义的重连。
+  Future<void> _switchTo(BuildContext context, ServerProfile p) async {
+    if (p.id == state.activeServerId &&
+        !state.demoMode &&
+        state.server != null) {
+      _openSheet(context, p);
+      return;
+    }
+    final label = p.name.isEmpty ? p.host : p.name;
+    showToast(context, '正在切换到「$label」…');
+    final ok = await state.connectProfile(p);
+    if (!context.mounted) return;
+    if (ok) {
+      showToast(
+        context,
+        '已切换到「$label」',
+        icon: Icons.check_circle_outline_rounded,
+      );
+    } else {
+      final raw = state.error ?? '连接失败';
+      final msg = raw.replaceFirst(RegExp(r'^(EmbyException|Exception):\s*'), '');
+      showToast(context, msg, icon: Icons.error_outline_rounded);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final servers = state.servers;
@@ -389,6 +415,11 @@ class _ServersSection extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 7),
+        const Text(
+          '点按卡片切换 · 右侧铅笔编辑 · 垃圾桶删除',
+          style: TextStyle(fontSize: 10.5, color: AppColors.muted),
+        ),
         const SizedBox(height: 9),
         if (servers.isEmpty)
           Glass(
@@ -418,173 +449,18 @@ class _ServersSection extends StatelessWidget {
                   onTap: () => _openSheet(context, null),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  '支持 Emby / Jellyfin，可保存多个并随时切换',
-                  style: TextStyle(fontSize: 10.5, color: AppColors.muted),
-                ),
               ],
             ),
           )
         else
           for (final p in servers) ...[
-            Glass(
-              padding: EdgeInsets.zero,
-              child: LiquidPress(
-                radius: 24,
-                scale: 0.985,
-                glow: 0.16,
-                tint: 0.12,
-                onTap: () async {
-                  if (p.id == activeId && connected) {
-                    _openSheet(context, p);
-                    return;
-                  }
-                  await state.connectProfile(p);
-                },
-                onLongPress: () => _openSheet(context, p),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(13, 11, 12, 11),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          gradient: LinearGradient(
-                            colors: p.kind == ServerKind.jellyfin
-                                ? const [Color(0xFF7B5CFF), Color(0xFF4F8CFF)]
-                                : const [AppColors.accent, Color(0xFF159F88)],
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            p.kind == ServerKind.jellyfin ? 'J' : 'E',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 11),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    p.name.isEmpty ? p.host : p.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(5),
-                                    color: Colors.white.withOpacity(0.08),
-                                  ),
-                                  child: Text(
-                                    p.kindLabel,
-                                    style: const TextStyle(
-                                      fontSize: 8.5,
-                                      color: AppColors.muted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${p.address} · ${p.username}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: AppColors.muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (p.id == activeId && connected)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: const Color(0x2638E8C8),
-                            border: Border.all(color: const Color(0x5538E8C8)),
-                          ),
-                          child: const Text(
-                            '已连接',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.accent,
-                            ),
-                          ),
-                        )
-                      else if (p.id == activeId)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(999),
-                            color: const Color(0x26FFC55A),
-                            border: Border.all(color: const Color(0x55FFC55A)),
-                          ),
-                          child: const Text(
-                            '离线',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.warn,
-                            ),
-                          ),
-                        )
-                      else
-                        const Icon(
-                          Icons.play_arrow_rounded,
-                          size: 18,
-                          color: AppColors.muted,
-                        ),
-                      const SizedBox(width: 2),
-                      LiquidPress(
-                        onTap: () => _confirmDelete(context, p),
-                        radius: 12,
-                        semanticLabel: '删除服务器',
-                        child: const Padding(
-                          padding: EdgeInsets.all(4),
-                          child: Icon(
-                            Icons.delete_outline_rounded,
-                            size: 17,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            _ServerCard(
+              profile: p,
+              active: p.id == activeId,
+              connected: connected && p.id == activeId,
+              onSwitch: () => _switchTo(context, p),
+              onEdit: () => _openSheet(context, p),
+              onDelete: () => _confirmDelete(context, p),
             ),
             const SizedBox(height: 8),
           ],
@@ -626,6 +502,213 @@ class _ServersSection extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// 服务器卡片（v2.0.24 重做）：当前服务器高亮 + 显式的切换/编辑/删除操作，
+/// 不再把编辑藏到长按里，切换也有明确反馈（见 [_ServersSection._switchTo]）。
+class _ServerCard extends StatelessWidget {
+  const _ServerCard({
+    required this.profile,
+    required this.active,
+    required this.connected,
+    required this.onSwitch,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final ServerProfile profile;
+  final bool active;
+  final bool connected;
+  final VoidCallback onSwitch;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    final statusText = active
+        ? (connected ? '● 已连接' : '● 离线（显示缓存）')
+        : '○ 点按卡片切换';
+    final statusColor = active
+        ? (connected ? AppColors.accent : AppColors.warn)
+        : AppColors.muted;
+    return Glass(
+      padding: EdgeInsets.zero,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: active
+              ? Border.all(color: AppColors.accent.withOpacity(0.55), width: 1.3)
+              : null,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(13, 11, 9, 11),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  gradient: LinearGradient(
+                    colors: p.kind == ServerKind.jellyfin
+                        ? const [Color(0xFF7B5CFF), Color(0xFF4F8CFF)]
+                        : const [AppColors.accent, Color(0xFF159F88)],
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    p.kind == ServerKind.jellyfin ? 'J' : 'E',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            p.name.isEmpty ? p.host : p.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(5),
+                            color: Colors.white.withOpacity(0.08),
+                          ),
+                          child: Text(
+                            p.kindLabel,
+                            style: const TextStyle(
+                              fontSize: 8.5,
+                              color: AppColors.muted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (active)
+                          Container(
+                            margin: const EdgeInsets.only(left: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(5),
+                              color: const Color(0x2638E8C8),
+                            ),
+                            child: const Text(
+                              '当前',
+                              style: TextStyle(
+                                fontSize: 8.5,
+                                color: AppColors.accent,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${p.address} · ${p.username}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              if (!active)
+                LiquidPress(
+                  onTap: onSwitch,
+                  radius: 14,
+                  scale: 0.94,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: const LinearGradient(
+                        colors: [AppColors.accent, Color(0xFF159F88)],
+                      ),
+                    ),
+                    child: const Text(
+                      '切换',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                const SizedBox(width: 2),
+              LiquidPress(
+                onTap: onEdit,
+                radius: 12,
+                semanticLabel: '编辑服务器',
+                child: const Padding(
+                  padding: EdgeInsets.all(5),
+                  child: Icon(
+                    Icons.edit_outlined,
+                    size: 17,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+              LiquidPress(
+                onTap: onDelete,
+                radius: 12,
+                semanticLabel: '删除服务器',
+                child: const Padding(
+                  padding: EdgeInsets.all(5),
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 17,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

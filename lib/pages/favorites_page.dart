@@ -47,7 +47,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final state = widget.state;
     final tabs = ['影片收藏', '演员收藏'];
     final subtitle = _tab == 0
-        ? '${state.favorites.length} 部 · ${state.folders.length} 个收藏夹'
+        ? '${state.favorites.length} 部 · ${state.activeFolders.length} 个收藏夹'
         : '${state.favoritePersons.length} 位演员';
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -213,7 +213,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   Widget _movieWall() {
     final state = widget.state;
-    final folders = state.folders;
+    final folders = state.activeFolders;
     final all = state.favorites;
     final allCovers = all.take(4).toList();
     final tiles = folders.length + 2; // 全部 + 自定义夹 + 新建

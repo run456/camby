@@ -236,8 +236,8 @@ class _FolderSheetState extends State<_FolderSheet> {
     if (!_fav) return;
     final name = _clip(_ctrl.text);
     if (name.isEmpty) return;
-    // 同名就直接复用，避免出现两个「想看」
-    final exist = _state.folders.where((f) => f.name == name);
+    // 同名就直接复用，避免出现两个「想看」（只检查当前服务器的收藏夹）
+    final exist = _state.activeFolders.where((f) => f.name == name);
     if (exist.isNotEmpty) {
       setState(() {
         _selected.add(exist.first.id);
@@ -274,7 +274,7 @@ class _FolderSheetState extends State<_FolderSheet> {
     final bottomPad = media.viewInsets.bottom > 0
         ? 14.0
         : 14.0 + media.padding.bottom;
-    final folders = _state.folders;
+    final folders = _state.activeFolders;
 
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom + 8),

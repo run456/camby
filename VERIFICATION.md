@@ -1610,3 +1610,12 @@ bash tools/verify_release.sh --build
 - [ ] 播放控件（v2.0.8 起）：手机端与上一版**逐像素一致**；平板端按钮/间距明显放大且无溢出 —— 重点看：中央三键（84/56/44）、顶栏胶囊、底栏胶囊 38 高、进度条按下 11、双击气泡不压按钮、亮度/音量条离边 72 不顶挖孔
 - [ ] 性能：`PERFORMANCE.md` §2 阈值表（6 列网格滚动、切 Tab、详情首帧、内存）
 - [ ] 回滚锚点：发布前打 tag，出问题 `git reset --hard <tag>`
+
+---
+
+## 60. v2.0.24 多服务器切换与收藏夹归属修复（实测反馈）
+1. **本地累计播放越过 15 分钟 → 回写服务器「已看」**：`addLocalPlaySeconds` 在累计秒数跨过 `localPlayWatchedThreshold=900s` 且已连接时，触发 `_syncLocalWatchedToServer(id)` → `_server.markPlayed(id, played:true)` 把「已看」布尔写回服务端 UserData（失败静默）。累计秒数本身服务端无对应字段，仅同步布尔、不同步数字，避免污染续播点。
+2. **切换服务器后收藏夹仍显示旧服务器缓存（bug 修复）**：原 `folders` 为跨所有服务器的扁平列表，收藏页直接展示全部。新增 `activeFolders` getter（按 `_activeServerId` 过滤，旧版 `serverId==null` 归当前服务器兼容）；收藏页头部计数 + 网格、`folder_sheet` 弹层（展示与同名查重）均改为只展示当前服务器名下收藏夹。切到 Jellyfin 即拉取其播放列表，Emby 的夹不再混入。
+3. **服务器切换 UI 重做（操作隐蔽 / 提示不清）**：取消「长按列表编辑」的隐藏操作，改为每张卡片右侧显式铅笔「编辑」+ 垃圾桶「删除」；非当前服务器新增渐变「切换」按钮并给明确反馈（「正在切换到『X』…」→「已切换到『X』」/ 失败显示去前缀的具体原因）；当前服务器卡片加青色描边 + 「当前」徽标 + 状态行（● 已连接 / ● 离线（显示缓存）/ ○ 点按卡片切换）；区块加操作提示行，空状态重复文案去重。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 245 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.24-release-arm64.apk`（36.9MB）。

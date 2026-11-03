@@ -422,13 +422,32 @@ class AppState extends ChangeNotifier {
   bool _isWatchedByLocal(String id) =>
       (_localPlaySeconds[id] ?? 0) >= localPlayWatchedThreshold;
 
-  /// 累加某条目本地播放秒数；跨过门槛（变为已看）时让统计派生缓存失效以便重算。
+  /// 累加某条目本地播放秒数；跨过门槛（变为已看）时让统计派生缓存失效，
+  /// 并把「已看」回写服务器（多设备可见，仅在已连接时触发，失败静默）。
   void addLocalPlaySeconds(String id, int deltaSec) {
     if (deltaSec <= 0) return;
     final was = _isWatchedByLocal(id);
     _localPlaySeconds[id] = (_localPlaySeconds[id] ?? 0) + deltaSec;
-    if (was != _isWatchedByLocal(id)) _invalidateDerived();
+    final now = _isWatchedByLocal(id);
+    if (was != now) {
+      _invalidateDerived();
+      // 本地累计越过 15 分钟门槛 → 把「已看」回写服务器 UserData，
+      // 让网页端 / 其他设备也能看到这部已看（秒数本身服务端无对应字段，只同步布尔）。
+      if (now && _server != null) unawaited(_syncLocalWatchedToServer(id));
+    }
     _schedulePersistPlaySeconds();
+  }
+
+  /// 本地累计播放越过 15 分钟门槛 → 把「已看」回写服务器 UserData。
+  /// 仅已连接时触发；失败静默处理（本地已判为已看，下次同步再补）。
+  Future<void> _syncLocalWatchedToServer(String id) async {
+    final s = _server;
+    if (s == null) return;
+    try {
+      await s.markPlayed(id, played: true);
+    } catch (_) {
+      /* 失败静默：本地已判为已看 */
+    }
   }
 
   /// 立即落盘（播放页退出 / 切后台时调用，避免 30s 防抖窗口内丢数据）
@@ -479,6 +498,19 @@ class AppState extends ChangeNotifier {
   bool _favPersonsLoading = false;
 
   List<FavoriteFolder> get folders => _folders;
+
+  /// 仅当前服务器名下的收藏夹。
+  ///
+  /// v2.0.24：多服务器切换后，收藏页/收藏夹只展示「当前服务器」的收藏夹，
+  /// 不再把上一台服务器的缓存夹混进来（之前切换 Jellyfin 后仍显示 Emby 的夹）。
+  /// 旧版 serverId 为 null 的夹归到「当前服务器」以兼容历史数据。
+  List<FavoriteFolder> get activeFolders {
+    final sid = _activeServerId;
+    return _folders
+        .where((f) => f.serverId == sid || (sid == null && f.serverId == null))
+        .toList();
+  }
+
   List<CastMember> get favoritePersons => _favPersons;
   bool get favPersonsLoading => _favPersonsLoading;
 
