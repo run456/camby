@@ -193,7 +193,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
-  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items);
+  LibraryStats get stats =>
+      _statsCache ??= LibraryStats.compute(_items, playCounts: _playCount);
 
   List<MediaItem> get recentlyAdded {
     final cached = _recentCache;
@@ -400,9 +401,65 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  // ---------------- 本地累计播放秒数（已看口径补强，v2.0.23） ----------------
+  // ---------------- 本地播放次数（偏好影片，v2.0.26） ----------------
   //
-  // 服务端 resumeProgress 只记录「当前播放头位置」，无法反映「累计看了多久」。
+  // 统计页「偏好影片」的数据源：每次在本 App 起播（非演示、非引擎切换重建）
+  // 即 +1，作为本机独立的播放计数。与服务端活动日志/UserPlayCount 无关，
+  // 重装/换端会重置（属预期）。持久化到 SharedPreferences。
+
+  /// itemId -> 本地累计播放次数（每次起播 +1）
+  final Map<String, int> _playCount = {};
+
+  int getPlayCount(String id) => _playCount[id] ?? 0;
+
+  /// 起播时调用：本地播放次数 +1，并让统计派生缓存失效以便「偏好影片」即时反映。
+  void addPlayCount(String id) {
+    _playCount[id] = (_playCount[id] ?? 0) + 1;
+    _invalidateDerived();
+    _schedulePersistPlayCount();
+  }
+
+  /// 立即落盘（播放页退出时调用，避免 30s 防抖窗口内丢数据）
+  void flushPlayCount() {
+    _playCountPersistTimer?.cancel();
+    unawaited(_persistPlayCount());
+  }
+
+  Timer? _playCountPersistTimer;
+  void _schedulePersistPlayCount() {
+    _playCountPersistTimer?.cancel();
+    _playCountPersistTimer = Timer(
+      const Duration(seconds: 30),
+      () => unawaited(_persistPlayCount()),
+    );
+  }
+
+  Future<void> _persistPlayCount() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'movie_play_count_json',
+        jsonEncode(_playCount),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadPlayCount() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('movie_play_count_json');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      _playCount
+        ..clear()
+        ..addAll({
+          for (final e in data.entries) e.key: (e.value as num).toInt(),
+        });
+    } catch (_) {}
+  }
+
   // ---------------- 收藏夹（本地索引） + 演员收藏 ----------------
 
   List<FavoriteFolder> _folders = const [];
@@ -1053,6 +1110,7 @@ class AppState extends ChangeNotifier {
     await _loadCache();
     await _loadFolders();
     await _loadPendingProgress();
+    await _loadPlayCount();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(

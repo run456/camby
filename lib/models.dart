@@ -1064,6 +1064,7 @@ class LibraryStats {
     required this.tagCounts,
     required this.tagDistribution,
     required this.topCast,
+    required this.topMovies,
     required this.res4kPct,
     required this.res1080Pct,
     required this.res720Pct,
@@ -1103,6 +1104,9 @@ class LibraryStats {
   /// 演员影片 Top（全库按参演影片数）
   final List<Map<String, dynamic>> topCast;
 
+  /// 偏好影片 Top（本地 App 播放次数取前 10 部电影）
+  final List<Map<String, dynamic>> topMovies;
+
   /// 画质规格占比（0-1）
   final double res4kPct;
   final double res1080Pct;
@@ -1132,7 +1136,10 @@ class LibraryStats {
   /// 标签数据来源：Tags 为空时回退 Genres（部分媒体库把标签写在分类里）
   final String tagSource;
 
-  static LibraryStats compute(List<MediaItem> items) {
+  static LibraryStats compute(
+    List<MediaItem> items, {
+    Map<String, int> playCounts = const {},
+  }) {
     final movies = items.where((e) => e.isMovie).length;
     final series = items.where((e) => e.isSeries).length;
     final totalMin = items.fold<int>(0, (a, e) => a + e.runtimeMin);
@@ -1192,14 +1199,21 @@ class LibraryStats {
       }
     }
 
-    // 偏好演员：以「继续观看」中的影片为统计对象（v2.0.25 起，去掉本地累计
-    // 播放时长规则；只统计续播进度在 1%~99% 之间的影片，即真正在看的片）。
-    final continuing = items.where((e) {
+    // 偏好演员：统计对象 = 「继续观看」∪「完成观看」的影片（v2.0.26 起，在
+    // 继续观看基础上并入已完成观看的影片，两种都算「真正看过的片」，演员各
+    // 计 1 次；同一部片不会重复计数）。去掉了 v2.0.25 之前的本地累计时长规则。
+    final includedActorIds = <String>{};
+    final actorSource = <MediaItem>[];
+    for (final e in items) {
       final r = e.resumeProgress ?? 0;
-      return r > 0.01 && r < 0.99;
-    });
+      final continuing = r > 0.01 && r < 0.99;
+      final watched = e.userPlayed || r > 0.9;
+      if ((continuing || watched) && includedActorIds.add(e.id)) {
+        actorSource.add(e);
+      }
+    }
     final personFreq = <String, int>{};
-    for (final e in continuing) {
+    for (final e in actorSource) {
       for (final p in e.people.take(5)) {
         personFreq[p.name] = (personFreq[p.name] ?? 0) + 1;
       }
@@ -1257,6 +1271,35 @@ class LibraryStats {
         )
         .toList();
 
+    // ── 偏好影片：本地 App 播放次数（每次起播 +1）取前 10 部影片（仅电影）──
+    // 与服务端活动日志的「最常看作品 Top」不同：这里只认本 App 的本地播放计数，
+    // 不依赖服务器权限，重装/换端会重置（属预期）。
+    // 先筛出「电影 + 有播放次数」的条目再排序取前 10，保证榜单始终是 10 部影片，
+    // 不会被高播放次数的剧集挤掉名额。
+    final playRanked = <Map<String, dynamic>>[];
+    {
+      final moviePlays = <Map<String, dynamic>>[];
+      for (final e in items) {
+        if (!e.isMovie) continue;
+        final c = playCounts[e.id] ?? 0;
+        if (c > 0) {
+          moviePlays.add({'item': e, 'count': c});
+        }
+      }
+      moviePlays.sort(
+        (a, b) =>
+            (b['count'] as int).compareTo(a['count'] as int),
+      );
+      final maxPC = moviePlays.isEmpty ? 1 : moviePlays.first['count'] as int;
+      for (final e in moviePlays.take(10)) {
+        playRanked.add({
+          'item': e['item'],
+          'count': e['count'],
+          'weight': (e['count'] as int) / maxPC,
+        });
+      }
+    }
+
     // ── 画质规格占比 ──
     final n = items.isEmpty ? 1 : items.length;
     double pct(bool Function(MediaItem) f) => items.where(f).length / n;
@@ -1297,8 +1340,7 @@ class LibraryStats {
 
     // 缺海报 / 缺简介的标题
     const noOverview = '暂无简介';
-    final missPoster = items
-        .where((e) => e.posterUrl == null)
+    final missPoster = items        .where((e) => e.posterUrl == null)
         .map((e) => e.name)
         .toList();
     final missOverview = items
@@ -1340,6 +1382,7 @@ class LibraryStats {
       tagCounts: tagCounts,
       tagDistribution: tagDist,
       topCast: topCast,
+      topMovies: playRanked,
       res4kPct: res4k,
       res1080Pct: res1080,
       res720Pct: res720,

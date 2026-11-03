@@ -1628,3 +1628,13 @@ bash tools/verify_release.sh --build
 3. **偏好演员口径调整 + 移除本地累计规则**：`LibraryStats.compute` 移除 `localPlaySeconds` 参数及「已看」判定中的 15 分钟本地累计条件；偏好演员改为统计「继续观看」影片（续播进度 1%~99%）的演员。同步移除 app_state / player_page 整套本地累计播放秒数 machinery（`_localPlaySeconds`、`addLocalPlaySeconds` / `flushLocalPlaySeconds` / 计时器 / 落盘 / 恢复加载）与 `test/local_play_watched_test.dart`；`_kActorExplain` 文案改为描述「继续观看」口径。
 
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` 241 全过（移除 4 个已废弃用例）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.25-release-arm64.apk`（≈36.9MB）。
+
+---
+
+## §62 · v2.0.26 (226) 偏好演员并入完成观看 + 偏好影片本地播放次数（实测反馈）
+
+1. **偏好演员统计扩展**：统计源从「继续观看」扩为「继续观看 ∪ 完成观看」（完成观看=已看标记或进度≥90%），演员各计 1 次、同片不重复；`_kActorExplain` 文案更新。
+2. **偏好影片（新区块）**：`LibraryStats.compute` 新增 `playCounts` 参数，输出 `topMovies`（按本机播放次数取前 10 部**电影**，先筛电影再排序，剧集不占名额）。
+3. **本地播放次数链路**：`app_state` 新增 `_playCount`（`movie_play_count_json` 持久化）+ `addPlayCount`/`getPlayCount`/`flushPlayCount`/`_loadPlayCount`；`player_page` 起播成功后 `_playCounted` 标志位记一次（引擎切换重建不重复）；`stats.topMovies` 经 `_TopMovies` 组件渲染（海报+片名+「N 次」角标）。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 244 全过（新增 3 个用例：偏好演员含完成观看、topMovies 取前10部电影、AppState 累加）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.26-release-arm64.apk`（≈36.9MB）。

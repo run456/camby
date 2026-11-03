@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
 import '../layout.dart';
+import '../widgets/cached_image.dart';
 
 /// 数据总结：液态玻璃风格
 /// A 本地库聚合（精确） + B Playback Reporting / 活动日志（真实行为）
@@ -219,6 +220,14 @@ class _StatsPageState extends State<StatsPage> {
               title: '演员影片 Top',
               badge: const _SourceBadge(text: '按参演影片数'),
               child: _TopPeople(people: stats.topCast, unit: '部'),
+            ),
+            const SizedBox(height: 10),
+
+            // 偏好影片：本地 App 播放次数取前 10 部（仅电影）
+            _SectionCard(
+              title: '偏好影片',
+              badge: const _SourceBadge(text: '本机播放次数'),
+              child: _TopMovies(movies: stats.topMovies),
             ),
             const SizedBox(height: 10),
 
@@ -479,14 +488,15 @@ void _showExplainDialog(BuildContext context, String title, String message) {
 
 /// 偏好演员口径说明文案
 const String _kActorExplain = '''
-统计口径：在「继续观看」中的影片里统计每位演员的出现频次，按频次从高到低取前 5 名。
+统计口径：在「继续观看」与「完成观看」的影片里统计每位演员的出现频次，按频次从高到低取前 5 名。
 
-什么叫「继续观看」：播放进度在 1%～99% 之间的影片（即正在看、还没看完的片）；
-进度 0%（还没开始）或 ≥99%（基本看完）的影片都不计入。
+什么叫「继续观看」：播放进度在 1%～99% 之间的影片（正在看、还没看完的片）。
+什么叫「完成观看」：服务器标记为已看，或播放进度 ≥90% 的影片。
+进度 0%（还没开始）的影片不计入；同一部片不会重复计数。
 
 每部影片最多取前 5 位演员参与计数（按影片内演员顺序去重取前 5），避免主角反复刷榜。
 
-「次」的含义：该演员出现在多少部「继续观看」影片中（即出现频次）。
+「次」的含义：该演员出现在多少部「继续观看 / 完成观看」影片中（即出现频次）。
 
 条形长度：按「出现次数 ÷ 最高次数」归一化，仅用于显示相对长短；右侧数字标签为实际的「次」数。''';
 
@@ -1248,6 +1258,95 @@ class _TopPeople extends StatelessWidget {
                   '${p['count']} $unit',
                   textAlign: TextAlign.right,
                   style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+/// 偏好影片：本地 App 播放次数取前 10 部（仅电影）。
+///
+/// 海报 + 片名（单行省略）+ 播放次数。无海报时用渐变占位块兜底。
+class _TopMovies extends StatelessWidget {
+  const _TopMovies({required this.movies});
+  final List<Map<String, dynamic>> movies;
+
+  @override
+  Widget build(BuildContext context) {
+    if (movies.isEmpty) {
+      return const Text(
+        '暂无播放记录（本机播放次数还是 0，在本 App 看过的影片会按次数出现在这里）',
+        style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
+      );
+    }
+    return Wrap(
+      spacing: 9,
+      runSpacing: 11,
+      children: movies.map((m) {
+        final item = m['item'] as MediaItem;
+        final count = (m['count'] as int?) ?? 0;
+        final poster = item.posterUrlFor(160) ?? item.posterUrl;
+        return SizedBox(
+          width: 58,
+          child: Column(
+            children: [
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 58,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        gradient: AppColors.ctaGradient,
+                      ),
+                      child: poster == null
+                          ? null
+                          : CachedImage(
+                              url: poster,
+                              fit: BoxFit.cover,
+                              memWidth: 116,
+                            ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 3,
+                    bottom: 3,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1.5,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        color: Colors.black.withOpacity(0.62),
+                      ),
+                      child: Text(
+                        '$count 次',
+                        style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
