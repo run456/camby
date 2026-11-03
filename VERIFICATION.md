@@ -1482,6 +1482,15 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 58. v2.0.22 统计页两项反馈（去重环 + 偏好演员口径说明）
+1. **观看完成率顶部重复环移除**：v2.0.21 把「库存覆盖率」并入「观看完成率」后，`_CompletionCard` 里出现两个同为 7% 的环——顶部 `CircularProgressIndicator(value: completionRate)` 配文案「库内已看完影片占比 / 按底部播放进度 / 已看标记计算」，与底部 `_CoverageGauge(watchCoverage)`（「已看 X / 库内 Y 部 / 还有 Z 部 未看」）口径一致、数值相同，属重复。现删除顶部环 Row 及多余分隔线，卡片只保留 `_CoverageGauge` 一个环 + 最近播放 10 部列表。概览网格的「完成率」(completionRate) 不受影响照常显示。
+2. **偏好演员「已看加权」→「?」说明按钮**：`_SectionCard(badge:)` 原 `const _SourceBadge(text: '已看加权', ab: true)` 改挂新组件 `_ExplainButton(title, message)`（圆形「?」+ 边框，onTap 弹 `AlertDialog`）。文案常量 `_kActorExplain` 说明口径：①「已看」= 服务器已看标记 或 播放进度 >90%；② 每部已看影片最多取前 5 位演员（按影片内顺序去重）计频；③「次」= 该演员出现在多少部已看影片；④ 条形长度按「次数÷最高次数」归一化仅用于显示比例。口径与 `models.buildLibraryStats` 的 `personFreq` 统计逻辑一致（`watched.where(userPlayed || resume>0.9)` → `e.people.take(5)` 计频 → top5 / 归一化）。
+3. **测试**：`test/stats_explain_test.dart` —— 顶部环文案 `库内已看完影片占比` 消失、`已看加权` 消失、`?` 按钮存在；`tester.tap(?)` 后弹窗含「偏好演员 · 计算说明 / 什么叫已看一次 / 进度超过 90%」，点「知道了」关闭。统计页有持续动画，断言用定长 `pump` 代替 `pumpAndSettle`（否则超时）。全量 241 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 241 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.22-release-arm64.apk`。
+
+---
+
 ## 56. v2.0.20 收藏夹改名 400（实测反馈）
 1. **问题**：用户服务器对 `POST /Items/{id}`（UpdateItem）无论整包还是最小 body 都返回 400（「人妻」改名永远失败，手机/平板端同步均报 400）。v2.0.4 的「补 ProviderIds 空字典」与 v2.0.16 的「最小 body 重试」在该服务器均不奏效。
 2. **根因**：该 Emby 实例的 UpdateItem 端点对播放列表改名路径死 400（与字段是否完整无关），而创建/删除/加片为独立端点、实测可用。

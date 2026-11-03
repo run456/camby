@@ -206,7 +206,10 @@ class _StatsPageState extends State<StatsPage> {
             // 偏好演员
             _SectionCard(
               title: '偏好演员',
-              badge: const _SourceBadge(text: '已看加权', ab: true),
+              badge: const _ExplainButton(
+                title: '偏好演员 · 计算说明',
+                message: _kActorExplain,
+              ),
               child: _TopPeople(people: stats.topPeople, unit: '次'),
             ),
             const SizedBox(height: 10),
@@ -376,6 +379,91 @@ List<Widget> _tabletColumns(bool wide, List<Widget> children) {
     ),
   ];
 }
+
+/// 偏好演员等卡片标题行的「?」说明按钮：点击弹出计算口径说明
+class _ExplainButton extends StatelessWidget {
+  const _ExplainButton({required this.title, required this.message});
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1B2233),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withOpacity(0.12)),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFEAF3FF),
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 12.5,
+                height: 1.65,
+                color: Color(0xFFC9D6F2),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text(
+                '知道了',
+                style: TextStyle(color: AppColors.cyan, fontSize: 12.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+      child: Container(
+        width: 17,
+        height: 17,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withOpacity(0.45),
+            width: 1,
+          ),
+        ),
+        child: const Center(
+          child: Text(
+            '?',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFFD8E2FB),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 偏好演员口径说明文案
+const String _kActorExplain = '''
+统计口径：在「已看」影片里统计每位演员的出现频次，按频次从高到低取前 5 名。
+
+什么叫「已看一次」：满足以下任一即计为 1 部已看影片——
+· 服务器标记为「已看」（已看标记）
+· 播放进度超过 90%
+
+每部已看影片最多取前 5 位演员参与计数（按影片内演员顺序去重取前 5），避免主角反复刷榜。
+
+「次」的含义：该演员出现在多少部「已看」影片中（即出现频次）。
+
+条形长度：按「出现次数 ÷ 最高次数」归一化，仅用于显示相对长短；右侧数字标签为实际的「次」数。''';
 
 /// 来源小标签
 class _SourceBadge extends StatelessWidget {
@@ -717,48 +805,7 @@ class _CompletionCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            SizedBox(
-              height: 72,
-              width: 72,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: stats.completionRate,
-                    strokeWidth: 7,
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    valueColor: const AlwaysStoppedAnimation(AppColors.cyan),
-                  ),
-                  Text(
-                    '${(stats.completionRate * 100).round()}%',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                '库内已看完影片占比\n按底部播放进度 / 已看标记计算',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: AppColors.muted,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-
-        // v2.0.21：库存覆盖率数据并入（已看 / 库内 / 未看）
-        Container(height: 1, color: Colors.white.withOpacity(0.07)),
-        const SizedBox(height: 8),
+        // 观看完成率 = 已看 / 库内（与「库内已看完影片占比」同一口径，去重只展示一次）
         _CoverageGauge(
           rate: stats.watchCoverage,
           watched: stats.watchedCount,
