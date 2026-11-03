@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.33 (233)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.34 (234)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -120,6 +120,13 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.34 (234) 修复请求参数被覆盖的底层 bug + 按 LocalTrailerCount 保底全库扫描（实测诊断）
+- **底层 bug（关键）**：`_getJsonAny` / `_getAny` 用 `Uri.parse(path).replace(queryParameters: qp)`，会把 **URL 里内嵌的 `?ParentId=..&Recursive=true` 整体覆盖**，只留 `UserId`/token。于是子项查询实际变成了「查根目录全量」，诊断里那「8 项」全是媒体库文件夹（本地珍藏/合集/123strm/播放列表…），「4801 项」是整台服务器——**全是假数据**。改为**合并 `base.queryParameters` + 显式 query**，并抽成 `buildRequestUri()` 加单测回归
+- **权威信号 `LocalTrailerCount`**：实测该片 `LocalTrailerCount=1`，说明 Emby 明确知道有 1 个本地预告片。`trailers()` 现在先读详情拿 `LocalTrailerCount` + `Path`，再走多路
+- **子项查询补 `Recursive=false`**：电影的直接子项就是花絮，四种组合（Recursive false/true × 是否 IncludeItemTypes）全试取并集
+- **保底全库扫描**：前几路全落空且 `LocalTrailerCount>0` 时，拉库内 `Trailer`（无则 `Video`）+ 客户端按影片目录前缀过滤（Emby 忽略 `PathStartsWith`）。该路只在必要触发，且只带 `Path/ExtraType` 两字段控制体积
+- **诊断更准**：修合并 bug 后，诊断终于显示**真实子项**；末尾新增「全库扫描 · Trailer 共 N 条 · 本片目录命中 M」，可直接判定是「没取对」还是「Emby 压根没索引这条预告片」
 
 ### v2.0.33 (233) 按 Path 前缀反查 trailers/ 目录 + 诊断明细（实测诊断结果）
 - **实测数据**：`/Trailer`、`/LocalTrailers`、`/SpecialFeatures` 全部 **404**；子项查询（两种参数组合）均 **200 但只返回 8 项、命中 0**。说明 Emby 没有为 `trailers/` 子目录里的预告片建「本片子条目」，之前的 D 路（子项过滤）因此永远拿不到

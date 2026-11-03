@@ -1696,3 +1696,12 @@ bash tools/verify_release.sh --build
 3. **诊断增强**：输出 `LocalTrailerCount` / `RemoteTrailerCount` / `RemoteTrailers` 数量、真实 `Path`、子项查询每条明细（Name/Type/ExtraType/Path），以及 PathStartsWith 反查结果。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 257 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.33-release-arm64.apk`。
+
+## §70 · v2.0.34 (234) 请求参数被覆盖的底层 bug + LocalTrailerCount 保底扫描
+
+1. **根因（底层）**：`_getJsonAny`/`_getAny` 用 `Uri.parse(path).replace(queryParameters: qp)`，会**覆盖** path 内嵌的查询参数（`ParentId`、`Recursive`、`IncludeItemTypes`、`PathStartsWith`…），只保留 `UserId`+token。故诊断中子项查询实际返回根目录视图（8 个 `CollectionFolder`）与全库（4801 项），「命中 0」是假象。修复：合并 `base.queryParameters` + 显式 query；抽 `buildRequestUri()`，新增 `test/request_uri_test.dart` 4 条回归。
+2. **权威信号**：实测 `LocalTrailerCount=1`（该片确实有 1 个本地预告片）。`trailers()` 先读详情取 `LocalTrailerCount`+`Path`；子项查询扩为 `Recursive=false/true` × `IncludeItemTypes` 四组合。
+3. **保底全库扫描**：前几路空且 `LocalTrailerCount>0` 时，拉 `IncludeItemTypes=Trailer`（无则 `Video`）并客户端按影片目录前缀筛（Emby 忽略 `PathStartsWith`），只带 `Path,ExtraType` 控制体积。
+4. **诊断**：修复后显示真实子项；末尾加「全库扫描 · Trailer 共 N · 本片目录命中 M」，可判定是取数问题还是 Emby 未索引。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 261 全过（新增 request_uri 4 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.34-release-arm64.apk`。
