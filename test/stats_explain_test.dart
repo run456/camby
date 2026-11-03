@@ -1,5 +1,6 @@
 import 'package:camby/app_state.dart';
 import 'package:camby/pages/stats_page.dart';
+import 'package:camby/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// v2.0.22 统计页两项反馈：
 /// ① 观看完成率卡片顶部的重复 7% 环（「库内已看完影片占比」）移除，只保留「已看/库内」环
 /// ② 「偏好演员」标题行的「已看加权」胶囊改为「?」按钮，点击弹出计算口径说明
+///
+/// v2.0.23：弹窗改为液态玻璃（Glass）；说明新增「累计播放 ≥15 分钟即算已看」口径。
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -38,7 +41,7 @@ void main() {
     expect(find.textContaining('已看'), findsWidgets);
   });
 
-  testWidgets('偏好演员：「已看加权」改为「?」按钮，点击弹窗说明', (tester) async {
+  testWidgets('偏好演员：「已看加权」改为「?」按钮，点击弹液态玻璃说明', (tester) async {
     await pumpStats(tester);
     // 旧胶囊文案消失
     expect(find.text('已看加权'), findsNothing);
@@ -50,9 +53,14 @@ void main() {
     for (var i = 0; i < 6; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
+    // 弹窗标题与口径文案
     expect(find.text('偏好演员 · 计算说明'), findsOneWidget);
     expect(find.textContaining('什么叫「已看一次」'), findsOneWidget);
     expect(find.textContaining('进度超过 90%'), findsOneWidget);
+    // v2.0.23：新增「累计 15 分钟」口径
+    expect(find.textContaining('15 分钟'), findsOneWidget);
+    // v2.0.23：液态玻璃弹窗（Glass 自带 BackdropFilter 模糊）
+    expect(find.byType(Glass), findsWidgets);
     // 关闭弹窗
     await tester.tap(find.text('知道了'));
     for (var i = 0; i < 6; i++) {

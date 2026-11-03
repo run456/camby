@@ -193,7 +193,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
-  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items);
+  LibraryStats get stats =>
+      _statsCache ??= LibraryStats.compute(
+        _items,
+        localPlaySeconds: _localPlaySeconds,
+      );
 
   List<MediaItem> get recentlyAdded {
     final cached = _recentCache;
@@ -396,6 +400,74 @@ class AppState extends ChangeNotifier {
               (e.value['t'] as int?) ?? 0,
               (e.value['p'] as bool?) ?? false,
             ),
+        });
+    } catch (_) {}
+  }
+
+  // ---------------- 本地累计播放秒数（已看口径补强，v2.0.23） ----------------
+  //
+  // 服务端 resumeProgress 只记录「当前播放头位置」，无法反映「累计看了多久」。
+  // 用户反馈：一部影片累计播放超过 15 分钟就算「已看」。这里在本地按条目累加
+  // 实际播放时长（只在播放态计时，暂停/退出不计入），作为「已看」的第三条判定。
+  // 与 Emby 的 UserData 互不干扰：本地计数独立持久化，重装/换端会重置（属预期）。
+
+  /// itemId -> 本地累计播放秒数
+  final Map<String, int> _localPlaySeconds = {};
+
+  /// 本地累计达到「已看」的门槛（秒）：15 分钟
+  static const int localPlayWatchedThreshold = 900;
+
+  int localPlaySeconds(String id) => _localPlaySeconds[id] ?? 0;
+
+  bool _isWatchedByLocal(String id) =>
+      (_localPlaySeconds[id] ?? 0) >= localPlayWatchedThreshold;
+
+  /// 累加某条目本地播放秒数；跨过门槛（变为已看）时让统计派生缓存失效以便重算。
+  void addLocalPlaySeconds(String id, int deltaSec) {
+    if (deltaSec <= 0) return;
+    final was = _isWatchedByLocal(id);
+    _localPlaySeconds[id] = (_localPlaySeconds[id] ?? 0) + deltaSec;
+    if (was != _isWatchedByLocal(id)) _invalidateDerived();
+    _schedulePersistPlaySeconds();
+  }
+
+  /// 立即落盘（播放页退出 / 切后台时调用，避免 30s 防抖窗口内丢数据）
+  void flushLocalPlaySeconds() {
+    _playSecPersistTimer?.cancel();
+    unawaited(_persistLocalPlaySeconds());
+  }
+
+  Timer? _playSecPersistTimer;
+  void _schedulePersistPlaySeconds() {
+    _playSecPersistTimer?.cancel();
+    _playSecPersistTimer = Timer(
+      const Duration(seconds: 30),
+      () => unawaited(_persistLocalPlaySeconds()),
+    );
+  }
+
+  Future<void> _persistLocalPlaySeconds() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'local_play_seconds_json',
+        jsonEncode(_localPlaySeconds),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadLocalPlaySeconds() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('local_play_seconds_json');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      _localPlaySeconds
+        ..clear()
+        ..addAll({
+          for (final e in data.entries) e.key: (e.value as num).toInt(),
         });
     } catch (_) {}
   }
@@ -1037,6 +1109,7 @@ class AppState extends ChangeNotifier {
     await _loadCache();
     await _loadFolders();
     await _loadPendingProgress();
+    await _loadLocalPlaySeconds();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(

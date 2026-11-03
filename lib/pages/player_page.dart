@@ -167,6 +167,7 @@ class PlayerPageState extends State<PlayerPage>
 
   /// 进度上报节流
   Timer? _reportTimer;
+  Timer? _playSecondsTimer;
   DateTime? _lastReportAt;
 
   bool _bootOverlayDismissed = false;
@@ -613,6 +614,14 @@ class PlayerPageState extends State<PlayerPage>
       const Duration(seconds: 30),
       (_) => unawaited(_reportProgress()),
     );
+    // v2.0.23：本地累计播放秒数计时器（5s 一跳）。只在真正播放态累加，
+    // 暂停 / 退出时 _isPlaying 为 false，自然不计入，避免虚高「已看」时长。
+    _playSecondsTimer?.cancel();
+    _playSecondsTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_isPlaying && !_demo && _recordHistory && mounted) {
+        widget.state.addLocalPlaySeconds(widget.item.id, 5);
+      }
+    });
   }
 
   /// 节流后的进度上报入口：10s 定时器、暂停 / 播放切换都走这里
@@ -946,6 +955,10 @@ class PlayerPageState extends State<PlayerPage>
     // 退出前最后一次同步播放位置：其它设备上的「继续观看」立刻跟上
     _reportTimer?.cancel();
     _reportTimer = null;
+    _playSecondsTimer?.cancel();
+    _playSecondsTimer = null;
+    // v2.0.23：退出即落盘本地累计播放秒数，避免 30s 防抖窗口内丢数据
+    widget.state.flushLocalPlaySeconds();
     // v1.7.73：会话型播放停止事件（/Sessions/Stopped）—— 与起播时的 Start
     // 配对，服务端活动日志才能推算出观看时长（统计页「每日观看时长」）
     if (!_demo && _recordHistory) {

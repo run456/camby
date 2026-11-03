@@ -389,58 +389,26 @@ class _ExplainButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          backgroundColor: const Color(0xFF1B2233),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.white.withOpacity(0.12)),
-          ),
-          title: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFFEAF3FF),
+      onTap: () => _showExplainDialog(context, title, message),
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withOpacity(0.45),
+              width: 1,
             ),
           ),
-          content: SingleChildScrollView(
-            child: Text(
-              message,
-              style: const TextStyle(
-                fontSize: 12.5,
-                height: 1.65,
-                color: Color(0xFFC9D6F2),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text(
-                '知道了',
-                style: TextStyle(color: AppColors.cyan, fontSize: 12.5),
-              ),
-            ),
-          ],
-        ),
-      ),
-      child: Container(
-        width: 17,
-        height: 17,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withOpacity(0.45),
-            width: 1,
-          ),
-        ),
-        child: const Center(
-          child: Text(
+          child: const Text(
             '?',
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11,
+              height: 1,
+              leadingDistribution: TextLeadingDistribution.even,
               fontWeight: FontWeight.w800,
               color: Color(0xFFD8E2FB),
             ),
@@ -451,6 +419,64 @@ class _ExplainButton extends StatelessWidget {
   }
 }
 
+/// 计算说明弹窗：液态玻璃（Glass 自带实时模糊 + 折射高光），
+/// 比旧版纯色 AlertDialog 更贴合全局玻璃质感。
+void _showExplainDialog(BuildContext context, String title, String message) {
+  showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withOpacity(0.55),
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+      child: Glass(
+        blur: 32,
+        radius: 22,
+        tint: 0.14,
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFEAF3FF),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    height: 1.65,
+                    color: Color(0xFFC9D6F2),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text(
+                  '知道了',
+                  style: TextStyle(color: AppColors.cyan, fontSize: 12.5),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// 偏好演员口径说明文案
 const String _kActorExplain = '''
 统计口径：在「已看」影片里统计每位演员的出现频次，按频次从高到低取前 5 名。
@@ -458,6 +484,7 @@ const String _kActorExplain = '''
 什么叫「已看一次」：满足以下任一即计为 1 部已看影片——
 · 服务器标记为「已看」（已看标记）
 · 播放进度超过 90%
+· 在本 App 内累计播放时长 ≥ 15 分钟（本地记录，按影片累加；重看同一片段会重复计时）
 
 每部已看影片最多取前 5 位演员参与计数（按影片内演员顺序去重取前 5），避免主角反复刷榜。
 

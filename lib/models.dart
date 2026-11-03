@@ -1132,13 +1132,21 @@ class LibraryStats {
   /// 标签数据来源：Tags 为空时回退 Genres（部分媒体库把标签写在分类里）
   final String tagSource;
 
-  static LibraryStats compute(List<MediaItem> items) {
+  /// 本地累计播放达到「已看」的门槛（秒）：15 分钟
+  static const int kLocalPlayWatchedThreshold = 900;
+
+  static LibraryStats compute(
+    List<MediaItem> items, {
+    Map<String, int> localPlaySeconds = const {},
+  }) {
     final movies = items.where((e) => e.isMovie).length;
     final series = items.where((e) => e.isSeries).length;
     final totalMin = items.fold<int>(0, (a, e) => a + e.runtimeMin);
-    final watched = items
-        .where((e) => e.userPlayed || (e.resumeProgress ?? 0) > 0.9)
-        .toList();
+    bool _isWatched(MediaItem e) =>
+        e.userPlayed ||
+        (e.resumeProgress ?? 0) > 0.9 ||
+        (localPlaySeconds[e.id] ?? 0) >= kLocalPlayWatchedThreshold;
+    final watched = items.where(_isWatched).toList();
     final watchedMin = watched.fold<int>(0, (a, e) => a + e.runtimeMin);
     final playCount = items.fold<int>(0, (a, e) => a + e.userPlayCount);
     final fav = items.where((e) => e.userFavorite).length;

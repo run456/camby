@@ -1491,6 +1491,17 @@ if (_userId != null && uid.isNotEmpty && uid != _userId) continue;
 
 ---
 
+## 59. v2.0.23 统计页反馈（液态玻璃说明 + 累计播放计时已看）
+1. **「?」按钮居中 + 弹窗液态玻璃**：v2.0.22 的「?」圆钮内问号因 Flutter 字体度量未垂直居中（略偏上）。改为 `SizedBox` 包裹 `Container(alignment: center)`，问号用 `TextAlign.center` + `height:1` + `leadingDistribution: even` 真正几何居中。弹窗由纯色 `AlertDialog` 改为 `Glass`（自带 `BackdropFilter` 实时模糊 sigma 32 + 折射高光 + 顶部柔光），与全局玻璃质感统一；`Dialog(backgroundColor: transparent, elevation: 0)` 透出玻璃层。
+2. **累计播放时长纳入「已看」口径**：用户要求「一部影片累计播放超过 15 分钟就算已看」。新增本地累计播放秒数（itemId→秒，落盘 `local_play_seconds_json`）：播放页 `_startReportTimer` 起 5 秒周期定时器，仅 `_isPlaying && !_demo && _recordHistory` 时 `state.addLocalPlaySeconds(id, 5)`；退出 `dispose` 时 `_playSecondsTimer.cancel()` + `state.flushLocalPlaySeconds()` 立即落盘（30 秒防抖兜底）。`LibraryStats.compute` 新增 `localPlaySeconds` 入参，「已看」判定增补第三条 `本地累计 ≥ 900s`，与「已看标记 / 进度>90%」为「或」；跨门槛时 `_invalidateDerived()` 使统计缓存失效重算。`restore()` 加载 `_loadLocalPlaySeconds()`。本地计数独立于 Emby UserData，重装/换端重置（属预期）。
+3. **说明文案同步**：`_kActorExplain` 增补「在本 App 内累计播放时长 ≥ 15 分钟（本地记录，按影片累加；重看同一片段会重复计时）」。
+4. **手机/平板同步**：统计页为同一 `StatsPage` 响应式布局（kTabletBreakpoint 双栏），播放页计时两端共用，`app_state` 全局生效——三处需求一处改动两端生效，无需分别处理。
+5. **测试**：`test/local_play_watched_test.dart`（compute 在 899s 不计入、900s 计入、与服务端已看标记/进度 90% 为「或」）；`test/stats_explain_test.dart` 增补「15 分钟」文案断言与 `find.byType(Glass)` 弹窗断言；全量 245 全过。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 245 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.23-release-arm64.apk`。
+
+---
+
 ## 56. v2.0.20 收藏夹改名 400（实测反馈）
 1. **问题**：用户服务器对 `POST /Items/{id}`（UpdateItem）无论整包还是最小 body 都返回 400（「人妻」改名永远失败，手机/平板端同步均报 400）。v2.0.4 的「补 ProviderIds 空字典」与 v2.0.16 的「最小 body 重试」在该服务器均不奏效。
 2. **根因**：该 Emby 实例的 UpdateItem 端点对播放列表改名路径死 400（与字段是否完整无关），而创建/删除/加片为独立端点、实测可用。
