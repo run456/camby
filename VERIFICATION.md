@@ -1688,3 +1688,11 @@ bash tools/verify_release.sh --build
 3. **诊断入口**：新增 `EmbyServer.trailerDiag(itemId)`，逐个端点（`/Trailer`、`/LocalTrailers`、`/SpecialFeatures`、两种子项组合）返回「状态码 · 条目数 · 命中数 · 路径」；详情页在无预告片时显示「没看到预告片？点此诊断」按钮（手机/平板双布局），弹窗内可「重新加载」。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.32-release-arm64.apk`。
+
+## §69 · v2.0.33 (233) 按 Path 前缀反查 trailers/ 目录（实测诊断结果）
+
+1. **诊断实测**（用户回传）：`/Items/15512/Trailer`、`/LocalTrailers`、`/SpecialFeatures` 均 404；`/Users/{uid}/Items?ParentId=15512&Recursive=true`（含与不含 `IncludeItemTypes`）均 200、返回 8 项、`looksLikeTrailer` 命中 0。结论：Emby 未把 `trailers/` 里的预告片建成本片子条目，D 路天然无效。
+2. **新增 E 路 `_fetchByPathPrefix()`**：读影片 `Path` → 截父目录并**保留结尾分隔符** → `/Items?PathStartsWith={dir}&Recursive=true` 全库反查 → `looksLikeTrailer` 过滤。不依赖 Extra 分类与父子关系，直接按物理目录定位，是针对本场景最可靠的兜底。新增 `test/trailer_path_prefix_test.dart` 4 条（Unix/Windows 路径、前缀边界不误配 `ABP-01`/`ABP-018`、空路径安全）。
+3. **诊断增强**：输出 `LocalTrailerCount` / `RemoteTrailerCount` / `RemoteTrailers` 数量、真实 `Path`、子项查询每条明细（Name/Type/ExtraType/Path），以及 PathStartsWith 反查结果。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 257 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.33-release-arm64.apk`。
