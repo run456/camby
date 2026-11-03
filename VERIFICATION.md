@@ -1648,3 +1648,19 @@ bash tools/verify_release.sh --build
 3. **剧照左右滑动查看**：`_showBackdrop` → `_showBackdrops(List, initial)`，`PageView` 轮播 + 顶部「N / 总数」页码 + 点空白关闭；手机/平板双布局同步。
 
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` 243 全过（偏好影片用例改为断言 `userPlayCount` Top10、并删 AppState 累加用例）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.27-release-arm64.apk`（≈37.0MB）。
+
+## §64 · v2.0.28 (228) 偏好影片修复 + 本地预告片 + 详情页性能（实测反馈）
+
+1. **偏好影片修复（服务器+本机次数取较大值）**：v2.0.27 仅认服务端 `userPlayCount`，很多服务器不给「普通播放」自动 +1，榜单长期为空。v2.0.28 恢复本机播放计数（`app_state`：`_playCount` 持久化 `play_count_json` + `addLocalPlay` + `restore` 加载；`player_page`：起播成功后记一次，由 `_localCounted` 去重避免引擎切换重复记），`LibraryStats.compute` 新增可选 `localPlayCounts` 参数，`topMovies` 用 `max(服务器次数, 本机次数)` 作有效播放次数。数据源徽标「服务器播放次数」→「服务器+本机次数」。本机看过的片必然进榜，其它设备/官方客户端看过的也照常计入，且不重复膨胀。
+2. **预告片兼容本地 trailer 文件**：`emby_client.trailers(itemId)` 原只查 `/Items/{id}/Trailer`（网页关联预告片），识别不到放在电影文件夹里的本地预告片（`trailer.mp4` / `trailer/trailer.mkv` 等被扫成 `ExtraType=Trailer` 子条目）。改为两路合并去重：关联预告片 + 按 `ParentId` 查的本地预告片 Extra；任意一路失败不影响另一路，绝不抛异常。本地预告片无自身海报时退回电影 `backdropUrl` 当缩略图。`_trailerSection` 手机/平板双布局共用，已同步受益。
+3. **详情页性能**：`CachedImage` 外包 `RepaintBoundary`（滚动时未变化图不再整帧重绘）；剧照查看器解码宽 1600→1280 + 逐页 `RepaintBoundary`（左右滑动更跟手）；详情页顶/底实时模糊 sigma 下调（状态栏 20→14、底部条 20→16）降低滚动每帧重采样开销。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 244 全过（新增「本机次数与服务器次数取较大值」用例）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.28-release-arm64.apk`（≈37.0MB）。
+
+## §65 · v2.0.29 (229) 预告片识别加固 + 栏目置顶 + 剧照滑动去卡顿（实测反馈）
+
+1. **预告片识别加固**：v2.0.28 只按 `IncludeItemTypes=Trailer` 查 `ParentId` 子条目，漏掉了 Emby 以 `Type=Video` + `ExtraType=Trailer` 存储的本地 trailer，以及放在 `trailer/` 子目录时多嵌一层的场景。`emby_client.trailers()` 改为**递归拉取子项**（`Recursive=true`、`IncludeItemTypes=Trailer,Video`），再用 `EmbyServer.looksLikeTrailer()`（`ExtraType==Trailer / Type==Trailer / 路径含 trailer` 任一命中）客户端过滤，兼容两种存储形态与嵌套目录，且不会把剧集 Episode 误纳。判决逻辑抽成 `@visibleForTesting` 静态方法，新增 `test/trailer_detect_test.dart` 7 条用例。
+2. **预告片栏目上移到剧照之上**：手机（`_phoneSections`）与平板（`_tabletSections` 内 `Expanded` 块）双布局同步把「预告片」放到「剧照」之前；仍是「有数据才显示」，读不到 trailer 则不出现。
+3. **剧照全屏滑动去卡顿**：`_showBackdrops` 每页的 `InteractiveViewer` 与 `PageView` 横向翻页在手势竞技场抢手势，是滑动卡顿主因——移除 `InteractiveViewer`，翻页恢复顺滑（缩放随之取消，换取跟手）；解码宽 1280→1100，点空白关闭仍由外层 `GestureDetector` 处理。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 251 全过（新增 trailer 识别 7 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.29-release-arm64.apk`。

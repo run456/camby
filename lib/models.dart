@@ -1143,7 +1143,13 @@ class LibraryStats {
   /// 标签数据来源：Tags 为空时回退 Genres（部分媒体库把标签写在分类里）
   final String tagSource;
 
-  static LibraryStats compute(List<MediaItem> items) {
+  /// [localPlayCounts]：App 本地记录的播放次数（起播一次 +1，落盘持久化，
+  /// 跨设备不共享）。与服务器 `userPlayCount` 取较大值，作为「有效播放次数」，
+  /// 这样本机看过的片一定能进「偏好影片」，其它设备/官方客户端看过的也能纳入。
+  static LibraryStats compute(
+    List<MediaItem> items, [
+    Map<String, int>? localPlayCounts,
+  ]) {
     final movies = items.where((e) => e.isMovie).length;
     final series = items.where((e) => e.isSeries).length;
     final totalMin = items.fold<int>(0, (a, e) => a + e.runtimeMin);
@@ -1275,17 +1281,21 @@ class LibraryStats {
         )
         .toList();
 
-    // ── 偏好影片：服务器播放次数（userPlayCount）取前 10 部影片（仅电影）──
-    // 直接复用服务端累计播放次数（App 起播/退出已回传会话事件，服务端自增该值），
-    // 跨设备一致、重装不丢，且与「最常看作品 Top」同源。
-    // 先筛「电影 + 有播放次数」再排序取前 10，保证榜单始终是 10 部影片，
+    // ── 偏好影片：有效播放次数取前 10 部影片（仅电影）──
+    // 有效播放次数 = max(服务器 userPlayCount, 本机本地播放次数)。
+    // 这样：① 在 App 里点开看过的片必然进榜（v2.0.27 只认服务器 PlayCount，
+    //   而很多服务器不会自动给普通播放 +1，导致榜单永远空）；② 其它设备 /
+    //   官方客户端看过的（服务端有 PlayCount）也照常计入；③ 取两者较大值，
+    //   不会因为本机与服务器各记一遍而重复膨胀。
+    // 先筛「电影 + 有效次数 >0」再排序取前 10，保证榜单始终是 10 部影片，
     // 不会被高播放次数的剧集挤掉名额。
     final playRanked = <Map<String, dynamic>>[];
     {
       final moviePlays = <Map<String, dynamic>>[];
       for (final e in items) {
         if (!e.isMovie) continue;
-        final c = e.userPlayCount;
+        final local = localPlayCounts?[e.id] ?? 0;
+        final c = e.userPlayCount > local ? e.userPlayCount : local;
         if (c > 0) {
           moviePlays.add({'item': e, 'count': c});
         }

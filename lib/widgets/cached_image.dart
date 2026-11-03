@@ -38,18 +38,22 @@ class CachedImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final u = url;
     if (u == null || u.isEmpty) return const SizedBox.shrink();
-    return CachedNetworkImage(
-      imageUrl: u,
-      cacheKey: imageCacheKey(u),
-      fit: fit,
-      alignment: alignment,
-      memCacheWidth: memWidth,
-      maxWidthDiskCache: memWidth,
-      filterQuality: filterQuality,
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
-      placeholder: (_, __) => const SizedBox.shrink(),
-      errorWidget: (_, __, ___) => errorWidget ?? const SizedBox.shrink(),
+    // 每张图独立成层：列表滚动 / 详情页滑动时，未变化的图不再重绘，
+    // 大幅降低 GPU 重绘开销（详情页卡顿的主要来源之一）。
+    return RepaintBoundary(
+      child: CachedNetworkImage(
+        imageUrl: u,
+        cacheKey: imageCacheKey(u),
+        fit: fit,
+        alignment: alignment,
+        memCacheWidth: memWidth,
+        maxWidthDiskCache: memWidth,
+        filterQuality: filterQuality,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        placeholder: (_, __) => const SizedBox.shrink(),
+        errorWidget: (_, __, ___) => errorWidget ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

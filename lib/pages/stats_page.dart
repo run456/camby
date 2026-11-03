@@ -223,10 +223,10 @@ class _StatsPageState extends State<StatsPage> {
             ),
             const SizedBox(height: 10),
 
-            // 偏好影片：服务器播放次数取前 10 部（仅电影）
+            // 偏好影片：服务器 + 本机播放次数取前 10 部（仅电影）
             _SectionCard(
               title: '偏好影片',
-              badge: const _SourceBadge(text: '服务器播放次数'),
+              badge: const _SourceBadge(text: '服务器+本机次数'),
               child: _TopMovies(movies: stats.topMovies),
             ),
             const SizedBox(height: 10),
@@ -1279,7 +1279,7 @@ class _TopMovies extends StatelessWidget {
   Widget build(BuildContext context) {
     if (movies.isEmpty) {
       return const Text(
-        '暂无播放记录（本机播放次数还是 0，在本 App 看过的影片会按次数出现在这里）',
+        '暂无播放记录（服务器与本地播放次数都还是 0；在 App 内点开看过的影片会按次数出现在这里）',
         style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }

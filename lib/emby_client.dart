@@ -942,14 +942,76 @@ class EmbyServer {
     }).toList();
   }
 
-  /// 影片的本地预告片（Emby 把预告片当作独立视频项，可直接起播）
-  /// 失败抛异常（调用方负责兜底，不影响详情页其余板块）
+  /// 判断一个子条目是否是「本地预告片」。
+  ///
+  /// Emby 对本地 trailer 文件的识别结果有两种形态：`Type=Trailer`，或
+  /// `Type=Video` + `ExtraType=Trailer`；放在 `trailer/` 子目录时路径里也带
+  /// `trailer`。任一命中即视为预告片。抽成静态方法便于单测。
+  @visibleForTesting
+  static bool looksLikeTrailer(Map<String, dynamic> j) {
+    final type = ((j['Type'] as String?) ?? '').toLowerCase();
+    final extra = ((j['ExtraType'] as String?) ?? '').toLowerCase();
+    final path = ((j['Path'] as String?) ?? '').toLowerCase();
+    return extra == 'trailer' || type == 'trailer' || path.contains('trailer');
+  }
+
+  /// 影片的预告片（本地文件 / 远程外链来源均可）。
+  ///
+  /// Emby / Jellyfin 把预告片存成几类，这里多路都抓并合并去重：
+  /// 1) **关联预告片**：`/Items/{id}/Trailer` —— 网页手动关联的预告片项；
+  /// 2) **本地 trailer 文件**：放在电影文件夹里（含 `trailer/` 子目录）的
+  ///    `trailer.mp4` / `trailer.mkv` 等。Emby 扫描后可能以两种形态存在：
+  ///    - `Type=Trailer`（直接当成预告片项），或
+  ///    - `Type=Video` + `ExtraType=Trailer`（普通视频被标记为额外内容），
+  ///    且 `trailer/` 子目录会让它再嵌套一层。因此递归拉全部子项，再按
+  ///    `ExtraType==Trailer / Type==Trailer / 路径含 trailer` 客户端过滤，
+  ///    不依赖服务端对 IncludeItemTypes 的精确实现。
+  /// 各路各自 try，任一失败都不影响其它路（调用方 `_loadExtras` 还有兜底）。
+  /// 返回空列表 = 确实没有预告片，绝不抛异常。
   Future<List<MediaItem>> trailers(String itemId) async {
-    final json = await _getJson(
-      '$baseUrl/Items/$itemId/Trailer',
-      query: {'UserId': _userId!, 'Fields': _kItemFields},
-    );
-    return _parseItems(json);
+    final out = <MediaItem>[];
+    final seen = <String>{};
+    void _merge(List<MediaItem> list) {
+      for (final e in list) {
+        if (seen.add(e.id)) out.add(e);
+      }
+    }
+
+    // 1) 关联预告片
+    try {
+      final json = await _getJson(
+        '$baseUrl/Items/$itemId/Trailer',
+        query: {'UserId': _userId!, 'Fields': _kItemFields},
+      );
+      _merge(_parseItems(json));
+    } catch (_) {
+      /* 关联预告片接口不可用，继续找本地文件 */
+    }
+
+    // 2) 本地 trailer 文件（递归拉全部子项，客户端按 trailer 特征过滤）
+    try {
+      final json = await _getJson(
+        '$baseUrl/Users/$_userId/Items',
+        query: {
+          'ParentId': itemId,
+          'Recursive': 'true',
+          // 只取视频/预告片两类，避免把剧集的子集（Episode）等拉进来
+          'IncludeItemTypes': 'Trailer,Video',
+          'Fields': _kItemFields,
+        },
+      );
+      final raw = json['Items'] as List<dynamic>? ?? [];
+      final extras = <Map<String, dynamic>>[];
+      for (final e in raw) {
+        final j = e as Map<String, dynamic>;
+        if (looksLikeTrailer(j)) extras.add(j);
+      }
+      _merge(extras.map((j) => _fromJson(j)).toList());
+    } catch (_) {
+      /* 本地预告片不可用（部分服务端无此子条目），忽略 */
+    }
+
+    return out;
   }
 
   /// 收藏 / 取消收藏

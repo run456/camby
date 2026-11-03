@@ -64,4 +64,32 @@ void main() {
     final ids = stats.topMovies.map((e) => (e['item'] as MediaItem).id);
     expect(ids, isNot(contains('s1')));
   });
+
+  test('偏好影片：本机播放次数与服务器次数取较大值（v2.0.28）', () {
+    // m1：服务器 PlayCount=0，但本机看过 5 次 → 应进榜，次数按 5 计
+    final localOnly = _mk('m1', playCount: 0);
+    // m2：服务器 PlayCount=8，本机看过 3 次 → 取较大值 8
+    final both = _mk('m2', playCount: 8);
+    // m3：服务器 PlayCount=0 且本机也没看过 → 不应进榜
+    final none = _mk('m3', playCount: 0);
+    // m4：本机看过 12 次 > 服务器 4 次 → 取较大值 12
+    final localWins = _mk('m4', playCount: 4);
+
+    final stats = LibraryStats.compute(
+      [localOnly, both, none, localWins],
+      {localOnly.id: 5, both.id: 3, localWins.id: 12},
+    );
+
+    final byId = {
+      for (final e in stats.topMovies) (e['item'] as MediaItem).id: e['count'] as int,
+    };
+    // 没看过的 m3 不进榜
+    expect(byId, isNot(contains('m3')));
+    // 本机看过的 m1 进榜，次数 5
+    expect(byId['m1'], 5);
+    // 服务器次数更高的 m2 取 8（本机 3 被覆盖）
+    expect(byId['m2'], 8);
+    // 本机次数更高的 m4 取 12
+    expect(byId['m4'], 12);
+  });
 }

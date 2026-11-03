@@ -245,14 +245,16 @@ class _DetailPageState extends State<DetailPage> {
                   controller: page,
                   itemCount: urls.length,
                   onPageChanged: (i) => idx.value = i,
-                  itemBuilder: (c, i) => InteractiveViewer(
-                    minScale: 1,
-                    maxScale: 4,
+                  // 关键：不包裹 InteractiveViewer。它的缩放手势会与 PageView 的
+                  // 横向翻页在手势竞技场里互相抢，导致左右滑动卡顿/粘连。去掉后
+                  // 翻页顺滑；点按空白关闭由外层 GestureDetector 处理。
+                  itemBuilder: (c, i) => RepaintBoundary(
                     child: Center(
                       child: CachedImage(
                         url: urls[i],
                         fit: BoxFit.contain,
-                        memWidth: 1600,
+                        // 全屏查看 1100 足清，比 1280 再省一截解码/显存，滑动更跟手
+                        memWidth: 1100,
                       ),
                     ),
                   ),
@@ -313,7 +315,9 @@ class _DetailPageState extends State<DetailPage> {
               final MediaItem? tr = isLocal ? local[i] : null;
               final String? remoteUrl =
                   isLocal ? null : remote[i - local.length];
-              final thumb = tr?.posterUrl ?? tr?.backdropUrl;
+              // 本地预告片多为视频 Extra，自身没有海报/剧照，退回电影的 backdrop 当缩略图
+              final thumb =
+                  tr?.posterUrl ?? tr?.backdropUrl ?? item.backdropUrl;
               final title = tr?.name ?? '远程预告片';
               final isRemote = remoteUrl != null;
               return Padding(
@@ -658,6 +662,11 @@ class _DetailPageState extends State<DetailPage> {
           ],
         ),
       ],
+      // 预告片（本地可播 / 远程外链）：置于剧照之上，仅检测到 trailer 文件才显示
+      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _trailerSection(item),
+      ],
       // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
       if (item.backdrops.isNotEmpty) ...[
         const SizedBox(height: 22),
@@ -685,11 +694,6 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
         ),
-      ],
-      // 预告片（本地可播 / 远程外链）
-      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
-        const SizedBox(height: 22),
-        _trailerSection(item),
       ],
       // 相似推荐（设计稿板块 6）
       const SizedBox(height: 22),
@@ -1280,6 +1284,11 @@ class _DetailPageState extends State<DetailPage> {
                                     ],
                                   ),
                                 ],
+                                if ((_trailers?.isNotEmpty == true) ||
+                                    item.trailerUrls.isNotEmpty) ...[
+                                  const SizedBox(height: 22),
+                                  _trailerSection(item),
+                                ],
                                 if (item.backdrops.isNotEmpty) ...[
                                   const SizedBox(height: 22),
                                   _SectionLabel(
@@ -1318,11 +1327,6 @@ class _DetailPageState extends State<DetailPage> {
                                     ),
                                   ),
                                 ],
-                                if ((_trailers?.isNotEmpty == true) ||
-                                    item.trailerUrls.isNotEmpty) ...[
-                                  const SizedBox(height: 22),
-                                  _trailerSection(item),
-                                ],
                                 const SizedBox(height: 22),
                                 _SectionLabel('相似推荐'),
                                 const SizedBox(height: 12),
@@ -1344,11 +1348,13 @@ class _DetailPageState extends State<DetailPage> {
             child: IgnorePointer(
               child: ValueListenableBuilder<bool>(
                 valueListenable: _blurOn,
-                builder: (_, on, __) => StatusBarBlur(
-                  height: MediaQuery.of(context).padding.top + 24,
-                  active: on,
-                  sigma: 20,
-                ),
+              builder: (_, on, __) => StatusBarBlur(
+                height: MediaQuery.of(context).padding.top + 24,
+                active: on,
+                // 模糊强度下调：模糊带随滚动每帧重采样，sigma 越大越吃 GPU，
+                // 14 与 20 视觉差别很小，但中低端机滑动明显更顺
+                sigma: 14,
+              ),
               ),
             ),
           ),
@@ -1427,8 +1433,8 @@ class _DetailPageState extends State<DetailPage> {
                           110,
                       active: true,
                       // BackdropFilter 每帧都在重采样，sigma 越大越吃 GPU，
-                      // 30→20 视觉几乎无差，中低端机滚动明显更顺
-                      sigma: 20,
+                      // 30→16 视觉几乎无差，中低端机滚动明显更顺
+                      sigma: 16,
                     ),
                   ),
                   // ② 按钮行

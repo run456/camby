@@ -799,6 +799,12 @@ class PlayerPageState extends State<PlayerPage>
       });
       await prev?.dispose();
       await p.play();
+      // 起播成功：本次打开播放页只记一次本机播放次数（切内核会再调 _start，
+      // 由 _localCounted 兜底避免重复计数），用于「偏好影片」统计。
+      if (!_localCounted) {
+        _localCounted = true;
+        widget.state.addLocalPlay(widget.item.id);
+      }
       // 新建的内核（尤其是 MPV）需要重新下发一次字幕样式与 ASS 开关
       unawaited(p.applySubtitleStyle(_subStyle));
       unawaited(p.setAssRendering(_assSubtitle));
@@ -931,6 +937,9 @@ class PlayerPageState extends State<PlayerPage>
 
   /// 后台补发过 Stopped：回到前台时重新发一次 Playing 续上会话
   bool _sessionEnded = false;
+
+  /// 本次打开播放页是否已记过本机播放次数（切内核会再调 _start，靠它去重）
+  bool _localCounted = false;
 
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);

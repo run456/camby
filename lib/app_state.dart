@@ -193,7 +193,51 @@ class AppState extends ChangeNotifier {
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
-  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items);
+  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items, _playCount);
+
+  /// 本机播放次数：每次在 App 内起播记一次，落盘持久化。
+  /// 与服务器 `userPlayCount` 取较大值用于「偏好影片」统计（见 models.dart）。
+  final Map<String, int> _playCount = {};
+
+  /// 某条目本机累计播放次数（只读查询用）。
+  int localPlayCountOf(String id) => _playCount[id] ?? 0;
+
+  /// 起播一次记一次数（幂等于「本次打开播放页只记一次」由播放页控制）。
+  /// 改内存 + 失效派生缓存 + 落盘；播放页在首次成功起播后调用一次。
+  void addLocalPlay(String id) {
+    if (id.isEmpty) return;
+    _playCount[id] = (_playCount[id] ?? 0) + 1;
+    _invalidateDerived();
+    notifyListeners();
+    unawaited(_persistPlayCount());
+  }
+
+  Future<void> _persistPlayCount() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'play_count_json',
+        jsonEncode(_playCount),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _loadPlayCount() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('play_count_json');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      _playCount
+        ..clear()
+        ..addAll({
+          for (final e in data.entries)
+            if (e.value is int) e.key: e.value as int,
+        });
+    } catch (_) {}
+  }
 
   List<MediaItem> get recentlyAdded {
     final cached = _recentCache;
@@ -1050,6 +1094,7 @@ class AppState extends ChangeNotifier {
     await _loadCache();
     await _loadFolders();
     await _loadPendingProgress();
+    await _loadPlayCount();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(
