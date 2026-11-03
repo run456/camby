@@ -989,297 +989,257 @@ class EmbyServer {
     return false;
   }
 
-  /// 预告片抓取诊断：逐步请求并记录「状态码 / 条目数 / 命中数 / 条目明细」。
-  /// 供详情页「预告片诊断」入口展示，排查「网页能播、App 不显示」。
+  /// 预告片候选入口清单。
   ///
-  /// 除了各端点，还会把影片条目自身的 `LocalTrailerCount` 读出来——Emby 网页
-  /// 客户端正是靠它决定是否显示预告片按钮；再把它作为「真相来源」。
-  Future<List<String>> trailerDiag(String itemId) async {
-    final log = <String>[];
-    // 0) 影片条目自身的预告片计数（Emby 网页客户端的判据）
-    try {
-      final item = await _getJson(
-        '$baseUrl/Users/$_userId/Items/$itemId',
-        query: {
-          'Fields':
-              'Path,MediaSources,LocalTrailerCount,RemoteTrailerCount,RemoteTrailers',
-        },
-      );
-      log.add(
-        'LocalTrailerCount=${item['LocalTrailerCount'] ?? '-'} · '
-        'RemoteTrailerCount=${item['RemoteTrailerCount'] ?? '-'}\n'
-        'RemoteTrailers=${(item['RemoteTrailers'] as List?)?.length ?? 0} 条\n'
-        'Path=${item['Path'] ?? '-'}',
-      );
-    } catch (e) {
-      log.add('条目详情读取失败: $e');
-    }
-    final fieldQs =
-        '&Fields=Path,MediaSources,MediaStreams,Overview,ExtraType';
-    final paths = <String>[
-      '$baseUrl/Items/$itemId/Trailer',
-      '$baseUrl/Items/$itemId/LocalTrailers',
-      '$baseUrl/Items/$itemId/SpecialFeatures',
-      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=false$fieldQs',
-      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=false'
-          '&IncludeItemTypes=Trailer,Video$fieldQs',
-      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=true'
-          '&IncludeItemTypes=Trailer,Video$fieldQs',
-      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=true$fieldQs',
-    ];
-    for (final p in paths) {
-      final short = p.replaceFirst(baseUrl, '');
-      try {
-        final resp = await _getJsonAny(p, query: {'UserId': _userId!});
-        final List<dynamic> raw = resp is List
-            ? resp
-            : (resp is Map
-                ? (resp['Items'] as List<dynamic>? ?? const [])
-                : const []);
-        final hit = raw.whereType<Map<String, dynamic>>()
-            .where((e) => looksLikeTrailer(e)).length;
-        final sb = StringBuffer('200 · ${raw.length} 项 · 命中 $hit\n$short');
-        // 子项查询：把每条的关键字段列出来，定位「8 项里到底是什么」
-        if (p.contains('ParentId=')) {
-          for (final e in raw.take(12)) {
-            if (e is! Map) continue;
-            final name = e['Name'] ?? '?';
-            final type = e['Type'] ?? '?';
-            final extra = e['ExtraType'] ?? '-';
-            final path = e['Path'] ?? '-';
-            sb.write('\n  • $name | Type=$type | Extra=$extra | $path');
-          }
-        }
-        log.add(sb.toString());
-      } on EmbyException catch (e) {
-        log.add('${e.message}\n$short');
-      } catch (e) {
-        log.add('${e.runtimeType}\n$short');
-      }
-    }
-
-    // 最后：全库预告片扫描（Emby 忽略 PathStartsWith，改为客户端按目录前缀筛）
-    try {
-      final item = await _getJson(
-        '$baseUrl/Users/$_userId/Items/$itemId',
-        query: {'Fields': 'Path'},
-      );
-      final path = (item['Path'] as String?) ?? '';
-      final sep = path.contains('\\') ? '\\' : '/';
-      final idx = path.lastIndexOf(sep);
-      if (idx > 0) {
-        final dir = path.substring(0, idx + 1).toLowerCase();
-        var totalTrailers = 0;
-        final matched = <Map>[];
-        for (final types in const ['Trailer', 'Video']) {
-          final resp = await _getJsonAny(
-            '$baseUrl/Items',
+  /// 服务端实现差异极大：标准 Emby、Jellyfin，以及各种兼容实现（会出现纯数字
+  /// 条目 id、`/emby` 前缀只转发部分路由等情况）。与其猜哪条路通，不如把所有
+  /// 「可能取到预告片」的入口都列出来逐个试，命中即用：
+  /// 1. `/Items/{id}/LocalTrailers`、`/Items/{id}/Trailer`、`/Items/{id}/SpecialFeatures`
+  /// 2. 老版本 Emby 的用户级路径 `/Users/{uid}/Items/{id}/LocalTrailers`
+  /// 3. 子项查询（`ParentId` × `Recursive=false/true`），`/Users/{uid}/Items`
+  ///    与 `/Items` 两种写法都试
+  ///
+  /// 每条都同时试「带 /emby 前缀」与「站点根路径」——不少服务端的 `/emby`
+  /// 只是部分路由的别名，专用端点只在根路径下通。
+  List<_TrailerProbe> _trailerProbes(String itemId) {
+    final origin = '${secure ? 'https' : 'http'}://$host:$port';
+    final bases = <String>[baseUrl];
+    if (origin != baseUrl) bases.add(origin);
+    const childFields = 'Path,ExtraType,MediaSources,MediaStreams,Overview';
+    final probes = <_TrailerProbe>[];
+    for (final b in bases) {
+      final tag = b == baseUrl ? '' : '[根] ';
+      probes
+        ..add(_TrailerProbe(
+          '${tag}Items/{id}/LocalTrailers',
+          '$b/Items/$itemId/LocalTrailers',
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Items/{id}/Trailer',
+          '$b/Items/$itemId/Trailer',
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Items/{id}/SpecialFeatures',
+          '$b/Items/$itemId/SpecialFeatures',
+          filter: true,
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Users/{uid}/Items/{id}/LocalTrailers',
+          '$b/Users/$_userId/Items/$itemId/LocalTrailers',
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
+          '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
+          filter: true,
+        ));
+      for (final rec in const ['false', 'true']) {
+        probes
+          ..add(_TrailerProbe(
+            '${tag}子项 Users/Items Recursive=$rec',
+            '$b/Users/$_userId/Items',
             query: {
-              'UserId': _userId!,
-              'Recursive': 'true',
-              'IncludeItemTypes': types,
-              'Fields': 'Path,ExtraType',
+              'ParentId': itemId,
+              'Recursive': rec,
+              'Fields': childFields,
             },
-          );
-          final raw =
-              (resp is Map ? (resp['Items'] as List?) : null) ?? const [];
-          if (types == 'Trailer') totalTrailers = raw.length;
-          for (final e in raw) {
-            if (e is! Map) continue;
-            final p = ((e['Path'] as String?) ?? '').toLowerCase();
-            if (p.startsWith(dir) &&
-                e is Map<String, dynamic> &&
-                looksLikeTrailer(e)) {
-              matched.add(e);
-            }
-          }
-          if (matched.isNotEmpty) break;
-        }
-        final sb = StringBuffer(
-          '全库扫描 · Trailer 共 $totalTrailers 条 · 本片目录命中 ${matched.length}',
-        );
-        sb.write('\n影片目录: $dir');
-        for (final e in matched.take(8)) {
-          sb.write(
-            '\n  • ${e['Name']} | ${e['Type']} | Extra=${e['ExtraType'] ?? '-'} | ${e['Path'] ?? '-'}',
-          );
-        }
-        log.add(sb.toString());
+            filter: true,
+          ))
+          ..add(_TrailerProbe(
+            '${tag}子项 Items Recursive=$rec',
+            '$b/Items',
+            query: {
+              'ParentId': itemId,
+              'Recursive': rec,
+              'userId': _userId!,
+              'Fields': childFields,
+            },
+            filter: true,
+          ));
       }
-    } catch (e) {
-      log.add('全库扫描失败: $e');
     }
-    return log;
+    return probes;
+  }
+
+  /// 容错解析任意形态的响应：裸数组 / `{Items:[...]}` / 单个条目 DTO。
+  ///
+  /// [filterTrailer] 为 true 时只保留「看起来像预告片」的条目（花絮集合与
+  /// 子项查询用；专用 Trailer/LocalTrailers 端点则整批信任）。
+  List<MediaItem> _parseAnyItems(dynamic resp, {bool filterTrailer = false}) {
+    final List<dynamic> raw = resp is List
+        ? resp
+        : resp is Map
+        ? ((resp['Items'] as List<dynamic>?) ??
+              (resp['Id'] == null ? const [] : [resp]))
+        : const [];
+    final res = <MediaItem>[];
+    for (final e in raw) {
+      if (e is! Map<String, dynamic>) continue;
+      if (filterTrailer && !looksLikeTrailer(e)) continue;
+      try {
+        res.add(_fromJson(e));
+      } catch (_) {/* 跳过脏数据 */}
+    }
+    return res;
+  }
+
+  /// 跑单个候选入口。任何异常（404 / 超时 / 脏数据）都退化为空列表。
+  ///
+  /// 单条 3s 硬超时：候选入口有十几条，若某条把连接挂住，不能让它把详情页
+  /// 的预告片区块一起拖住。
+  Future<List<MediaItem>> _runProbe(_TrailerProbe p) async {
+    try {
+      final resp = await _getJsonAny(
+        p.path,
+        query: {...?p.query, 'api_key': _token!},
+      ).timeout(const Duration(seconds: 3));
+      return _parseAnyItems(resp, filterTrailer: p.filter);
+    } catch (_) {
+      return const <MediaItem>[];
+    }
+  }
+
+  /// 全库扫 `Trailer` / `Video`，按影片所在目录前缀过滤。
+  ///
+  /// Emby 的 `/Items` **忽略 `PathStartsWith`**（实测传了仍返回全库），所以只能
+  /// 把库里的 Trailer（通常很少）拉回来在客户端比路径；没有再退回 Video。
+  Future<List<MediaItem>> _libraryTrailers(String movieDir) async {
+    if (movieDir.isEmpty) return const <MediaItem>[];
+    final prefix = movieDir.toLowerCase();
+    for (final types in const ['Trailer', 'Video']) {
+      try {
+        final resp = await _getJsonAny(
+          '$baseUrl/Items',
+          query: {
+            'userId': _userId!,
+            'Recursive': 'true',
+            'IncludeItemTypes': types,
+            'Fields': 'Path,ExtraType',
+          },
+        );
+        final hits = _parseAnyItems(resp, filterTrailer: true)
+            .where((e) => e.filePath.toLowerCase().startsWith(prefix))
+            .toList();
+        if (hits.isNotEmpty) return hits;
+      } catch (_) {/* 该类型查询失败，退下一个 */}
+    }
+    return const <MediaItem>[];
   }
 
   /// 影片的预告片（本地文件 / 远程外链来源均可）。
   ///
-  /// 先读影片详情拿到 `LocalTrailerCount`（权威信号）与 `Path`，再多路并发取：
-  /// A) `/Items/{id}/Trailer`；
-  /// B) `/Items/{id}/LocalTrailers`；
-  /// C) `/Items/{id}/SpecialFeatures`（花絮集合，过滤）；
-  /// D) 子项查询：`ParentId` × `Recursive=false/true` × `IncludeItemTypes` 四组合；
-  /// E) 仍未找到且 `LocalTrailerCount>0` → 全库扫 Trailer/Video 按影片目录前缀筛
-  ///    （Emby 忽略 `PathStartsWith`，只能在客户端过滤）。
-  /// 各路失败退化为空、互不影响；返回空 = 确实没有预告片。
+  /// 策略：按 [_trailerProbes] 逐个入口探测，命中即停；全部落空且服务端自称
+  /// `LocalTrailerCount > 0` 时，退化为「全库扫 Trailer/Video + 按影片目录
+  /// 前缀筛」。任何一步失败都只退化为空，绝不抛异常。
   Future<List<MediaItem>> trailers(
     String itemId, {
     bool includeLocalChildren = true,
   }) async {
     final out = <MediaItem>[];
     final seen = <String>{};
-    void _merge(List<MediaItem> list) {
-      for (final e in list) {
-        if (e.id.isNotEmpty && seen.add(e.id)) out.add(e);
-      }
-    }
 
-    // 影片详情一次取回：Path / ParentId / LocalTrailerCount。
-    // LocalTrailerCount 是权威信号——Emby 网页客户端就靠它决定是否显示预告片，
-    // 它 >0 就说明服务端确实有本地预告片，只是要找对入口。
-    String movieDir = '';
-    int localTrailerCount = 0;
+    // 详情一次取回：Path（推导目录）+ LocalTrailerCount（权威信号）。
+    // 同时试 `Fields=LocalTrailers`：部分服务端会把预告片子条目直接内嵌在
+    // 条目 DTO 里，这是唯一「不用额外端点」就能拿到 id 的途径。
+    var localTrailerCount = 0;
+    var movieDir = '';
     try {
       final item = await _getJson(
         '$baseUrl/Users/$_userId/Items/$itemId',
-        query: {'Fields': 'Path,ParentId,LocalTrailerCount'},
+        query: {
+          'Fields':
+              'Path,ParentId,LocalTrailerCount,LocalTrailers,RemoteTrailers',
+        },
       );
-      localTrailerCount =
-          (item['LocalTrailerCount'] as num?)?.toInt() ?? 0;
+      localTrailerCount = (item['LocalTrailerCount'] as num?)?.toInt() ?? 0;
       final path = (item['Path'] as String?) ?? '';
-      if (path.isNotEmpty) {
-        final sep = path.contains('\\') ? '\\' : '/';
-        final idx = path.lastIndexOf(sep);
-        // 保留结尾分隔符，避免 ABP-01 误配 ABP-018
-        if (idx > 0) movieDir = path.substring(0, idx + 1);
-      }
-    } catch (_) {/* 详情拿不到就靠端点路 */}
-
-    /// 容错解析：端点可能返回裸数组、也可能返回 `{Items:[...]}`。
-    /// [filterTrailer] 为 true 时只保留「看起来像预告片」的条目（花絮集合、
-    /// 子项查询用；专用 Trailer/LocalTrailers 端点则整批信任）。
-    List<MediaItem> _parseFlexible(dynamic resp, {bool filterTrailer = false}) {
-      final List<dynamic> raw = resp is List
-          ? resp
-          : (resp is Map ? (resp['Items'] as List<dynamic>? ?? const []) : const []);
-      final res = <MediaItem>[];
-      for (final e in raw) {
-        if (e is! Map<String, dynamic>) continue;
-        if (filterTrailer && !looksLikeTrailer(e)) continue;
-        try {
-          res.add(_fromJson(e));
-        } catch (_) {/* 跳过脏数据 */}
-      }
-      return res;
-    }
-
-    Future<List<MediaItem>> _fetch(
-      String path, {
-      bool filterTrailer = false,
-    }) async {
-      try {
-        final resp = await _getJsonAny(path, query: {'UserId': _userId!});
-        return _parseFlexible(resp, filterTrailer: filterTrailer);
-      } catch (_) {
-        return const <MediaItem>[]; // 端点 404 / 无数据 → 空，不抛
-      }
-    }
-
-    // 子项查询：电影的直接子项（Recursive=false）就是花絮/预告片；
-    // 但部分版本要 Recursive=true 或显式 IncludeItemTypes 才放行 Extra。
-    // 四种组合全试一遍取并集，最后按 trailer 特征过滤。
-    const trailerFields = 'Path,ExtraType,MediaSources,MediaStreams,Overview';
-    Future<List<MediaItem>> _fetchChildren() async {
-      final results = <MediaItem>[];
-      final variants = <Map<String, String>>[
-        {'ParentId': itemId, 'Recursive': 'false', 'Fields': trailerFields},
-        {
-          'ParentId': itemId,
-          'Recursive': 'false',
-          'IncludeItemTypes': 'Trailer,Video',
-          'Fields': trailerFields,
-        },
-        {
-          'ParentId': itemId,
-          'Recursive': 'true',
-          'IncludeItemTypes': 'Trailer,Video',
-          'Fields': trailerFields,
-        },
-        {'ParentId': itemId, 'Recursive': 'true', 'Fields': trailerFields},
-      ];
-      for (final q in variants) {
-        try {
-          final resp = await _getJsonAny(
-            '$baseUrl/Users/$_userId/Items',
-            query: {'UserId': _userId!, ...q},
-          );
-          results.addAll(_parseFlexible(resp, filterTrailer: true));
-        } catch (_) {/* 该组合不可用，试下一个 */}
-      }
-      return results;
-    }
-
-    /// E) 全库预告片扫描 + 路径前缀过滤（LocalTrailerCount>0 时的保底）。
-    ///
-    /// Emby 的 `/Items` **忽略 `PathStartsWith`**（实测传了仍返回全库），所以
-    /// 只能把库里的 Trailer（小）拉回来，客户端按影片目录前缀筛：
-    /// 先只拉 `IncludeItemTypes=Trailer`（通常很少），命中即返回；没有再退回
-    /// 拉 `Video`（较大，但仍只带 Path/ExtraType 两个字段，体积可控）。
-    Future<List<MediaItem>> _fetchLibraryTrailers() async {
-      if (movieDir.isEmpty) return const <MediaItem>[];
-      final prefix = movieDir.toLowerCase();
-      for (final types in const ['Trailer', 'Video']) {
-        try {
-          final resp = await _getJsonAny(
-            '$baseUrl/Items',
-            query: {
-              'UserId': _userId!,
-              'Recursive': 'true',
-              'IncludeItemTypes': types,
-              'Fields': 'Path,ExtraType',
-            },
-          );
-          final List<dynamic> raw = resp is List
-              ? resp
-              : ((resp as Map)['Items'] as List<dynamic>? ?? const []);
-          final hits = <MediaItem>[];
-          for (final e in raw) {
-            if (e is! Map<String, dynamic>) continue;
-            final p = ((e['Path'] as String?) ?? '').toLowerCase();
-            if (!p.startsWith(prefix)) continue; // 限定在本片目录内
-            if (!looksLikeTrailer(e)) continue;
+      final sep = path.contains('\\') ? '\\' : '/';
+      final idx = path.lastIndexOf(sep);
+      // 保留结尾分隔符，避免 ABP-01 误配 ABP-018
+      if (idx > 0) movieDir = path.substring(0, idx + 1);
+      // 内嵌的预告片 DTO（有就先用，id 直接可播）
+      final embedded = item['LocalTrailers'];
+      if (embedded is List) {
+        for (final e in embedded) {
+          if (e is Map<String, dynamic>) {
             try {
-              hits.add(_fromJson(e));
+              final m = _fromJson(e);
+              if (m.id.isNotEmpty && seen.add(m.id)) out.add(m);
             } catch (_) {/* 跳过脏数据 */}
           }
-          if (hits.isNotEmpty) return hits;
-        } catch (_) {/* 该类型查询失败，退下一个 */}
+        }
       }
-      return const <MediaItem>[];
+    } catch (_) {/* 详情拿不到就只靠入口探测 */}
+    if (out.isNotEmpty) return out;
+
+    for (final p in _trailerProbes(itemId)) {
+      if (!includeLocalChildren && p.filter) continue;
+      for (final e in await _runProbe(p)) {
+        if (e.id.isNotEmpty && seen.add(e.id)) out.add(e);
+      }
+      if (out.isNotEmpty) break; // 命中即停，不再浪费请求
     }
 
-    // 多路并发（各 10s 超时、失败各自退化为空，不互相拖累）：
-    // A) Emby `/Items/{id}/Trailer`（部分版本无此端点 → 404）
-    // B) `/Items/{id}/LocalTrailers`（Jellyfin 标准端点）
-    // C) `/Items/{id}/SpecialFeatures`（花絮集合，含预告片，需过滤）
-    // D) 子项查询（ParentId × Recursive × IncludeItemTypes 四种组合）
-    final lists = await Future.wait<List<MediaItem>>([
-      _fetch('$baseUrl/Items/$itemId/Trailer'),
-      _fetch('$baseUrl/Items/$itemId/LocalTrailers'),
-      _fetch('$baseUrl/Items/$itemId/SpecialFeatures', filterTrailer: true),
-      if (includeLocalChildren) _fetchChildren(),
-    ]);
-    for (final l in lists) {
-      _merge(l);
-    }
-
-    // E) 仍未找到 + 服务端自称有本地预告片 → 全库扫描按影片目录前缀过滤。
-    //    只在 LocalTrailerCount>0 且前面全落空时跑，避免无谓的全库查询。
     if (out.isEmpty && includeLocalChildren && localTrailerCount > 0) {
-      _merge(await _fetchLibraryTrailers());
+      for (final e in await _libraryTrailers(movieDir)) {
+        if (e.id.isNotEmpty && seen.add(e.id)) out.add(e);
+      }
+    }
+    return out;
+  }
+
+  /// 预告片抓取诊断：逐条列出每个候选入口的真实结果，供详情页展示。
+  Future<List<String>> trailerDiag(String itemId) async {
+    final log = <String>[];
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {
+          'Fields':
+              'Path,LocalTrailerCount,RemoteTrailerCount,RemoteTrailers,'
+              'LocalTrailers',
+        },
+      );
+      log.add(
+        'LocalTrailerCount=${item['LocalTrailerCount'] ?? '-'} · '
+        'RemoteTrailerCount=${item['RemoteTrailerCount'] ?? '-'}\n'
+        '内嵌 LocalTrailers=${(item['LocalTrailers'] as List?)?.length ?? 0} 条\n'
+        'Path=${item['Path'] ?? '-'}',
+      );
+    } catch (e) {
+      log.add('详情读取失败: $e');
     }
 
-    return out;
+    var hitLabel = '';
+    for (final p in _trailerProbes(itemId)) {
+      try {
+        final resp = await _getJsonAny(
+          p.path,
+          query: {...?p.query, 'api_key': _token!},
+        ).timeout(const Duration(seconds: 4));
+        final int total = resp is List
+            ? resp.length
+            : resp is Map
+            ? ((resp['Items'] as List<dynamic>?)?.length ??
+                  (resp['Id'] == null ? 0 : 1))
+            : 0;
+        final items = _parseAnyItems(resp, filterTrailer: p.filter);
+        log.add(
+          '${items.isNotEmpty ? '✅' : '·'} ${p.label} · $total 项 · 命中 ${items.length}',
+        );
+        if (items.isNotEmpty) {
+          if (hitLabel.isEmpty) hitLabel = p.label;
+          for (final e in items.take(2)) {
+            log.add('    • ${e.name} | ${e.filePath}');
+          }
+        }
+      } on EmbyException catch (e) {
+        log.add('· ${p.label} · ${e.message}');
+      } catch (e) {
+        log.add('· ${p.label} · ${e.runtimeType}');
+      }
+    }
+    log.add(hitLabel.isEmpty ? '❌ 所有入口均未取到预告片' : '✅ 可用入口: $hitLabel');
+    return log;
   }
 
   /// 收藏 / 取消收藏
@@ -1727,6 +1687,11 @@ class EmbyServer {
       try {
         final req = await client.getUrl(uri);
         req.headers.set('X-Emby-Token', _token!);
+        // 部分服务端只认 `X-Emby-Authorization`（而非 `Authorization`），
+        // 缺这个头时中间件会直接 404 隐藏路由。两个都带上最稳。
+        const authHdr =
+            'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0"';
+        req.headers.set('X-Emby-Authorization', '$authHdr, Token="$_token"');
         req.headers.set(
           'Authorization',
           'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", Version="1.0.0", Token="$_token"',
@@ -2311,4 +2276,29 @@ class ServerPlaylist {
   final String id;
   final String name;
   final List<String> itemIds;
+}
+
+/// 预告片候选入口（单条探测项）。
+///
+/// 见 `EmbyClient._trailerProbes`：把「可能取到预告片」的 URL 与查询参数
+/// 描述成数据，`trailers()` 与诊断共用同一份清单，避免两边逻辑漂移。
+class _TrailerProbe {
+  const _TrailerProbe(
+    this.label,
+    this.path, {
+    this.query,
+    this.filter = false,
+  });
+
+  /// 诊断里展示的可读名称（不含 host，方便一行显示）。
+  final String label;
+
+  /// 完整 URL（不含鉴权参数）。
+  final String path;
+
+  /// 附加查询参数。
+  final Map<String, String>? query;
+
+  /// 是否要按 trailer 特征过滤（花絮集合 / 子项查询需要，专用端点不需要）。
+  final bool filter;
 }

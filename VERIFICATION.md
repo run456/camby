@@ -1705,3 +1705,5 @@ bash tools/verify_release.sh --build
 4. **诊断**：修复后显示真实子项；末尾加「全库扫描 · Trailer 共 N · 本片目录命中 M」，可判定是取数问题还是 Emby 未索引。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 261 全过（新增 request_uri 4 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.34-release-arm64.apk`。
+
+验证（v2.0.35）：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 261 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.35-release-arm64.apk`。
