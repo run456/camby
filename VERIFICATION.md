@@ -1664,3 +1664,11 @@ bash tools/verify_release.sh --build
 3. **剧照全屏滑动去卡顿**：`_showBackdrops` 每页的 `InteractiveViewer` 与 `PageView` 横向翻页在手势竞技场抢手势，是滑动卡顿主因——移除 `InteractiveViewer`，翻页恢复顺滑（缩放随之取消，换取跟手）；解码宽 1280→1100，点空白关闭仍由外层 `GestureDetector` 处理。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 251 全过（新增 trailer 识别 7 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.29-release-arm64.apk`。
+
+## §66 · v2.0.30 (230) 预告片抓取根因修复（实测反馈：目录为 trailers/ 子目录、网页可播、App 不行）
+
+1. **响应数组被强转吞掉**：请求层 `_getJson` 结尾 `jsonDecode(body) as Map<String,dynamic>`，而 Emby `/Items/{id}/Trailer` 在某些版本直接返回 JSON 数组，数组 `as Map` 抛 `TypeError` 被 `trailers()` 的 `catch` 静默吞掉 → 永远空列表。新增 `_getJsonAny()` 返回原始 `dynamic`（同款鉴权/超时/重试），`trailers()` 用 `_parseFlexible()` 同时兼容「裸数组」与「`{Items:[...]}`」。
+2. **本地 trailers/ 子目录漏检**：v2.0.29 的 `IncludeItemTypes=Trailer,Video` 在部分 Emby 版本类型归类不一致而漏检。改为不带 `IncludeItemTypes` 的全量子项查询（`ParentId` + `Recursive=true`）+ 客户端 `looksLikeTrailer()` 过滤；后者综合 `ExtraType==Trailer / Type==Trailer / Path 含 trailer / Name 含 trailer / MediaSources[].Path 含 trailer` 五个信号，覆盖服务端不回 `Path` 的情况。
+3. **性能与范围**：子项递归查询仅对电影启用（`includeLocalChildren: !_item.isSeries`），避免剧集把分集全量拉出；剧集远程预告片由官方 `/Trailer` 端点覆盖。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过（trailer 识别单测 9 条，新增 Name、MediaSources[].Path）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.30-release-arm64.apk`。

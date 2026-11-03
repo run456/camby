@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.29 (229)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.30 (230)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -120,6 +120,12 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.30 (230) 预告片抓取真正的根因修复（响应数组 + 全点子项）（实测反馈）
+- **根因①：`/Items/{id}/Trailer` 可能返回 JSON 数组**，而请求层 `_getJson` 用 `as Map` 强转，数组会抛 `TypeError` 被上层 `catch` 静默吞掉 → 永远拿不到预告片。新增 `_getJsonAny()` 保留原始 `dynamic`，`trailers()` 用容错解析兼容「数组」与「`{Items:[...]}`」两种返回
+- **根因②：本地 `trailers/` 子目录里的文件类型判定不一**。v2.0.29 用 `IncludeItemTypes=Trailer,Video` 过滤，部分 Emby 版本的类型归类不一致导致漏检。改为**不带 IncludeItemTypes 的全量子项查询 + 客户端特征过滤**，并用 `EmbyServer.looksLikeTrailer()` 综合 `ExtraType / Type / Path / Name / MediaSources[].Path` 五个信号判定（服务端隐藏 Path 时用 Name 或媒体源路径兜底）
+- 剧集（Series）下递归会拉海量分集，故子项查询仅对电影启用；剧集远程预告片由官方端点覆盖
+- 判定方法单测扩到 9 条（新增 Name、MediaSources[].Path 两路）
 
 ### v2.0.29 (229) 预告片识别加固 + 栏目置顶 + 剧照滑动去卡顿（实测反馈）
 - **预告片识别加固（本机 trailer 文件）**：上版只按 `IncludeItemTypes=Trailer` 查子条目，而 Emby 对本地 trailer 常以 `Type=Video` + `ExtraType=Trailer` 形态存储、且放在 `trailer/` 子目录时会再嵌套一层，导致漏检。改为**递归拉取子项 + 客户端按 `ExtraType/Type/路径含 trailer` 过滤**，兼容两种存储形态与嵌套目录；查询限定 `Trailer,Video` 两类，避免把剧集 Episode 拉进来。判定逻辑抽成 `EmbyServer.looksLikeTrailer()` 静态方法并加 7 条单测

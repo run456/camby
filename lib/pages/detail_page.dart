@@ -461,7 +461,7 @@ class _DetailPageState extends State<DetailPage> {
     }
     // 预告片：本地预告片（Emby 独立视频项）+ 远程外链（RemoteTrailers）
     server
-        .trailers(_item.id)
+        .trailers(_item.id, includeLocalChildren: !_item.isSeries)
         .then((list) {
           if (mounted) setState(() => _trailers = list);
         })

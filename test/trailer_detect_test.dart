@@ -42,6 +42,22 @@ void main() {
     expect(detect({'Type': 'Trailer'}), isTrue);
   });
 
+  test('服务端不回 Path，但 Name 带 trailer 也能识别', () {
+    expect(detect({'Type': 'Video', 'Name': 'Official Trailer'}), isTrue);
+  });
+
+  test('Path 被隐藏，但 MediaSources[].Path 带 trailer 也能识别', () {
+    expect(
+      detect({
+        'Type': 'Video',
+        'MediaSources': [
+          {'Path': '/media/ABP-018/trailers/clip.mkv'},
+        ],
+      }),
+      isTrue,
+    );
+  });
+
   test('剧集子集（Episode）不误判', () {
     expect(
       detect({

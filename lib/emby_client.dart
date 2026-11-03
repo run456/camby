@@ -951,8 +951,22 @@ class EmbyServer {
   static bool looksLikeTrailer(Map<String, dynamic> j) {
     final type = ((j['Type'] as String?) ?? '').toLowerCase();
     final extra = ((j['ExtraType'] as String?) ?? '').toLowerCase();
+    if (extra == 'trailer' || type == 'trailer') return true;
+    // 路径 / 名称 / 媒体源路径任一含 trailer（覆盖 trailer(s)/ 子目录、
+    // 以及服务端不回 Path 但 Name 或 MediaSources.Path 带 trailer 的情况）
     final path = ((j['Path'] as String?) ?? '').toLowerCase();
-    return extra == 'trailer' || type == 'trailer' || path.contains('trailer');
+    final name = ((j['Name'] as String?) ?? '').toLowerCase();
+    if (path.contains('trailer') || name.contains('trailer')) return true;
+    final sources = j['MediaSources'];
+    if (sources is List) {
+      for (final s in sources) {
+        if (s is Map) {
+          final p = ((s['Path'] as String?) ?? '').toLowerCase();
+          if (p.contains('trailer')) return true;
+        }
+      }
+    }
+    return false;
   }
 
   /// 影片的预告片（本地文件 / 远程外链来源均可）。
@@ -968,47 +982,75 @@ class EmbyServer {
   ///    不依赖服务端对 IncludeItemTypes 的精确实现。
   /// 各路各自 try，任一失败都不影响其它路（调用方 `_loadExtras` 还有兜底）。
   /// 返回空列表 = 确实没有预告片，绝不抛异常。
-  Future<List<MediaItem>> trailers(String itemId) async {
+  Future<List<MediaItem>> trailers(
+    String itemId, {
+    bool includeLocalChildren = true,
+  }) async {
     final out = <MediaItem>[];
     final seen = <String>{};
     void _merge(List<MediaItem> list) {
       for (final e in list) {
-        if (seen.add(e.id)) out.add(e);
+        if (e.id.isNotEmpty && seen.add(e.id)) out.add(e);
       }
     }
 
-    // 1) 关联预告片
-    try {
-      final json = await _getJson(
-        '$baseUrl/Items/$itemId/Trailer',
-        query: {'UserId': _userId!, 'Fields': _kItemFields},
-      );
-      _merge(_parseItems(json));
-    } catch (_) {
-      /* 关联预告片接口不可用，继续找本地文件 */
-    }
-
-    // 2) 本地 trailer 文件（递归拉全部子项，客户端按 trailer 特征过滤）
-    try {
-      final json = await _getJson(
-        '$baseUrl/Users/$_userId/Items',
-        query: {
-          'ParentId': itemId,
-          'Recursive': 'true',
-          // 只取视频/预告片两类，避免把剧集的子集（Episode）等拉进来
-          'IncludeItemTypes': 'Trailer,Video',
-          'Fields': _kItemFields,
-        },
-      );
-      final raw = json['Items'] as List<dynamic>? ?? [];
-      final extras = <Map<String, dynamic>>[];
+    /// 容错解析：`/Trailer` 可能返回数组、也可能返回 `{Items:[...]}`；
+    /// 逐条过滤，单条异常不拖垮整批。
+    List<MediaItem> _parseFlexible(dynamic resp) {
+      final List<dynamic> raw = resp is List
+          ? resp
+          : (resp is Map ? (resp['Items'] as List<dynamic>? ?? const []) : const []);
+      final res = <MediaItem>[];
       for (final e in raw) {
-        final j = e as Map<String, dynamic>;
-        if (looksLikeTrailer(j)) extras.add(j);
+        if (e is Map<String, dynamic>) {
+          try {
+            res.add(_fromJson(e));
+          } catch (_) {/* 跳过脏数据 */}
+        }
       }
-      _merge(extras.map((j) => _fromJson(j)).toList());
-    } catch (_) {
-      /* 本地预告片不可用（部分服务端无此子条目），忽略 */
+      return res;
+    }
+
+    // 1) 官方 Trailer 端点（Emby 网页客户端同款）：/Items/{id}/Trailer
+    //    只带 UserId，避免多余 Fields 触发部分版本的 400。
+    try {
+      final resp = await _getJsonAny(
+        '$baseUrl/Items/$itemId/Trailer',
+        query: {'UserId': _userId!},
+      );
+      _merge(_parseFlexible(resp));
+    } catch (_) {/* 继续其它路 */}
+
+    // 2) 子条目：本地 trailer 文件（trailers/ 子目录）。
+    //    这里刻意用「不带 IncludeItemTypes」的全量子项查询 + 客户端过滤，
+    //    因为不同 Emby 版本对 Trailer/Video 的类型判定不一致（有的把
+    //    trailers/ 里的文件判成 Type=Video + ExtraType=Trailer，有的判成
+    //    Type=Trailer）。全量拉再按特征过滤最稳。
+    //    剧集（Series）下递归会拉出海量分集，故仅电影走这条；剧集的远程
+    //    预告片由上面的官方端点覆盖。
+    if (includeLocalChildren) {
+      try {
+        final resp = await _getJsonAny(
+          '$baseUrl/Users/$_userId/Items',
+          query: {
+            'ParentId': itemId,
+            'Recursive': 'true',
+            'Fields': 'MediaSources,MediaStreams,Overview,Path',
+          },
+        );
+        final List<dynamic> raw = resp is List
+            ? resp
+            : ((resp as Map)['Items'] as List<dynamic>? ?? const []);
+        final extras = <MediaItem>[];
+        for (final e in raw) {
+          if (e is Map<String, dynamic> && looksLikeTrailer(e)) {
+            try {
+              extras.add(_fromJson(e));
+            } catch (_) {/* 跳过脏数据 */}
+          }
+        }
+        _merge(extras);
+      } catch (_) {/* 该服务端可能不支持子条目查询，忽略 */}
     }
 
     return out;
@@ -1438,6 +1480,17 @@ class EmbyServer {
     String path, {
     Map<String, String>? query,
   }) async {
+    final d = await _getJsonAny(path, query: query);
+    return d as Map<String, dynamic>;
+  }
+
+  /// 与 [_getJson] 同款（鉴权 + 超时 + 瞬断重试），但**不强制返回 Map**：
+  /// 有些 Emby 端点（如 `/Items/{id}/Trailer`）直接返回 JSON 数组，
+  /// 强行 `as Map` 会抛错被上层吞掉，这里原样返回 `dynamic`。
+  Future<dynamic> _getJsonAny(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
     final qp = <String, String>{...?query, 'X-Emby-Token': _token!};
     final uri = Uri.parse(path).replace(queryParameters: qp);
@@ -1458,7 +1511,7 @@ class EmbyServer {
         if (res.statusCode != 200) {
           throw EmbyException('请求失败 (${res.statusCode})');
         }
-        return jsonDecode(body) as Map<String, dynamic>;
+        return jsonDecode(body);
       } catch (e) {
         // 网络瞬断自动重试一次（GET 幂等，安全）
         if (attempt == 0 && _isTransientNetworkError(e)) {
