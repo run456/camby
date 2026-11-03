@@ -28,6 +28,7 @@ class DetailPage extends StatefulWidget {
     super.key,
     required this.item,
     required this.onPlay,
+    required this.onPlayPart,
     required this.state,
     required this.onOpenDetail,
     this.heroTag,
@@ -42,6 +43,9 @@ class DetailPage extends StatefulWidget {
     bool resume,
   })
   onPlay;
+
+  /// 播放「额外部分」（同一影片的 -Cd1 / -Cd2 等其它 MediaSource）
+  final void Function(MediaItem item, MediaExtraPart part) onPlayPart;
   final AppState state;
   final OpenDetail onOpenDetail;
 
@@ -291,6 +295,128 @@ class _DetailPageState extends State<DetailPage> {
           ),
         );
       },
+    );
+  }
+
+  /// 「额外部分」栏目：同一影片的其它 MediaSource（-Cd1 / -Cd2 等分段）。
+  ///
+  /// Emby 网页版把主版本以外的来源列在「额外部分」里，点击即播放该段。
+  /// 这里保持同样的语义：横向卡片，缩略图用影片 backdrop，标题下方标注规格。
+  /// 没有额外来源时返回空盒子，整块不出现。
+  Widget _extraPartsSection(MediaItem item) {
+    final parts = item.extraParts;
+    if (parts.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel('额外部分', trailing: '${parts.length} 个'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 98,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: parts.length,
+            itemBuilder: (c, i) {
+              final p = parts[i];
+              final thumb = item.backdropUrl ?? item.posterUrl;
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: LiquidPress(
+                  radius: 12,
+                  scale: 0.97,
+                  semanticLabel: '播放额外部分 ${p.name}',
+                  onTap: () => widget.onPlayPart(item, p),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 168,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (thumb != null)
+                            CachedImage(
+                              url: thumb,
+                              memWidth: 360,
+                              fit: BoxFit.cover,
+                            )
+                          else
+                            Container(color: const Color(0x33204A80)),
+                          // 底部渐变 + 名称/规格
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.black.withOpacity(0.85),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    p.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                  if (p.specLine.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 1),
+                                      child: Text(
+                                        p.specLine,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 8.5,
+                                          color: Colors.white60,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(0.5),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -708,6 +834,11 @@ class _DetailPageState extends State<DetailPage> {
       if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
         const SizedBox(height: 22),
         _trailerSection(item),
+      ],
+      // 额外部分（-Cd1 / -Cd2 等分段），有才显示
+      if (item.extraParts.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _extraPartsSection(item),
       ],
       // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
       if (item.backdrops.isNotEmpty) ...[
@@ -1351,6 +1482,10 @@ class _DetailPageState extends State<DetailPage> {
                                     item.trailerUrls.isNotEmpty) ...[
                                   const SizedBox(height: 22),
                                   _trailerSection(item),
+                                ],
+                                if (item.extraParts.isNotEmpty) ...[
+                                  const SizedBox(height: 22),
+                                  _extraPartsSection(item),
                                 ],
                                 if (item.backdrops.isNotEmpty) ...[
                                   const SizedBox(height: 22),

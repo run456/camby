@@ -40,12 +40,21 @@ class PlayerPage extends StatefulWidget {
     /// 起播有结论时回调（首帧出来 / 明确失败）。
     /// 详情页的 STRM 加载弹窗靠它知道自己该关掉了。
     this.onBootSettled,
+
+    /// 「额外部分」起播时指定的 MediaSource（-Cd1/-Cd2 等分段）。
+    /// 非空时直接按该来源起播，不再走「主版本 → HLS 回退」的逻辑。
+    this.mediaSourceId,
+
+    /// 额外部分的显示名（用于播放页标题后缀，说明这是第几段）
+    this.sourceLabel,
   });
   final MediaItem item;
   final AppState state;
   final SubtitleTrackInfo? subtitle;
   final double startSeconds;
   final VoidCallback? onBootSettled;
+  final String? mediaSourceId;
+  final String? sourceLabel;
 
   @override
   State<PlayerPage> createState() => PlayerPageState();
@@ -740,14 +749,37 @@ class PlayerPageState extends State<PlayerPage>
     );
   }
 
+  /// 顶栏标题：额外部分（-Cd1 / -Cd2 分段）后面标注来源名，避免误以为在播主版本
+  String get _displayTitle {
+    final label = widget.sourceLabel;
+    if (label == null || label.isEmpty) return widget.item.name;
+    return '${widget.item.name} · $label';
+  }
+
   Future<void> _tryOpen() async {
+    final srv = widget.state.server;
+    // 额外部分（-Cd1 / -Cd2 等分段）：直接按指定 MediaSource 起播，
+    // 不走「主版本 → HLS 回退」，否则会去播主版本。
+    final sourceId = widget.mediaSourceId;
+    if (sourceId != null && sourceId.isNotEmpty && srv != null) {
+      if (await _start(_engine, srv.streamUrl(widget.item.id, mediaSourceId: sourceId))) {
+        return;
+      }
+      if (await _start(
+        _engine,
+        srv.streamUrl(widget.item.id, mediaSourceId: sourceId, direct: false),
+      )) {
+        return;
+      }
+      _fallback = true;
+      return;
+    }
     final url = widget.item.videoUrl;
     if (url == null) {
       _fallback = true;
       return;
     }
     if (await _start(_engine, url)) return;
-    final srv = widget.state.server;
     if (srv != null &&
         await _start(_engine, srv.streamUrl(widget.item.id, direct: false)))
       return;
@@ -2059,7 +2091,8 @@ class PlayerPageState extends State<PlayerPage>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      item.name,
+                      // 额外部分（-Cd1/-Cd2 分段）在标题后标出，避免误以为在播主版本
+                      _displayTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

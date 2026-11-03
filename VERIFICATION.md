@@ -1707,3 +1707,5 @@ bash tools/verify_release.sh --build
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 261 全过（新增 request_uri 4 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.34-release-arm64.apk`。
 
 验证（v2.0.35）：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 261 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.35-release-arm64.apk`。
+
+验证（v2.0.36）：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 269 全过（新增 4 条额外部分解析 + 3 条三档布局渲染 + 既有全量）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.36-release-arm64.apk`。

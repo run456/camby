@@ -431,6 +431,108 @@ class SubtitleTrackInfo {
       );
 }
 
+/// 「额外部分」：影片同一条目下的其它 MediaSource（Emby 网页版的「额外部分」）。
+///
+/// 典型场景：`xxx-Cd1.mkv` + `xxx-Cd2.mkv` 被识别成同一影片的两个来源，
+/// 或同一部片的不同分辨率/版本。详情页列出后可单独起播。
+class MediaExtraPart {
+  const MediaExtraPart({
+    required this.id,
+    required this.name,
+    this.path = '',
+    this.runtimeTicks = 0,
+    this.container = '',
+    this.height = 0,
+    this.videoCodec = '',
+    this.audioCodec = '',
+    this.sizeBytes = 0,
+    this.isPrimary = false,
+  });
+
+  /// MediaSource 的 Id（起播时作为 `MediaSourceId` 传参）
+  final String id;
+
+  /// 展示名：优先 `Name`，为空时退化为文件名（去掉扩展名）
+  final String name;
+
+  /// 源文件路径（服务器未开放时为空）
+  final String path;
+  final int runtimeTicks;
+  final String container;
+  final int height;
+  final String videoCodec;
+  final String audioCodec;
+  final int sizeBytes;
+
+  /// 是否为主版本（主版本不进「额外部分」列表，仅用于排序判断）
+  final bool isPrimary;
+
+  /// 时长（分钟）
+  int get runtimeMin =>
+      runtimeTicks <= 0 ? 0 : (runtimeTicks / 600000000).round();
+
+  /// 规格文案：`1080P H264 · AAC · 2小时32分钟`
+  String get specLine {
+    final parts = <String>[
+      if (height > 0) '${height}P',
+      if (videoCodec.isNotEmpty) videoCodec.toUpperCase(),
+      if (audioCodec.isNotEmpty) audioCodec.toUpperCase(),
+    ];
+    final spec = parts.join(' ');
+    final m = runtimeMin;
+    final dur = m <= 0
+        ? ''
+        : (m >= 60 ? '${m ~/ 60}小时${m % 60}分钟' : '$m分钟');
+    return [spec, dur].where((e) => e.isNotEmpty).join(' · ');
+  }
+
+  /// 从 Emby `MediaSources[i]` 解析；解析失败返回 null（由调用方过滤）。
+  static MediaExtraPart? fromJson(Map<String, dynamic> j) {
+    final id = (j['Id'] as String?)?.trim() ?? '';
+    final path = ((j['Path'] as String?) ?? '').trim();
+    if (id.isEmpty && path.isEmpty) return null;
+
+    // 名称优先级：Name → 文件名去扩展名
+    var name = ((j['Name'] as String?) ?? '').trim();
+    if (name.isEmpty && path.isNotEmpty) {
+      final seg = path.split(RegExp(r'[\\/]')).last;
+      final dot = seg.lastIndexOf('.');
+      name = dot > 0 ? seg.substring(0, dot) : seg;
+    }
+    if (name.isEmpty) name = '分段 ${id.isEmpty ? '?' : id}';
+
+    // 分辨率 / 编码：优先取视频流，退化到源级字段
+    var height = (j['Height'] as num?)?.toInt() ?? 0;
+    var vcodec = ((j['VideoCodec'] as String?) ?? '');
+    var acodec = ((j['AudioCodec'] as String?) ?? '');
+    final streams = j['MediaStreams'];
+    if (streams is List) {
+      for (final s in streams) {
+        if (s is! Map) continue;
+        final t = ((s['Type'] as String?) ?? '').toLowerCase();
+        if (t == 'video' && height == 0) {
+          height = (s['Height'] as num?)?.toInt() ?? 0;
+          if (vcodec.isEmpty) vcodec = (s['Codec'] as String?) ?? '';
+        } else if (t == 'audio' && acodec.isEmpty) {
+          acodec = (s['Codec'] as String?) ?? '';
+        }
+      }
+    }
+
+    return MediaExtraPart(
+      id: id,
+      name: name,
+      path: path,
+      runtimeTicks: (j['RunTimeTicks'] as num?)?.toInt() ?? 0,
+      container: ((j['Container'] as String?) ?? '').trim(),
+      height: height,
+      videoCodec: vcodec,
+      audioCodec: acodec,
+      sizeBytes: (j['Size'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
 /// 媒体条目：字段与 Emby REST API 对齐
 class MediaItem {
   const MediaItem({
@@ -467,6 +569,7 @@ class MediaItem {
     this.backdropUrl,
     this.backdrops = const [],
     this.trailerUrls = const [],
+    this.extraParts = const [],
     this.resolutionKnown = true,
     this.reason,
     this.addedDaysAgo = 0,
@@ -534,6 +637,13 @@ class MediaItem {
 
   /// 远程预告片地址（Emby RemoteTrailers，通常是 YouTube 等外链）
   final List<String> trailerUrls;
+
+  /// 「额外部分」：同一影片的其它 MediaSource（如 `xxx-Cd1` / `xxx-Cd2`）。
+  ///
+  /// Emby 把同一部片的多个分段/多版本挂在一个条目下的 `MediaSources` 列表里，
+  /// 网页版详情页会列出其余的作为「额外部分」并可直接播放。这里只保存除
+  /// 「主版本」之外的其余来源，按 `Index` / `Id` 排序。
+  final List<MediaExtraPart> extraParts;
 
   /// 是否能从 MediaStreams 读到真实视频高度（strm 等可能为 false）
   final bool resolutionKnown;
@@ -749,6 +859,12 @@ class MediaItem {
           .toList(),
       trailerUrls: ((j['trailerUrls'] as List?) ?? const [])
           .map((e) => e.toString())
+          .toList(),
+      // 额外部分：仅用于内存中的详情页展示，序列化时带上不影响其它逻辑
+      extraParts: ((j['extraParts'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(MediaExtraPart.fromJson)
+          .whereType<MediaExtraPart>()
           .toList(),
       resolutionKnown: j['resolutionKnown'] as bool? ?? true,
       reason: j['reason'] as String?,

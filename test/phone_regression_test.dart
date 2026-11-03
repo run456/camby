@@ -96,6 +96,7 @@ void main() {
             item: demoLibrary.first,
             state: AppState(),
             onPlay: (item, subtitle, {resume = false}) {},
+            onPlayPart: (item, part) {},
             onOpenDetail: (_, {String? heroTag}) {},
           ),
         ),

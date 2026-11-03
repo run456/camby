@@ -650,6 +650,26 @@ class EmbyServer {
         if (t is Map && (t['Url'] as String?)?.isNotEmpty == true)
           t['Url'] as String,
     ];
+    // 额外部分：同一影片的其余 MediaSource（-Cd1/-Cd2 分段、多版本等）。
+    // Emby 网页版把「主版本以外的来源」列成「额外部分」，这里照做：
+    // 先按 Index 排序（服务端本已排序，保险起见），跳过主版本（第一条 /
+    // 与 ms0 同 Id 的那条），其余全部作为可播放分段。
+    final primaryId = (ms0['Id'] as String?) ?? '';
+    final extraParts = <MediaExtraPart>[];
+    if (sources.length > 1) {
+      final sorted = sources.whereType<Map<String, dynamic>>().toList()
+        ..sort(
+          (a, b) => ((a['Index'] as num?)?.toInt() ?? 0).compareTo(
+            (b['Index'] as num?)?.toInt() ?? 0,
+          ),
+        );
+      for (final s in sorted) {
+        final sid = (s['Id'] as String?) ?? '';
+        if (sid == primaryId) continue; // 主版本
+        final part = MediaExtraPart.fromJson(s);
+        if (part != null) extraParts.add(part);
+      }
+    }
     return MediaItem(
       id: id,
       name: j['Name'] as String? ?? '未命名',
@@ -686,6 +706,7 @@ class EmbyServer {
       backdropUrl: backdrops.isNotEmpty ? backdrops.first : null,
       backdrops: backdrops,
       trailerUrls: trailerUrls,
+      extraParts: extraParts,
       resolutionKnown: heightFound,
       videoUrl: '$baseUrl/Videos/$id/stream?Static=true&api_key=$_token',
       addedDaysAgo: _addedDays(j['DateCreated'] as String?),

@@ -184,6 +184,7 @@ class _AppShellState extends State<AppShell>
         builder: (_, __) => DetailPage(
           item: item,
           onPlay: _openPlayer,
+          onPlayPart: _openExtraPart,
           state: _state,
           onOpenDetail: _openDetail,
           heroTag: heroTag,
@@ -227,6 +228,31 @@ class _AppShellState extends State<AppShell>
       _blur.value = n.metrics.pixels > 4;
     }
     return false;
+  }
+
+  /// 播放「额外部分」：同一影片的其它 MediaSource（-Cd1 / -Cd2 等分段）。
+  ///
+  /// 与 [_openPlayer] 的区别只有两点：起播时带上 `MediaSourceId`，保证播的是
+  /// 指定那一段而不是主版本；不携带续播位置（分段各自独立，续播点对不上）。
+  void _openExtraPart(MediaItem item, MediaExtraPart part) {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: true,
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (_, __, ___) => ListenableBuilder(
+          listenable: _state,
+          builder: (_, __) => PlayerPage(
+            key: _playerKey,
+            item: item,
+            state: _state,
+            startSeconds: 0,
+            mediaSourceId: part.id,
+            sourceLabel: part.name,
+          ),
+        ),
+      ),
+    );
   }
 
   void _openPlayer(
