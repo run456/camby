@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.30 (230)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.31 (231)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -120,6 +120,11 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.31 (231) 接入 Jellyfin 专用端点（`/LocalTrailers`）——预告片终于能取到（实测反馈）
+- **定位到服务端是 Jellyfin**：用户实测 `/Items/{id}/Trailer` 返回 404「找不到文件」，但网页能播。Jellyfin 根本没有 `/Trailer` 端点，本地预告片走的是 **`/Items/{id}/LocalTrailers`**——这是此前一直空列表的真正原因
+- `trailers()` 改为**四路并发**抓取并合并去重：① Emby `/Items/{id}/Trailer`；② **Jellyfin `/Items/{id}/LocalTrailers`**（主力）；③ `/Items/{id}/SpecialFeatures`（花絮集合，按 trailer 特征过滤）；④ 子项递归兜底。任一路 404/失败退化为空，不影响其它路
+- 请求层仍是 `_getJsonAny`（兼容裸数组 / `{Items}` 两种返回）；子项递归仅电影启用
 
 ### v2.0.30 (230) 预告片抓取真正的根因修复（响应数组 + 全点子项）（实测反馈）
 - **根因①：`/Items/{id}/Trailer` 可能返回 JSON 数组**，而请求层 `_getJson` 用 `as Map` 强转，数组会抛 `TypeError` 被上层 `catch` 静默吞掉 → 永远拿不到预告片。新增 `_getJsonAny()` 保留原始 `dynamic`，`trailers()` 用容错解析兼容「数组」与「`{Items:[...]}`」两种返回

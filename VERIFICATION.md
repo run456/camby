@@ -1672,3 +1672,11 @@ bash tools/verify_release.sh --build
 3. **性能与范围**：子项递归查询仅对电影启用（`includeLocalChildren: !_item.isSeries`），避免剧集把分集全量拉出；剧集远程预告片由官方 `/Trailer` 端点覆盖。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过（trailer 识别单测 9 条，新增 Name、MediaSources[].Path）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.30-release-arm64.apk`。
+
+## §67 · v2.0.31 (231) 接入 Jellyfin `/LocalTrailers`（实测：`/Trailer` 404、网页能播）
+
+1. **服务端为 Jellyfin**：用户实测 `GET /Items/{id}/Trailer` → 404「找不到文件」，而网页客户端能播放预告片。Jellyfin 不提供 `/Trailer` 端点，本地预告片的规范端点是 `GET /Items/{itemId}/LocalTrailers`（返回 `BaseItemDto[]` 裸数组）。这正是 v2.0.29/2.0.30 一直空列表的根因——请求的端点根本不存在。
+2. **四路并发抓取**：`trailers()` 用 `Future.wait` 并发请求 ① Emby `/Items/{id}/Trailer` ② Jellyfin `/Items/{id}/LocalTrailers` ③ `/Items/{id}/SpecialFeatures`（花絮，按 trailer 特征过滤）④ 子项递归兜底（仅电影）。每路独立 try，404/异常退化为空不影响其它路，最后按 id 去重合并。
+3. 复用 `_getJsonAny`（兼容裸数组 / `{Items}`），`_parseFlexible(filterTrailer:)` 对花絮与子项做特征过滤，对专用 `Trailer/LocalTrailers` 端点整批信任。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.31-release-arm64.apk`。

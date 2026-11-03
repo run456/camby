@@ -971,17 +971,15 @@ class EmbyServer {
 
   /// 影片的预告片（本地文件 / 远程外链来源均可）。
   ///
-  /// Emby / Jellyfin 把预告片存成几类，这里多路都抓并合并去重：
-  /// 1) **关联预告片**：`/Items/{id}/Trailer` —— 网页手动关联的预告片项；
-  /// 2) **本地 trailer 文件**：放在电影文件夹里（含 `trailer/` 子目录）的
-  ///    `trailer.mp4` / `trailer.mkv` 等。Emby 扫描后可能以两种形态存在：
-  ///    - `Type=Trailer`（直接当成预告片项），或
-  ///    - `Type=Video` + `ExtraType=Trailer`（普通视频被标记为额外内容），
-  ///    且 `trailer/` 子目录会让它再嵌套一层。因此递归拉全部子项，再按
-  ///    `ExtraType==Trailer / Type==Trailer / 路径含 trailer` 客户端过滤，
-  ///    不依赖服务端对 IncludeItemTypes 的精确实现。
-  /// 各路各自 try，任一失败都不影响其它路（调用方 `_loadExtras` 还有兜底）。
-  /// 返回空列表 = 确实没有预告片，绝不抛异常。
+  /// Emby 与 Jellyfin 的端点不同，这里四路并发都试、合并去重：
+  /// A) Emby `/Items/{id}/Trailer`（部分版本无此端点，404 属正常）；
+  /// B) **Jellyfin `/Items/{id}/LocalTrailers`** —— 网页客户端列本地预告片
+  ///    走的就是这条（用户实测 `/Trailer` 404 但网页能播，即此情形）；
+  /// C) Emby/Jellyfin `/Items/{id}/SpecialFeatures` —— 花絮集合（含预告片），
+  ///    需按 trailer 特征过滤；
+  /// D) 子项递归（`ParentId` + `Recursive=true`）+ 客户端过滤，兜底把
+  ///    `trailers/` 目录扫成子条目、又不提供专用端点的版本。
+  /// 各路各自 try，任一失败退化为空、不影响其它路；返回空 = 确实没有预告片。
   Future<List<MediaItem>> trailers(
     String itemId, {
     bool includeLocalChildren = true,
@@ -994,41 +992,37 @@ class EmbyServer {
       }
     }
 
-    /// 容错解析：`/Trailer` 可能返回数组、也可能返回 `{Items:[...]}`；
-    /// 逐条过滤，单条异常不拖垮整批。
-    List<MediaItem> _parseFlexible(dynamic resp) {
+    /// 容错解析：端点可能返回裸数组、也可能返回 `{Items:[...]}`。
+    /// [filterTrailer] 为 true 时只保留「看起来像预告片」的条目（花絮集合、
+    /// 子项查询用；专用 Trailer/LocalTrailers 端点则整批信任）。
+    List<MediaItem> _parseFlexible(dynamic resp, {bool filterTrailer = false}) {
       final List<dynamic> raw = resp is List
           ? resp
           : (resp is Map ? (resp['Items'] as List<dynamic>? ?? const []) : const []);
       final res = <MediaItem>[];
       for (final e in raw) {
-        if (e is Map<String, dynamic>) {
-          try {
-            res.add(_fromJson(e));
-          } catch (_) {/* 跳过脏数据 */}
-        }
+        if (e is! Map<String, dynamic>) continue;
+        if (filterTrailer && !looksLikeTrailer(e)) continue;
+        try {
+          res.add(_fromJson(e));
+        } catch (_) {/* 跳过脏数据 */}
       }
       return res;
     }
 
-    // 1) 官方 Trailer 端点（Emby 网页客户端同款）：/Items/{id}/Trailer
-    //    只带 UserId，避免多余 Fields 触发部分版本的 400。
-    try {
-      final resp = await _getJsonAny(
-        '$baseUrl/Items/$itemId/Trailer',
-        query: {'UserId': _userId!},
-      );
-      _merge(_parseFlexible(resp));
-    } catch (_) {/* 继续其它路 */}
+    Future<List<MediaItem>> _fetch(
+      String path, {
+      bool filterTrailer = false,
+    }) async {
+      try {
+        final resp = await _getJsonAny(path, query: {'UserId': _userId!});
+        return _parseFlexible(resp, filterTrailer: filterTrailer);
+      } catch (_) {
+        return const <MediaItem>[]; // 端点 404 / 无数据 → 空，不抛
+      }
+    }
 
-    // 2) 子条目：本地 trailer 文件（trailers/ 子目录）。
-    //    这里刻意用「不带 IncludeItemTypes」的全量子项查询 + 客户端过滤，
-    //    因为不同 Emby 版本对 Trailer/Video 的类型判定不一致（有的把
-    //    trailers/ 里的文件判成 Type=Video + ExtraType=Trailer，有的判成
-    //    Type=Trailer）。全量拉再按特征过滤最稳。
-    //    剧集（Series）下递归会拉出海量分集，故仅电影走这条；剧集的远程
-    //    预告片由上面的官方端点覆盖。
-    if (includeLocalChildren) {
+    Future<List<MediaItem>> _fetchChildren() async {
       try {
         final resp = await _getJsonAny(
           '$baseUrl/Users/$_userId/Items',
@@ -1038,19 +1032,25 @@ class EmbyServer {
             'Fields': 'MediaSources,MediaStreams,Overview,Path',
           },
         );
-        final List<dynamic> raw = resp is List
-            ? resp
-            : ((resp as Map)['Items'] as List<dynamic>? ?? const []);
-        final extras = <MediaItem>[];
-        for (final e in raw) {
-          if (e is Map<String, dynamic> && looksLikeTrailer(e)) {
-            try {
-              extras.add(_fromJson(e));
-            } catch (_) {/* 跳过脏数据 */}
-          }
-        }
-        _merge(extras);
-      } catch (_) {/* 该服务端可能不支持子条目查询，忽略 */}
+        return _parseFlexible(resp, filterTrailer: true);
+      } catch (_) {
+        return const <MediaItem>[];
+      }
+    }
+
+    // 四路并发（各 10s 超时、失败各自退化为空，不互相拖累）：
+    // A) Emby `/Items/{id}/Trailer`（部分版本无此端点 → 404）
+    // B) Jellyfin `/Items/{id}/LocalTrailers`（网页客户端列本地预告片即走这里）
+    // C) Jellyfin/Emby `/Items/{id}/SpecialFeatures`（花絮集合，含预告片，需过滤）
+    // D) 子项递归（ParentId + Recursive）+ 客户端过滤（兜底，仅电影）
+    final lists = await Future.wait<List<MediaItem>>([
+      _fetch('$baseUrl/Items/$itemId/Trailer'),
+      _fetch('$baseUrl/Items/$itemId/LocalTrailers'),
+      _fetch('$baseUrl/Items/$itemId/SpecialFeatures', filterTrailer: true),
+      if (includeLocalChildren) _fetchChildren(),
+    ]);
+    for (final l in lists) {
+      _merge(l);
     }
 
     return out;
