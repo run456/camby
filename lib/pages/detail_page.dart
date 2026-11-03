@@ -442,6 +442,48 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
+  /// 预告片诊断：逐端点列出真实返回，便于定位「网页能播、App 不显示」
+  Future<void> _showTrailerDiag() async {
+    final server = widget.state.server;
+    if (server == null) return;
+    _toast('正在检测预告片接口…');
+    final log = await server.trailerDiag(_item.id);
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xF21A2233),
+        title: const Text('预告片诊断', style: TextStyle(fontSize: 16)),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            '影片 ID: ${_item.id}\n\n${log.join('\n\n')}',
+            style: const TextStyle(fontSize: 11, height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              final list = await server.trailers(
+                _item.id,
+                includeLocalChildren: !_item.isSeries,
+              );
+              if (mounted) {
+                setState(() => _trailers = list);
+                _toast(list.isEmpty ? '仍未找到预告片' : '已重新加载 ${list.length} 个');
+              }
+            },
+            child: const Text('重新加载'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadExtras() async {
     final server = widget.state.server;
     if (server == null || _item.id.startsWith('demo-')) return;
@@ -691,6 +733,27 @@ class _DetailPageState extends State<DetailPage> {
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ],
+      // 预告片缺失时的诊断入口（有预告片就不打扰）
+      if ((_trailers?.isEmpty ?? true) &&
+          item.trailerUrls.isEmpty &&
+          !item.id.startsWith('demo-')) ...[
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _showTrailerDiag,
+            icon: const Icon(Icons.bug_report_outlined, size: 15),
+            label: const Text('没看到预告片？点此诊断'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.muted,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 11.5),
             ),
           ),
         ),
@@ -1322,6 +1385,32 @@ class _DetailPageState extends State<DetailPage> {
                                               ),
                                             ),
                                           ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                if ((_trailers?.isEmpty ?? true) &&
+                                    item.trailerUrls.isEmpty &&
+                                    !item.id.startsWith('demo-')) ...[
+                                  const SizedBox(height: 10),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: _showTrailerDiag,
+                                      icon: const Icon(
+                                        Icons.bug_report_outlined,
+                                        size: 15,
+                                      ),
+                                      label: const Text('没看到预告片？点此诊断'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.muted,
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: const Size(0, 32),
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        textStyle: const TextStyle(
+                                          fontSize: 11.5,
                                         ),
                                       ),
                                     ),

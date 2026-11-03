@@ -980,6 +980,39 @@ class EmbyServer {
   /// D) 子项递归（`ParentId` + `Recursive=true`）+ 客户端过滤，兜底把
   ///    `trailers/` 目录扫成子条目、又不提供专用端点的版本。
   /// 各路各自 try，任一失败退化为空、不影响其它路；返回空 = 确实没有预告片。
+  /// 预告片抓取诊断：逐个端点请求并记录「状态码 / 条目数 / 判定结果」。
+  /// 供详情页「预告片诊断」入口展示，排查「网页能播、App 不显示」。
+  Future<List<String>> trailerDiag(String itemId) async {
+    final log = <String>[];
+    final paths = <String>[
+      '$baseUrl/Items/$itemId/Trailer',
+      '$baseUrl/Items/$itemId/LocalTrailers',
+      '$baseUrl/Items/$itemId/SpecialFeatures',
+      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=true'
+          '&IncludeItemTypes=Trailer,Video',
+      '$baseUrl/Users/$_userId/Items?ParentId=$itemId&Recursive=true',
+    ];
+    for (final p in paths) {
+      final short = p.replaceFirst(baseUrl, '');
+      try {
+        final resp = await _getJsonAny(p, query: {'UserId': _userId!});
+        final List<dynamic> raw = resp is List
+            ? resp
+            : (resp is Map
+                ? (resp['Items'] as List<dynamic>? ?? const [])
+                : const []);
+        final hit = raw.whereType<Map<String, dynamic>>()
+            .where((e) => looksLikeTrailer(e)).length;
+        log.add('200 · ${raw.length} 项 · 命中 $hit\n$short');
+      } on EmbyException catch (e) {
+        log.add('${e.message}\n$short');
+      } catch (e) {
+        log.add('${e.runtimeType}\n$short');
+      }
+    }
+    return log;
+  }
+
   Future<List<MediaItem>> trailers(
     String itemId, {
     bool includeLocalChildren = true,
@@ -1022,20 +1055,37 @@ class EmbyServer {
       }
     }
 
+    // 子项递归兜底。Emby 的 /Users/{uid}/Items **默认会过滤掉 Extra
+    // （预告片/花絮正是 Extra）**，必须显式带上 `IncludeItemTypes` 或
+    // `IsMissing=false` 之类的放行参数，否则 `trailers/` 目录扫出来的
+    // 预告片子项永远查不到。这里试两种参数组合，取并集：
+    //  ① 显式 IncludeItemTypes=Trailer,Video（多数 Emby 版本需要它才放行 Extra）
+    //  ② 不加类型过滤（部分版本靠 Recursive 就能返回全部子项）
     Future<List<MediaItem>> _fetchChildren() async {
-      try {
-        final resp = await _getJsonAny(
-          '$baseUrl/Users/$_userId/Items',
-          query: {
-            'ParentId': itemId,
-            'Recursive': 'true',
-            'Fields': 'MediaSources,MediaStreams,Overview,Path',
-          },
-        );
-        return _parseFlexible(resp, filterTrailer: true);
-      } catch (_) {
-        return const <MediaItem>[];
+      final results = <MediaItem>[];
+      final variants = <Map<String, String>>[
+        {
+          'ParentId': itemId,
+          'Recursive': 'true',
+          'IncludeItemTypes': 'Trailer,Video',
+          'Fields': 'MediaSources,MediaStreams,Overview,Path,ExtraType',
+        },
+        {
+          'ParentId': itemId,
+          'Recursive': 'true',
+          'Fields': 'MediaSources,MediaStreams,Overview,Path,ExtraType',
+        },
+      ];
+      for (final q in variants) {
+        try {
+          final resp = await _getJsonAny(
+            '$baseUrl/Users/$_userId/Items',
+            query: q,
+          );
+          results.addAll(_parseFlexible(resp, filterTrailer: true));
+        } catch (_) {/* 该组合不可用，试下一个 */}
       }
+      return results;
     }
 
     // 四路并发（各 10s 超时、失败各自退化为空，不互相拖累）：

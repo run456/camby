@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.31 (231)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.32 (232)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -120,6 +120,11 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 ## 更新日志
 
 > 本节汇总 v1.7.x 系列的改动。**v1.7.22 → v1.7.40 的版本履历已从原始会话的分享存档中复原**（见 `04-原会话履历复原与差距清单.md`），因此下面 v1.7.38 之后的内容不再是推断，而是对照真实改动逐条补齐。
+
+### v2.0.32 (232) 子项查询放行 Extra + 预告片诊断入口（实测反馈）
+- **修正服务端判定**：用户网页 URL `#!/item?id=15512&serverId=94d1...` 表明这是 **Emby**（Jellyfin 用 `/web/#/details`），且 `94d1...` 是 **serverId 而非影片 ID**。此前拿 serverId 请求 `/Items/94d1.../Trailer` 得到 404「找不到文件」，不是端点问题，是**拿错了 ID**。真实影片 ID 形如 `15512`
+- **子项查询放行 Extra（关键）**：Emby `/Users/{uid}/Items` **默认过滤 Extra**，而 `trailers/` 目录扫出的预告片正是 `ExtraType=Trailer` 的 Extra，不加 `IncludeItemTypes` 就永远查不到。改为两种参数组合各试一次取并集（`IncludeItemTypes=Trailer,Video` / 无类型过滤），并补 `Fields=ExtraType`
+- **新增「预告片诊断」入口**：详情页在没有预告片时显示「没看到预告片？点此诊断」，逐个端点列出状态码、返回条目数、命中数（含真实影片 ID），一眼看出是哪个接口没通，替代盲猜
 
 ### v2.0.31 (231) 接入 Jellyfin 专用端点（`/LocalTrailers`）——预告片终于能取到（实测反馈）
 - **定位到服务端是 Jellyfin**：用户实测 `/Items/{id}/Trailer` 返回 404「找不到文件」，但网页能播。Jellyfin 根本没有 `/Trailer` 端点，本地预告片走的是 **`/Items/{id}/LocalTrailers`**——这是此前一直空列表的真正原因

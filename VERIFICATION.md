@@ -1680,3 +1680,11 @@ bash tools/verify_release.sh --build
 3. 复用 `_getJsonAny`（兼容裸数组 / `{Items}`），`_parseFlexible(filterTrailer:)` 对花絮与子项做特征过滤，对专用 `Trailer/LocalTrailers` 端点整批信任。
 
 验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.31-release-arm64.apk`。
+
+## §68 · v2.0.32 (232) 子项查询放行 Extra + 预告片诊断入口（实测反馈）
+
+1. **纠正误判**：用户给出的网页 URL `http://192.168.5.29:6655/web/index.html#!/item?id=15512&serverId=94d1105e48fb42aa86912558976c6ca8` —— ① `web/index.html#!/item` 是 **Emby** 路由（Jellyfin 为 `/web/#/details`）；② `94d1...` 是 **serverId（服务器 ID）**，不是影片 ID。之前用 serverId 请求 `/Items/94d1.../Trailer` 得到 404「找不到文件」属正常，因为那根本不是影片。真实影片 ID 为 `15512`。
+2. **子项查询放行 Extra**：Emby `/Users/{uid}/Items` 默认过滤 Extra，而 `trailers/` 目录扫出的预告片正是 `ExtraType=Trailer`。`_fetchChildren()` 改为两种参数组合取并集（`IncludeItemTypes=Trailer,Video` 与无类型过滤），并补 `Fields=ExtraType`。
+3. **诊断入口**：新增 `EmbyServer.trailerDiag(itemId)`，逐个端点（`/Trailer`、`/LocalTrailers`、`/SpecialFeatures`、两种子项组合）返回「状态码 · 条目数 · 命中数 · 路径」；详情页在无预告片时显示「没看到预告片？点此诊断」按钮（手机/平板双布局），弹窗内可「重新加载」。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 253 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.32-release-arm64.apk`。
