@@ -466,6 +466,7 @@ class MediaItem {
     this.posterAspect = 0.6667,
     this.backdropUrl,
     this.backdrops = const [],
+    this.trailerUrls = const [],
     this.resolutionKnown = true,
     this.reason,
     this.addedDaysAgo = 0,
@@ -530,6 +531,9 @@ class MediaItem {
 
   /// 全部横版剧照地址（Backdrop 0..n）
   final List<String> backdrops;
+
+  /// 远程预告片地址（Emby RemoteTrailers，通常是 YouTube 等外链）
+  final List<String> trailerUrls;
 
   /// 是否能从 MediaStreams 读到真实视频高度（strm 等可能为 false）
   final bool resolutionKnown;
@@ -741,6 +745,9 @@ class MediaItem {
       posterAspect: (j['posterAspect'] as num?)?.toDouble() ?? 0.6667,
       backdropUrl: j['backdropUrl'] as String?,
       backdrops: ((j['backdrops'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toList(),
+      trailerUrls: ((j['trailerUrls'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),
       resolutionKnown: j['resolutionKnown'] as bool? ?? true,
@@ -1136,10 +1143,7 @@ class LibraryStats {
   /// 标签数据来源：Tags 为空时回退 Genres（部分媒体库把标签写在分类里）
   final String tagSource;
 
-  static LibraryStats compute(
-    List<MediaItem> items, {
-    Map<String, int> playCounts = const {},
-  }) {
+  static LibraryStats compute(List<MediaItem> items) {
     final movies = items.where((e) => e.isMovie).length;
     final series = items.where((e) => e.isSeries).length;
     final totalMin = items.fold<int>(0, (a, e) => a + e.runtimeMin);
@@ -1271,24 +1275,23 @@ class LibraryStats {
         )
         .toList();
 
-    // ── 偏好影片：本地 App 播放次数（每次起播 +1）取前 10 部影片（仅电影）──
-    // 与服务端活动日志的「最常看作品 Top」不同：这里只认本 App 的本地播放计数，
-    // 不依赖服务器权限，重装/换端会重置（属预期）。
-    // 先筛出「电影 + 有播放次数」的条目再排序取前 10，保证榜单始终是 10 部影片，
+    // ── 偏好影片：服务器播放次数（userPlayCount）取前 10 部影片（仅电影）──
+    // 直接复用服务端累计播放次数（App 起播/退出已回传会话事件，服务端自增该值），
+    // 跨设备一致、重装不丢，且与「最常看作品 Top」同源。
+    // 先筛「电影 + 有播放次数」再排序取前 10，保证榜单始终是 10 部影片，
     // 不会被高播放次数的剧集挤掉名额。
     final playRanked = <Map<String, dynamic>>[];
     {
       final moviePlays = <Map<String, dynamic>>[];
       for (final e in items) {
         if (!e.isMovie) continue;
-        final c = playCounts[e.id] ?? 0;
+        final c = e.userPlayCount;
         if (c > 0) {
           moviePlays.add({'item': e, 'count': c});
         }
       }
       moviePlays.sort(
-        (a, b) =>
-            (b['count'] as int).compareTo(a['count'] as int),
+        (a, b) => (b['count'] as int).compareTo(a['count'] as int),
       );
       final maxPC = moviePlays.isEmpty ? 1 : moviePlays.first['count'] as int;
       for (final e in moviePlays.take(10)) {

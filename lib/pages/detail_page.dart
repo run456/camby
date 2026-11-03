@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../models.dart';
@@ -62,6 +63,7 @@ class _DetailPageState extends State<DetailPage> {
   late MediaItem _item;
   List<MediaItem>? _similar;
   List<MediaItem>? _episodes;
+  List<MediaItem>? _trailers;
   bool _descExpanded = false;
   bool _mediaExpanded = false;
   SubtitleTrackInfo? _selectedSubtitle;
@@ -113,6 +115,7 @@ class _DetailPageState extends State<DetailPage> {
       _selectedSubtitle = _defaultSubtitle(_item);
       _similar = null;
       _episodes = null;
+      _trailers = null;
       _descExpanded = false;
       _mediaExpanded = false;
       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -224,20 +227,214 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  void _showBackdrop(String url) {
+  /// 剧照查看器：多张剧照可左右滑动切换，点按空白关闭，顶部显示页码
+  void _showBackdrops(List<String> urls, int initial) {
+    if (urls.isEmpty) return;
     showDialog<void>(
       context: context,
       barrierColor: Colors.black.withOpacity(0.92),
-      builder: (ctx) => GestureDetector(
-        onTap: () => Navigator.of(ctx).pop(),
-        child: InteractiveViewer(
-          minScale: 1,
-          maxScale: 4,
-          child: Center(
-            child: CachedImage(url: url, fit: BoxFit.contain, memWidth: 1600),
+      builder: (ctx) {
+        final page = PageController(initialPage: initial.clamp(0, urls.length - 1));
+        final idx = ValueNotifier<int>(initial.clamp(0, urls.length - 1));
+        return StatefulBuilder(
+          builder: (ctx2, setSt) => GestureDetector(
+            onTap: () => Navigator.of(ctx).pop(),
+            child: Stack(
+              children: [
+                PageView.builder(
+                  controller: page,
+                  itemCount: urls.length,
+                  onPageChanged: (i) => idx.value = i,
+                  itemBuilder: (c, i) => InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: CachedImage(
+                        url: urls[i],
+                        fit: BoxFit.contain,
+                        memWidth: 1600,
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: MediaQuery.of(ctx).padding.top + 12,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: idx,
+                        builder: (_, v, __) => Text(
+                          '${v + 1} / ${urls.length}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 预告片栏目：本地预告片可在 App 内直接播放；远程外链（YouTube 等）跳转系统浏览器
+  Widget _trailerSection(MediaItem item) {
+    final local = _trailers ?? const <MediaItem>[];
+    final remote = item.trailerUrls;
+    if (local.isEmpty && remote.isEmpty) return const SizedBox.shrink();
+    final total = local.length + remote.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionLabel('预告片', trailing: '$total 个'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 98,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: total,
+            itemBuilder: (c, i) {
+              final isLocal = i < local.length;
+              final MediaItem? tr = isLocal ? local[i] : null;
+              final String? remoteUrl =
+                  isLocal ? null : remote[i - local.length];
+              final thumb = tr?.posterUrl ?? tr?.backdropUrl;
+              final title = tr?.name ?? '远程预告片';
+              final isRemote = remoteUrl != null;
+              return Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: LiquidPress(
+                  radius: 12,
+                  scale: 0.97,
+                  onTap: () {
+                    if (tr != null) {
+                      widget.onPlay(tr, null, resume: false);
+                    } else if (remoteUrl != null) {
+                      unawaited(
+                        launchUrl(
+                          Uri.parse(remoteUrl),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      );
+                    }
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 168,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (thumb != null)
+                            CachedImage(
+                              url: thumb,
+                              memWidth: 360,
+                              fit: BoxFit.cover,
+                            )
+                          else
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Color(0x334F8CFF),
+                                    Color(0x14305FB0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.black.withOpacity(0.82),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(0.5),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.play_arrow_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          if (isRemote)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 1.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(6),
+                                  color: Colors.black.withOpacity(0.55),
+                                ),
+                                child: const Text(
+                                  '外链',
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -258,6 +455,13 @@ class _DetailPageState extends State<DetailPage> {
           })
           .catchError((_) {});
     }
+    // 预告片：本地预告片（Emby 独立视频项）+ 远程外链（RemoteTrailers）
+    server
+        .trailers(_item.id)
+        .then((list) {
+          if (mounted) setState(() => _trailers = list);
+        })
+        .catchError((_) {});
   }
 
   /// 顶部刷新：重新拉取该条目详情并刷新页面数据
@@ -467,7 +671,7 @@ class _DetailPageState extends State<DetailPage> {
             itemBuilder: (c, i) => Padding(
               padding: const EdgeInsets.only(right: 10),
               child: LiquidPress(
-                onTap: () => _showBackdrop(item.backdrops[i]),
+                onTap: () => _showBackdrops(item.backdrops, i),
                 radius: 12,
                 scale: 0.97,
                 child: ClipRRect(
@@ -481,6 +685,11 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
         ),
+      ],
+      // 预告片（本地可播 / 远程外链）
+      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _trailerSection(item),
       ],
       // 相似推荐（设计稿板块 6）
       const SizedBox(height: 22),
@@ -1089,7 +1298,7 @@ class _DetailPageState extends State<DetailPage> {
                                         ),
                                         child: LiquidPress(
                                           onTap: () =>
-                                              _showBackdrop(item.backdrops[i]),
+                                              _showBackdrops(item.backdrops, i),
                                           radius: 12,
                                           scale: 0.97,
                                           child: ClipRRect(
@@ -1108,6 +1317,11 @@ class _DetailPageState extends State<DetailPage> {
                                       ),
                                     ),
                                   ),
+                                ],
+                                if ((_trailers?.isNotEmpty == true) ||
+                                    item.trailerUrls.isNotEmpty) ...[
+                                  const SizedBox(height: 22),
+                                  _trailerSection(item),
                                 ],
                                 const SizedBox(height: 22),
                                 _SectionLabel('相似推荐'),

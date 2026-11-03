@@ -1,7 +1,7 @@
 name: camby
 description: "Camby · Android 端 Emby 播放器（Yamby 的能力 + EplayerX 的页面 + 数据总结）"
 publish_to: 'none'
-version: 2.0.26+226
+version: 2.0.27+227
 
 environment:
   sdk: ^3.13.0
@@ -22,6 +22,7 @@ dependencies:
   path_provider: ^2.1.5
   package_info_plus: ^10.2.2
   wakelock_plus: ^1.8.2
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

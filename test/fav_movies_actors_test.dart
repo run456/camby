@@ -3,7 +3,7 @@ import 'package:camby/models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// v2.0.26：偏好演员并入「完成观看」+ 偏好影片本地播放次数 Top10
+/// v2.0.26：偏好演员并入「完成观看」；v2.0.27：偏好影片改用服务器播放次数（userPlayCount）
 void main() {
   MediaItem _mk(
     String id, {
@@ -11,6 +11,7 @@ void main() {
     double progress = 0,
     List<CastMember> people = const [],
     MediaType type = MediaType.movie,
+    int playCount = 0,
   }) =>
       MediaItem(
         id: id,
@@ -20,6 +21,7 @@ void main() {
         type: type,
         userPlayed: played,
         resumeProgress: progress,
+        userPlayCount: playCount,
         people: people,
       );
 
@@ -38,25 +40,22 @@ void main() {
     expect(names, isNot(contains('C')));
   });
 
-  test('偏好影片：按本地播放次数取前 10 部，且只收电影', () {
+  test('偏好影片：按服务器播放次数取前 10 部，且只收电影', () {
+    // 10 部电影，播放次数 1..10
     final movies = List.generate(
-      12,
-      (i) => _mk('m$i', people: const [CastMember(name: 'X')]),
+      10,
+      (i) => _mk('m$i', people: const [CastMember(name: 'X')], playCount: i + 1),
     );
     // 一部剧（非电影）播放 999 次，应当被排除
     final series = _mk(
       's1',
       type: MediaType.series,
       people: const [CastMember(name: 'Y')],
+      playCount: 999,
     );
     final items = [...movies, series];
 
-    // m0..m9 各播放 1..10 次；m10/m11/series 0 次
-    final playCounts = <String, int>{};
-    for (var i = 0; i <= 9; i++) playCounts['m$i'] = i + 1;
-    playCounts['s1'] = 999;
-
-    final stats = LibraryStats.compute(items, playCounts: playCounts);
+    final stats = LibraryStats.compute(items);
 
     expect(stats.topMovies.length, 10);
     // 第一名应是播放 10 次的 m9
@@ -64,14 +63,5 @@ void main() {
     // 榜内不应出现非电影的 series
     final ids = stats.topMovies.map((e) => (e['item'] as MediaItem).id);
     expect(ids, isNot(contains('s1')));
-  });
-
-  test('AppState：addPlayCount 累加并暴露 getPlayCount', () {
-    TestWidgetsFlutterBinding.ensureInitialized();
-    final s = AppState();
-    expect(s.getPlayCount('x'), 0);
-    s.addPlayCount('x');
-    s.addPlayCount('x');
-    expect(s.getPlayCount('x'), 2);
   });
 }

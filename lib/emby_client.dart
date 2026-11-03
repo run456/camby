@@ -642,6 +642,14 @@ class EmbyServer {
       for (var i = 0; i < backdropTags.length; i++)
         '$baseUrl/Items/$id/Images/Backdrop/$i?maxWidth=1280&api_key=$_token&tag=${backdropTags[i]}',
     ];
+    // 远程预告片（Emby RemoteTrailers，多为 YouTube 外链）
+    final remoteTrailers =
+        (j['RemoteTrailers'] as List<dynamic>? ?? const []);
+    final trailerUrls = <String>[
+      for (final t in remoteTrailers)
+        if (t is Map && (t['Url'] as String?)?.isNotEmpty == true)
+          t['Url'] as String,
+    ];
     return MediaItem(
       id: id,
       name: j['Name'] as String? ?? '未命名',
@@ -677,6 +685,7 @@ class EmbyServer {
           : null,
       backdropUrl: backdrops.isNotEmpty ? backdrops.first : null,
       backdrops: backdrops,
+      trailerUrls: trailerUrls,
       resolutionKnown: heightFound,
       videoUrl: '$baseUrl/Videos/$id/stream?Static=true&api_key=$_token',
       addedDaysAgo: _addedDays(j['DateCreated'] as String?),
@@ -931,6 +940,16 @@ class EmbyServer {
         lastPlayedAt: e.lastPlayedAt,
       );
     }).toList();
+  }
+
+  /// 影片的本地预告片（Emby 把预告片当作独立视频项，可直接起播）
+  /// 失败抛异常（调用方负责兜底，不影响详情页其余板块）
+  Future<List<MediaItem>> trailers(String itemId) async {
+    final json = await _getJson(
+      '$baseUrl/Items/$itemId/Trailer',
+      query: {'UserId': _userId!, 'Fields': _kItemFields},
+    );
+    return _parseItems(json);
   }
 
   /// 收藏 / 取消收藏

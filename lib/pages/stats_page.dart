@@ -223,10 +223,10 @@ class _StatsPageState extends State<StatsPage> {
             ),
             const SizedBox(height: 10),
 
-            // 偏好影片：本地 App 播放次数取前 10 部（仅电影）
+            // 偏好影片：服务器播放次数取前 10 部（仅电影）
             _SectionCard(
               title: '偏好影片',
-              badge: const _SourceBadge(text: '本机播放次数'),
+              badge: const _SourceBadge(text: '服务器播放次数'),
               child: _TopMovies(movies: stats.topMovies),
             ),
             const SizedBox(height: 10),
@@ -1268,7 +1268,7 @@ class _TopPeople extends StatelessWidget {
   }
 }
 
-/// 偏好影片：本地 App 播放次数取前 10 部（仅电影）。
+/// 偏好影片：服务器播放次数（userPlayCount）取前 10 部（仅电影）。
 ///
 /// 海报 + 片名（单行省略）+ 播放次数。无海报时用渐变占位块兜底。
 class _TopMovies extends StatelessWidget {

@@ -168,8 +168,6 @@ class PlayerPageState extends State<PlayerPage>
   /// 进度上报节流
   Timer? _reportTimer;
   DateTime? _lastReportAt;
-  /// 本实例是否已记过一次本地播放次数（防止引擎切换重建 _start 重复记）
-  bool _playCounted = false;
 
   bool _bootOverlayDismissed = false;
 
@@ -801,12 +799,6 @@ class PlayerPageState extends State<PlayerPage>
       });
       await prev?.dispose();
       await p.play();
-      // v2.0.26：本地播放次数 +1（每个 PlayerPage 实例只记一次；引擎切换走
-      // 同一实例重建 _start，_playCounted 已为真不再重复记）。
-      if (!_demo && _recordHistory && !_playCounted) {
-        _playCounted = true;
-        widget.state.addPlayCount(widget.item.id);
-      }
       // 新建的内核（尤其是 MPV）需要重新下发一次字幕样式与 ASS 开关
       unawaited(p.applySubtitleStyle(_subStyle));
       unawaited(p.setAssRendering(_assSubtitle));
@@ -969,8 +961,6 @@ class PlayerPageState extends State<PlayerPage>
       );
     }
     unawaited(_reportProgressNow());
-    // v2.0.26：退出即落盘本地播放次数，避免 30s 防抖窗口内丢数据
-    widget.state.flushPlayCount();
     _player?.dispose();
     _posNv.dispose();
     _bufNv.dispose();

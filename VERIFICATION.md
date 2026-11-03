@@ -1638,3 +1638,13 @@ bash tools/verify_release.sh --build
 3. **本地播放次数链路**：`app_state` 新增 `_playCount`（`movie_play_count_json` 持久化）+ `addPlayCount`/`getPlayCount`/`flushPlayCount`/`_loadPlayCount`；`player_page` 起播成功后 `_playCounted` 标志位记一次（引擎切换重建不重复）；`stats.topMovies` 经 `_TopMovies` 组件渲染（海报+片名+「N 次」角标）。
 
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` 244 全过（新增 3 个用例：偏好演员含完成观看、topMovies 取前10部电影、AppState 累加）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.26-release-arm64.apk`（≈36.9MB）。
+
+---
+
+## §63 · v2.0.27 (227) 偏好影片改服务器播放次数（方案A）+ 详情页预告片/剧照滑动（实测反馈）
+
+1. **偏好影片改用服务器 PlayCount（方案 A）**：移除 v2.0.26 自增的整套本地 `_playCount` 逻辑（`app_state`：`_playCount`/`addPlayCount`/`getPlayCount`/`flushPlayCount`/`_loadPlayCount`/持久化/restore 加载；`player_page`：`_playCounted` 与起播记一次 + 退出落盘），`LibraryStats.compute` 去掉 `playCounts` 参数，`topMovies` 改读 `item.userPlayCount`（先筛电影再排序取前 10）。统计页徽标「本机播放次数」→「服务器播放次数」。跨设备一致、重装不丢（App 起播/退出已回传会话事件，服务端 PlayCount 持续累积）。
+2. **详情页预告片栏目**：`MediaItem.trailerUrls`（解析 `RemoteTrailers` 远程外链）；`emby_client.trailers(itemId)` 拉取本地预告片（`/Items/{id}/Trailer`，复用 `_fromJson` 生成可直接起播的 `videoUrl`）；详情页剧照之后插入「预告片」板块，本地预告片点按 `widget.onPlay` 在 App 内播放，外链点按 `launchUrl`；新增 `url_launcher` 依赖 + AndroidManifest `<queries>` 浏览器 intent。
+3. **剧照左右滑动查看**：`_showBackdrop` → `_showBackdrops(List, initial)`，`PageView` 轮播 + 顶部「N / 总数」页码 + 点空白关闭；手机/平板双布局同步。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 243 全过（偏好影片用例改为断言 `userPlayCount` Top10、并删 AppState 累加用例）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.27-release-arm64.apk`（≈37.0MB）。
