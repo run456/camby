@@ -68,6 +68,10 @@ class _DetailPageState extends State<DetailPage> {
   List<MediaItem>? _similar;
   List<MediaItem>? _episodes;
   List<MediaItem>? _trailers;
+
+  /// 「额外部分」的独立子条目（分段 / 花絮）。与 `item.extraParts`
+  /// （同条目下的多个 MediaSource）合并展示。
+  List<MediaItem>? _extras;
   bool _descExpanded = false;
   bool _mediaExpanded = false;
   SubtitleTrackInfo? _selectedSubtitle;
@@ -298,125 +302,149 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 「额外部分」栏目：同一影片的其它 MediaSource（-Cd1 / -Cd2 等分段）。
+  /// 「额外部分」栏目：两类来源合并展示
   ///
-  /// Emby 网页版把主版本以外的来源列在「额外部分」里，点击即播放该段。
-  /// 这里保持同样的语义：横向卡片，缩略图用影片 backdrop，标题下方标注规格。
-  /// 没有额外来源时返回空盒子，整块不出现。
+  /// 1. `item.extraParts` —— 同一影片的多个 MediaSource（`-Cd1` / `-Cd2` 被
+  ///    识别成同一部的分段），起播时带 `MediaSourceId`；
+  /// 2. `_extras` —— 被扫成**独立子条目**的分段/花絮，本身就是一个完整条目，
+  ///    直接起播。
+  ///
+  /// 两者都空时整块不出现（与网页版一致）。
   Widget _extraPartsSection(MediaItem item) {
-    final parts = item.extraParts;
-    if (parts.isEmpty) return const SizedBox.shrink();
+    final sources = item.extraParts;
+    final children = _extras ?? const <MediaItem>[];
+    if (sources.isEmpty && children.isEmpty) return const SizedBox.shrink();
+    final total = sources.length + children.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel('额外部分', trailing: '${parts.length} 个'),
+        _SectionLabel('额外部分', trailing: '$total 个'),
         const SizedBox(height: 12),
         SizedBox(
           height: 98,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            itemCount: parts.length,
+            itemCount: total,
             itemBuilder: (c, i) {
-              final p = parts[i];
-              final thumb = item.backdropUrl ?? item.posterUrl;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: LiquidPress(
-                  radius: 12,
-                  scale: 0.97,
-                  semanticLabel: '播放额外部分 ${p.name}',
-                  onTap: () => widget.onPlayPart(item, p),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      width: 168,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (thumb != null)
-                            CachedImage(
-                              url: thumb,
-                              memWidth: 360,
-                              fit: BoxFit.cover,
-                            )
-                          else
-                            Container(color: const Color(0x33204A80)),
-                          // 底部渐变 + 名称/规格
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black.withOpacity(0.85),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    p.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  if (p.specLine.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 1),
-                                      child: Text(
-                                        p.specLine,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 8.5,
-                                          color: Colors.white60,
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Center(
-                            child: Container(
-                              width: 34,
-                              height: 34,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withOpacity(0.5),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.7),
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.play_arrow_rounded,
-                                size: 20,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
+              // 子条目排前面（信息更全：有自己海报/时长），其后是 MediaSource
+              if (i < children.length) {
+                final e = children[i];
+                return _extraCard(
+                  title: e.name,
+                  spec: e.runtimeMin > 0 ? '${e.runtimeMin} 分钟' : '',
+                  thumb: e.posterUrl ?? e.backdropUrl ?? item.backdropUrl,
+                  onTap: () => widget.onPlay(e, null, resume: false),
+                );
+              }
+              final p = sources[i - children.length];
+              return _extraCard(
+                title: p.name,
+                spec: p.specLine,
+                thumb: item.backdropUrl ?? item.posterUrl,
+                onTap: () => widget.onPlayPart(item, p),
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  /// 单张「额外部分」卡片（缩略图 + 名称 + 规格 + 播放按钮）
+  Widget _extraCard({
+    required String title,
+    required String spec,
+    required String? thumb,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: LiquidPress(
+        radius: 12,
+        scale: 0.97,
+        semanticLabel: '播放额外部分 $title',
+        onTap: onTap,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            width: 168,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (thumb != null && thumb.isNotEmpty)
+                  CachedImage(url: thumb, memWidth: 360, fit: BoxFit.cover)
+                else
+                  Container(color: const Color(0x33204A80)),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.85),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                        if (spec.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 1),
+                            child: Text(
+                              spec,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 8.5,
+                                color: Colors.white60,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withOpacity(0.5),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.7),
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 20,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -634,6 +662,15 @@ class _DetailPageState extends State<DetailPage> {
           if (mounted) setState(() => _trailers = list);
         })
         .catchError((_) {});
+    // 额外部分：独立子条目（分段/花絮）。仅电影查，剧集没有这个语义
+    if (!_item.isSeries) {
+      server
+          .extraParts(_item.id)
+          .then((list) {
+            if (mounted) setState(() => _extras = list);
+          })
+          .catchError((_) {});
+    }
   }
 
   /// 顶部刷新：重新拉取该条目详情并刷新页面数据
@@ -835,8 +872,8 @@ class _DetailPageState extends State<DetailPage> {
         const SizedBox(height: 22),
         _trailerSection(item),
       ],
-      // 额外部分（-Cd1 / -Cd2 等分段），有才显示
-      if (item.extraParts.isNotEmpty) ...[
+      // 额外部分（分段 / 花絮），有才显示
+      if (item.extraParts.isNotEmpty || (_extras?.isNotEmpty == true)) ...[
         const SizedBox(height: 22),
         _extraPartsSection(item),
       ],
@@ -868,9 +905,9 @@ class _DetailPageState extends State<DetailPage> {
           ),
         ),
       ],
-      // 预告片缺失时的诊断入口（有预告片就不打扰）
-      if ((_trailers?.isEmpty ?? true) &&
-          item.trailerUrls.isEmpty &&
+      // 预告片/额外部分缺失时的诊断入口（都有就不打扰）
+      if (((_trailers?.isEmpty ?? true) && item.trailerUrls.isEmpty ||
+              (item.extraParts.isEmpty && (_extras?.isEmpty ?? true))) &&
           !item.id.startsWith('demo-')) ...[
         const SizedBox(height: 10),
         Align(
@@ -878,7 +915,7 @@ class _DetailPageState extends State<DetailPage> {
           child: TextButton.icon(
             onPressed: _showTrailerDiag,
             icon: const Icon(Icons.bug_report_outlined, size: 15),
-            label: const Text('没看到预告片？点此诊断'),
+            label: const Text('没看到预告片/额外部分？点此诊断'),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.muted,
               padding: EdgeInsets.zero,
@@ -1483,7 +1520,8 @@ class _DetailPageState extends State<DetailPage> {
                                   const SizedBox(height: 22),
                                   _trailerSection(item),
                                 ],
-                                if (item.extraParts.isNotEmpty) ...[
+                                if (item.extraParts.isNotEmpty ||
+                                    (_extras?.isNotEmpty == true)) ...[
                                   const SizedBox(height: 22),
                                   _extraPartsSection(item),
                                 ],
@@ -1537,7 +1575,7 @@ class _DetailPageState extends State<DetailPage> {
                                         Icons.bug_report_outlined,
                                         size: 15,
                                       ),
-                                      label: const Text('没看到预告片？点此诊断'),
+                                      label: const Text('没看到预告片/额外部分？点此诊断'),
                                       style: TextButton.styleFrom(
                                         foregroundColor: AppColors.muted,
                                         padding: EdgeInsets.zero,

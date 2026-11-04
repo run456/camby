@@ -1085,17 +1085,18 @@ class EmbyServer {
   ///
   /// [filterTrailer] 为 true 时只保留「看起来像预告片」的条目（花絮集合与
   /// 子项查询用；专用 Trailer/LocalTrailers 端点则整批信任）。
-  List<MediaItem> _parseAnyItems(dynamic resp, {bool filterTrailer = false}) {
-    final List<dynamic> raw = resp is List
-        ? resp
-        : resp is Map
-        ? ((resp['Items'] as List<dynamic>?) ??
-              (resp['Id'] == null ? const [] : [resp]))
-        : const [];
+  List<MediaItem> _parseAnyItems(
+    dynamic resp, {
+    bool filterTrailer = false,
+    bool excludeTrailer = false,
+    String excludeId = '',
+  }) {
     final res = <MediaItem>[];
-    for (final e in raw) {
-      if (e is! Map<String, dynamic>) continue;
-      if (filterTrailer && !looksLikeTrailer(e)) continue;
+    for (final e in _rawItems(resp)) {
+      if (excludeId.isNotEmpty && (e['Id'] as String?) == excludeId) continue;
+      final isTrailer = looksLikeTrailer(e);
+      if (filterTrailer && !isTrailer) continue;
+      if (excludeTrailer && isTrailer) continue;
       try {
         res.add(_fromJson(e));
       } catch (_) {/* 跳过脏数据 */}
@@ -1103,17 +1104,36 @@ class EmbyServer {
     return res;
   }
 
+  /// 把任意形态的响应摊平成条目 Map 列表（裸数组 / `{Items:[...]}` / 单条目）。
+  List<Map<String, dynamic>> _rawItems(dynamic resp) {
+    final List<dynamic> raw = resp is List
+        ? resp
+        : resp is Map
+        ? ((resp['Items'] as List<dynamic>?) ??
+              (resp['Id'] == null ? const [] : [resp]))
+        : const [];
+    return raw.whereType<Map<String, dynamic>>().toList();
+  }
+
   /// 跑单个候选入口。任何异常（404 / 超时 / 脏数据）都退化为空列表。
   ///
   /// 单条 3s 硬超时：候选入口有十几条，若某条把连接挂住，不能让它把详情页
   /// 的预告片区块一起拖住。
-  Future<List<MediaItem>> _runProbe(_TrailerProbe p) async {
+  Future<List<MediaItem>> _runProbe(
+    _TrailerProbe p, {
+    String excludeId = '',
+  }) async {
     try {
       final resp = await _getJsonAny(
         p.path,
         query: {...?p.query, 'api_key': _token!},
       ).timeout(const Duration(seconds: 3));
-      return _parseAnyItems(resp, filterTrailer: p.filter);
+      return _parseAnyItems(
+        resp,
+        filterTrailer: p.filter,
+        excludeTrailer: p.excludeTrailer,
+        excludeId: excludeId,
+      );
     } catch (_) {
       return const <MediaItem>[];
     }
@@ -1208,6 +1228,135 @@ class EmbyServer {
     return out;
   }
 
+  /// 「额外部分」候选入口。
+  ///
+  /// Emby 的「额外部分」有两种来源，两种都要覆盖：
+  /// 1. **同一影片的多个 MediaSource**（`-Cd1/-Cd2` 被识别成同一部的分段）——
+  ///    由 `MediaItem.extraParts` 承载，不在这里查；
+  /// 2. **独立子条目**（分段/花絮被扫成 Extra，`ParentId` 指向本片）——
+  ///    网页版的「额外部分」就是列这些，走 `/Items/{id}/SpecialFeatures`
+  ///    或子项查询。
+  ///
+  /// 端点与 `/emby` 前缀的差异和预告片一样大，所以同样两套 baseUrl 都试。
+  List<_TrailerProbe> _extraProbes(String itemId) {
+    final origin = '${secure ? 'https' : 'http'}://$host:$port';
+    final bases = <String>[baseUrl];
+    if (origin != baseUrl) bases.add(origin);
+    const childFields = 'Path,ExtraType,MediaSources,MediaStreams,'
+        'Overview,RunTimeTicks';
+    final probes = <_TrailerProbe>[];
+    for (final b in bases) {
+      final tag = b == baseUrl ? '' : '[根] ';
+      probes
+        ..add(_TrailerProbe(
+          '${tag}Items/{id}/SpecialFeatures',
+          '$b/Items/$itemId/SpecialFeatures',
+          excludeTrailer: true,
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
+          '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
+          excludeTrailer: true,
+        ));
+      for (final rec in const ['false', 'true']) {
+        probes
+          ..add(_TrailerProbe(
+            '${tag}子项 Users/Items Recursive=$rec',
+            '$b/Users/$_userId/Items',
+            query: {
+              'ParentId': itemId,
+              'Recursive': rec,
+              'Fields': childFields,
+            },
+            excludeTrailer: true,
+          ))
+          ..add(_TrailerProbe(
+            '${tag}子项 Items Recursive=$rec',
+            '$b/Items',
+            query: {
+              'ParentId': itemId,
+              'Recursive': rec,
+              'userId': _userId!,
+              'Fields': childFields,
+            },
+            excludeTrailer: true,
+          ));
+      }
+    }
+    return probes;
+  }
+
+  /// 影片的「额外部分」：分段 / 花絮等**独立子条目**。
+  ///
+  /// 只负责第 2 类来源；第 1 类（同一条目的多个 MediaSource）由
+  /// `MediaItem.extraParts` 承载，详情页会把两者合并展示。
+  /// 预告片会被排除（它们出现在「预告片」栏目）。
+  Future<List<MediaItem>> extraParts(String itemId) async {
+    final out = <MediaItem>[];
+    final seen = <String>{};
+    for (final p in _extraProbes(itemId)) {
+      for (final e in await _runProbe(p, excludeId: itemId)) {
+        if (e.id.isNotEmpty && seen.add(e.id)) out.add(e);
+      }
+      if (out.isNotEmpty) break; // 命中即停
+    }
+    if (out.isNotEmpty) return out;
+
+    // 兜底：按影片所在目录前缀全库反查。
+    // 这条路不依赖「子条目关系」——只要文件被扫进库，且物理上跟正片同目录，
+    // 就能捞到（跳过影片自身与预告片，预告片归「预告片」栏目）。
+    //
+    // 全库扫描不便宜，所以先用 `ChildCount` 做闸门：服务端明确说「没有子条目」
+    // 时不扫（绝大多数影片走这条，详情页开销不变）。
+    final (dir, childCount) = await _movieDirInfo(itemId);
+    if (dir.isEmpty || childCount == 0) return out;
+    final prefix = dir.toLowerCase();
+    try {
+      final resp = await _getJsonAny(
+        '$baseUrl/Items',
+        query: {
+          'userId': _userId!,
+          'Recursive': 'true',
+          'IncludeItemTypes': 'Video,Movie',
+          'Fields': 'Path,ExtraType,MediaSources,MediaStreams,RunTimeTicks',
+        },
+      ).timeout(const Duration(seconds: 8));
+      for (final e in _rawItems(resp)) {
+        if (looksLikeTrailer(e)) continue;
+        final id = (e['Id'] as String?) ?? '';
+        if (id.isEmpty || id == itemId || seen.contains(id)) continue;
+        final p = ((e['Path'] as String?) ?? '').toLowerCase();
+        if (!p.startsWith(prefix)) continue;
+        try {
+          final m = _fromJson(e);
+          if (seen.add(m.id)) out.add(m);
+        } catch (_) {/* 跳过脏数据 */}
+      }
+    } catch (_) {/* 全库扫描不可用，返回已拿到的 */}
+    return out;
+  }
+
+  /// 影片所在目录（**带结尾分隔符**，避免 ABP-01 误配 ABP-018）+ 子条目数。
+  ///
+  /// `childCount` 为 0 表示服务端明确说「没有子条目」；拿不到详情时返回
+  /// `('', 0)`，调用方据此跳过全库扫描。
+  Future<(String, int)> _movieDirInfo(String itemId) async {
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {'Fields': 'Path,ChildCount'},
+      );
+      final path = (item['Path'] as String?) ?? '';
+      final sep = path.contains('\\') ? '\\' : '/';
+      final idx = path.lastIndexOf(sep);
+      final dir = idx > 0 ? path.substring(0, idx + 1) : '';
+      // ChildCount 缺省时按 -1（未知）处理，避免误判成「没有子条目」
+      final cc = (item['ChildCount'] as num?)?.toInt() ?? -1;
+      return (dir, cc);
+    } catch (_) {/* 读不到就当没有 */}
+    return ('', 0);
+  }
+
   /// 预告片抓取诊断：逐条列出每个候选入口的真实结果，供详情页展示。
   Future<List<String>> trailerDiag(String itemId) async {
     final log = <String>[];
@@ -1260,6 +1409,39 @@ class EmbyServer {
       }
     }
     log.add(hitLabel.isEmpty ? '❌ 所有入口均未取到预告片' : '✅ 可用入口: $hitLabel');
+
+    // 额外部分（分段/花絮）探测：与预告片同一套思路，单独一段
+    var extraLabel = '';
+    for (final p in _extraProbes(itemId)) {
+      try {
+        final resp = await _getJsonAny(
+          p.path,
+          query: {...?p.query, 'api_key': _token!},
+        ).timeout(const Duration(seconds: 4));
+        final raws = _rawItems(
+          resp,
+        ).where((e) => (e['Id'] as String?) != itemId).toList();
+        final got = _parseAnyItems(
+          resp,
+          excludeTrailer: true,
+          excludeId: itemId,
+        );
+        log.add(
+          '${got.isNotEmpty ? '✅' : '·'} [额外] ${p.label} · ${raws.length} 项 · 命中 ${got.length}',
+        );
+        if (got.isNotEmpty) {
+          if (extraLabel.isEmpty) extraLabel = p.label;
+          for (final e in got.take(2)) {
+            log.add('    • ${e.name} | ${e.filePath}');
+          }
+        }
+      } on EmbyException catch (e) {
+        log.add('· [额外] ${p.label} · ${e.message}');
+      } catch (e) {
+        log.add('· [额外] ${p.label} · ${e.runtimeType}');
+      }
+    }
+    log.add(extraLabel.isEmpty ? '❌ 额外部分：所有入口均未取到' : '✅ 额外部分可用入口: $extraLabel');
     return log;
   }
 
@@ -2309,6 +2491,7 @@ class _TrailerProbe {
     this.path, {
     this.query,
     this.filter = false,
+    this.excludeTrailer = false,
   });
 
   /// 诊断里展示的可读名称（不含 host，方便一行显示）。
@@ -2320,6 +2503,9 @@ class _TrailerProbe {
   /// 附加查询参数。
   final Map<String, String>? query;
 
-  /// 是否要按 trailer 特征过滤（花絮集合 / 子项查询需要，专用端点不需要）。
+  /// 是否只保留「像预告片」的条目（花絮集合 / 子项查询查预告片时用）。
   final bool filter;
+
+  /// 是否**排除**「像预告片」的条目（查「额外部分」时用，避免与预告片栏目重复）。
+  final bool excludeTrailer;
 }
