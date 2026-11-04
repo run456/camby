@@ -1,5 +1,7 @@
-// 「额外部分」栏目回归测试：手机与平板两套布局都要渲染出来，
-// 且位置在「剧照」之前（与 Emby 网页版一致：预告片 → 额外部分 → 剧照）。
+// 「视频」板块回归测试（v2.0.41：预告片 + 额外部分合并为一行）。
+//
+// 手机与平板两套布局都要渲染出来，且位置在「剧照」之前
+// （顺序：信息区 → 视频（预告/分段/花絮）→ 剧照）。
 import 'package:camby/app_state.dart';
 import 'package:camby/models.dart';
 import 'package:camby/pages/detail_page.dart';
@@ -33,7 +35,7 @@ void main() {
     ('平板', const Size(1194, 834)),
     ('大平板', const Size(1600, 1000)),
   ]) {
-    testWidgets('$label 详情页：有额外部分时显示栏目，且位于剧照之前', (tester) async {
+    testWidgets('$label 详情页：片段渲染在「视频」板块内，且位于剧照之前', (tester) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -52,10 +54,20 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // 栏目标题 + 数量
-      final title = find.text('额外部分');
-      expect(title, findsOneWidget, reason: '$label 应出现「额外部分」栏目');
+      // 板块标题 + 数量（分段的来源角标是「分段」）
+      final title = find.text('视频');
+      expect(title, findsOneWidget, reason: '$label 应出现「视频」板块');
       expect(find.text('2 个'), findsOneWidget);
+      expect(
+        find.text('分段'),
+        findsWidgets,
+        reason: '$label 分段卡片应带「分段」角标',
+      );
+      expect(
+        find.text('DV-1242-Cd2'),
+        findsOneWidget,
+        reason: '$label 应列出 cd2',
+      );
 
       // 位置：额外部分在剧照之前
       final stills = find.text('剧照');
@@ -63,7 +75,7 @@ void main() {
         expect(
           tester.getTopLeft(title).dy,
           lessThan(tester.getTopLeft(stills).dy),
-          reason: '$label 额外部分应排在剧照之前',
+          reason: '$label 视频板块应排在剧照之前',
         );
       }
       expect(tester.takeException(), isNull);

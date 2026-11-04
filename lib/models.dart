@@ -576,6 +576,8 @@ class MediaItem {
     this.filePath = '',
     this.fileSizeBytes = 0,
     this.dateCreatedMs,
+    this.premiereDate = '',
+    this.seriesName = '',
     this.userPlayCount = 0,
     this.userPlayed = false,
     this.userFavorite = false,
@@ -658,6 +660,14 @@ class MediaItem {
 
   /// 入库时间（毫秒时间戳），媒体信息里展示「添加于」
   final int? dateCreatedMs;
+
+  /// 发行日期（Emby `PremiereDate`，如 2021-12-23）。
+  /// 详情页「信息区」展示；缺失时回退到 [year]。
+  final String premiereDate;
+
+  /// 所属系列（Emby `SeriesName`）。电影条目常为空，详情页为空时不显示该格。
+  final String seriesName;
+
   final int userPlayCount;
   final bool userPlayed;
   final bool userFavorite;
@@ -717,6 +727,7 @@ class MediaItem {
     bool? userPlayed,
     int? lastPlayedAt,
     int? userPlayCount,
+    List<MediaExtraPart>? extraParts,
   }) {
     return MediaItem(
       id: id,
@@ -751,6 +762,7 @@ class MediaItem {
       posterAspect: posterAspect,
       backdropUrl: backdropUrl,
       backdrops: backdrops,
+      extraParts: extraParts ?? this.extraParts,
       resolutionKnown: resolutionKnown,
       reason: reason,
       addedDaysAgo: addedDaysAgo,
@@ -761,6 +773,8 @@ class MediaItem {
       filePath: filePath,
       fileSizeBytes: fileSizeBytes,
       dateCreatedMs: dateCreatedMs,
+      premiereDate: premiereDate,
+      seriesName: seriesName,
     );
   }
 
@@ -804,6 +818,8 @@ class MediaItem {
     'filePath': filePath,
     'fileSizeBytes': fileSizeBytes,
     'dateCreatedMs': dateCreatedMs,
+    'premiereDate': premiereDate,
+    'seriesName': seriesName,
   };
 
   factory MediaItem.fromJson(Map<String, dynamic> j) {
@@ -876,6 +892,8 @@ class MediaItem {
       filePath: j['filePath'] as String? ?? '',
       fileSizeBytes: (j['fileSizeBytes'] as num?)?.toInt() ?? 0,
       dateCreatedMs: (j['dateCreatedMs'] as num?)?.toInt(),
+      premiereDate: j['premiereDate'] as String? ?? '',
+      seriesName: j['seriesName'] as String? ?? '',
     );
   }
 }

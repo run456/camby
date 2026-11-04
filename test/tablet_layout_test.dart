@@ -84,14 +84,15 @@ void main() {
     expect(find.text('相似推荐'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    // v2.0.16 设计稿单列顺序：剧情简介 → 媒体信息 → 主演（→ 标签 → 剧照 → 相似）
+    // v2.0.41 设计稿单列顺序：剧情简介 → 媒体信息 → 信息区（演员/标签）
     final overviewTop = tester.getTopLeft(find.text('剧情简介')).dy;
-    final castTop = tester.getTopLeft(find.text('主演')).dy;
-    expect(overviewTop, lessThan(castTop), reason: '剧情简介在主演之前');
+    // 信息区把「主演 / 标签」合并为「演员 / 标签」小标题
+    final castTop = tester.getTopLeft(find.text('演员')).dy;
+    expect(overviewTop, lessThan(castTop), reason: '剧情简介在演员之前');
     final media = find.text('媒体信息');
     if (tester.any(media)) {
       expect(tester.getTopLeft(media).dy, lessThan(castTop),
-          reason: '媒体信息在主演之前');
+          reason: '媒体信息在演员之前');
     }
 
     // 横幅（.banner）ClipRRect 内容区高度 = 330，左右边距 24（v2.0.12 设计稿）

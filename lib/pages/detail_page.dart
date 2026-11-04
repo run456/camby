@@ -78,6 +78,46 @@ class _DetailPageState extends State<DetailPage> {
   bool _refreshing = false;
   static const String _offSubtitle = '__off__';
 
+  /// 滚动降级：滚动期间关掉实时模糊（换成纯渐变），停下 180ms 后恢复。
+  ///
+  /// 详情页上下两条渐进模糊带都是 `BackdropFilter`，每帧要把整块滚动内容
+  /// 重新采样 + 跑模糊着色器，是滑动卡顿的主因（媒体库页没有常驻模糊，所以丝滑）。
+  /// 这里只切一个 bool，模糊组件内部直接换静态渐变，不碰 GPU 重采样。
+  /// 降级状态用 ValueNotifier 而不是 setState：
+  /// 它只被「顶栏 3 个圆钮 / 顶部模糊带 / 底部模糊带」三处消费，
+  /// 用 setState 会让整页 build 重跑一遍（10 个板块的 widget 全部新建），
+  /// 而那正好发生在滚动起始帧——最不该掉帧的时刻。
+  final ValueNotifier<bool> _degradedVN = ValueNotifier<bool>(false);
+  Timer? _degradeTimer;
+
+  /// 滚动事件序号：每来一次滚动事件 +1。
+  ///
+  /// 用「序号是否变化」判断期间是否还在滚，而不是比 `DateTime.now()`——
+  /// 墙钟和 Timer 的时钟不是同一个，系统时间被 NTP 校正时会误判，
+  /// 表现就是「滚动停下后模糊再也回不来」。
+  int _scrollSeq = 0;
+
+  /// 滚动开始 → 立即降级；停止 180ms 后 → 复原（静止态保留完整液态玻璃）
+  void _onScrollActivity() {
+    _scrollSeq++;
+    if (_degradedVN.value) return;
+    _degradedVN.value = true;
+    _scheduleRestore(_scrollSeq);
+  }
+
+  /// 一段静默期后恢复模糊；若期间又发生滚动（序号变了），则顺延一轮。
+  void _scheduleRestore(int seq) {
+    _degradeTimer?.cancel();
+    _degradeTimer = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      if (_scrollSeq != seq) {
+        _scheduleRestore(_scrollSeq);
+        return;
+      }
+      if (_degradedVN.value) _degradedVN.value = false;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +128,7 @@ class _DetailPageState extends State<DetailPage> {
       _offsetVN.value = o;
       final on = o > 24;
       if (_blurOn.value != on) _blurOn.value = on;
+      _onScrollActivity();
     });
     // 播放页退出后会回写进度 / 收藏到全局状态，这里跟着刷新按钮文案
     widget.state.addListener(_onStateChanged);
@@ -112,7 +153,9 @@ class _DetailPageState extends State<DetailPage> {
         fresh.userPlayed != _item.userPlayed ||
         fresh.subtitles.length != _item.subtitles.length;
     if (!changed) return;
-    setState(() => _item = fresh!);
+    // 全局状态回写时保留已加载的分段（来自 mediaSources 单条详情），
+    // 避免被批量列表条目（通常只带主版本 MediaSource）覆盖成空
+    setState(() => _item = fresh!.copyWith(extraParts: _item.extraParts));
   }
 
   @override
@@ -235,6 +278,25 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
+  /// 打开演员页。
+  ///
+  /// 从 `_castRow()` 内联逻辑抽出（信息区胶囊复用同一入口）。
+  /// 只压栈、不弹自己：给 PersonPage 传 `widget.onOpenDetail`，
+  /// 与「相似推荐」卡片同一套，逐级压栈可逐级返回。
+  void _openPerson(CastMember p) {
+    if (p.id == null) return;
+    Navigator.push(
+      context,
+      CambyRoutes.fade(
+        builder: (_) => PersonPage(
+          person: p,
+          state: widget.state,
+          onOpenDetail: widget.onOpenDetail,
+        ),
+      ),
+    );
+  }
+
   /// 剧照查看器：多张剧照可左右滑动切换，点按空白关闭，顶部显示页码
   void _showBackdrops(List<String> urls, int initial) {
     if (urls.isEmpty) return;
@@ -242,7 +304,9 @@ class _DetailPageState extends State<DetailPage> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.92),
       builder: (ctx) {
-        final page = PageController(initialPage: initial.clamp(0, urls.length - 1));
+        final page = PageController(
+          initialPage: initial.clamp(0, urls.length - 1),
+        );
         final idx = ValueNotifier<int>(initial.clamp(0, urls.length - 1));
         return StatefulBuilder(
           builder: (ctx2, setSt) => GestureDetector(
@@ -302,46 +366,80 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 「额外部分」栏目：两类来源合并展示
+  /// 「视频」板块：**预告片 + 额外部分合并成一行**（v2.0.41 紧凑化）。
   ///
-  /// 1. `item.extraParts` —— 同一影片的多个 MediaSource（`-Cd1` / `-Cd2` 被
-  ///    识别成同一部的分段），起播时带 `MediaSourceId`；
-  /// 2. `_extras` —— 被扫成**独立子条目**的分段/花絮，本身就是一个完整条目，
-  ///    直接起播。
+  /// 之前是两个独立板块，各带一个大标题和一整行卡片，仅这两块就吃掉约
+  /// 230px。合并后共用一行横滑，卡片左上角挂角标区分来源：
+  /// - `预告`：预告片（本地视频条目 / 远程外链）
+  /// - `分段`：`-Cd1`/`-Cd2` 等其它 MediaSource
+  /// - `花絮`：被扫成独立子条目的额外内容
   ///
-  /// 两者都空时整块不出现（与网页版一致）。
-  Widget _extraPartsSection(MediaItem item) {
+  /// 顺序：预告片 → 分段 → 花絮。全部为空时整块不出现。
+  Widget _videoSection(MediaItem item) {
+    final trailers = _trailers ?? const <MediaItem>[];
+    final remote = item.trailerUrls;
     final sources = item.extraParts;
     final children = _extras ?? const <MediaItem>[];
-    if (sources.isEmpty && children.isEmpty) return const SizedBox.shrink();
-    final total = sources.length + children.length;
+    final total =
+        trailers.length + remote.length + sources.length + children.length;
+    if (total == 0) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel('额外部分', trailing: '$total 个'),
-        const SizedBox(height: 12),
+        _SectionLabel('视频', trailing: '$total 个'),
+        const SizedBox(height: 10),
         SizedBox(
-          height: 98,
+          height: 74,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             itemCount: total,
             itemBuilder: (c, i) {
-              // 子条目排前面（信息更全：有自己海报/时长），其后是 MediaSource
-              if (i < children.length) {
-                final e = children[i];
-                return _extraCard(
-                  title: e.name,
-                  spec: e.runtimeMin > 0 ? '${e.runtimeMin} 分钟' : '',
-                  thumb: e.posterUrl ?? e.backdropUrl ?? item.backdropUrl,
-                  onTap: () => widget.onPlay(e, null, resume: false),
+              // 按「预告片 → 分段 → 花絮」切段取
+              if (i < trailers.length) {
+                final tr = trailers[i];
+                return _videoCard(
+                  title: tr.name,
+                  tag: '预告',
+                  tagColor: const Color(0xFF5B8CFF),
+                  thumb: tr.posterUrl ?? tr.backdropUrl ?? item.backdropUrl,
+                  onTap: () => widget.onPlay(tr, null, resume: false),
                 );
               }
-              final p = sources[i - children.length];
-              return _extraCard(
-                title: p.name,
-                spec: p.specLine,
-                thumb: item.backdropUrl ?? item.posterUrl,
-                onTap: () => widget.onPlayPart(item, p),
+              var k = i - trailers.length;
+              if (k < remote.length) {
+                final url = remote[k];
+                return _videoCard(
+                  title: '远程预告片',
+                  tag: '外链',
+                  tagColor: const Color(0xFF5B8CFF),
+                  thumb: item.backdropUrl,
+                  onTap: () => unawaited(
+                    launchUrl(
+                      Uri.parse(url),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                  ),
+                );
+              }
+              k -= remote.length;
+              if (k < sources.length) {
+                final p = sources[k];
+                return _videoCard(
+                  title: p.name,
+                  tag: '分段',
+                  tagColor: const Color(0xFFF5A052),
+                  thumb: item.backdropUrl ?? item.posterUrl,
+                  onTap: () => widget.onPlayPart(item, p),
+                );
+              }
+              final e = children[k - sources.length];
+              return _videoCard(
+                title: e.name,
+                tag: '花絮',
+                tagColor: const Color(0xFF4ECF9A),
+                thumb: e.posterUrl ?? e.backdropUrl ?? item.backdropUrl,
+                onTap: () => widget.onPlay(e, null, resume: false),
               );
             },
           ),
@@ -350,93 +448,110 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 单张「额外部分」卡片（缩略图 + 名称 + 规格 + 播放按钮）
-  Widget _extraCard({
+  /// 「视频」板块的单张卡片：缩略图 + 左上角来源角标 + 播放按钮 + 底部标题。
+  ///
+  /// 高度 74（原预告片/额外部分各 98），宽度 132（原 168）——合并后一行能
+  /// 多露 1 张，且总高只有原来的一半。
+  Widget _videoCard({
     required String title,
-    required String spec,
+    required String tag,
+    required Color tagColor,
     required String? thumb,
     required VoidCallback onTap,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(right: 10),
+      padding: const EdgeInsets.only(right: 8),
       child: LiquidPress(
-        radius: 12,
+        radius: 11,
         scale: 0.97,
-        semanticLabel: '播放额外部分 $title',
+        semanticLabel: '$tag $title',
         onTap: onTap,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(11),
           child: SizedBox(
-            width: 168,
+            width: 132,
             child: Stack(
               fit: StackFit.expand,
               children: [
                 if (thumb != null && thumb.isNotEmpty)
-                  CachedImage(url: thumb, memWidth: 360, fit: BoxFit.cover)
+                  CachedImage(url: thumb, memWidth: 320, fit: BoxFit.cover)
                 else
-                  Container(color: const Color(0x33204A80)),
-                Positioned(
+                  const ColoredBox(color: Color(0x33204A80)),
+                // 底部压暗，保证标题可读
+                const Positioned(
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.85),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                          ),
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Color(0xD9000000), Color(0x00000000)],
                         ),
-                        if (spec.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 1),
-                            child: Text(
-                              spec,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 8.5,
-                                color: Colors.white60,
-                              ),
-                            ),
-                          ),
-                      ],
+                      ),
+                      child: SizedBox(height: 42),
                     ),
                   ),
                 ),
+                // 来源角标
+                Positioned(
+                  left: 5,
+                  top: 5,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: tagColor.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      tag,
+                      style: const TextStyle(
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+                // 播放按钮
                 Center(
                   child: Container(
-                    width: 34,
-                    height: 34,
+                    width: 26,
+                    height: 26,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.black.withOpacity(0.5),
+                      color: Colors.black.withValues(alpha: 0.42),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.7),
+                        color: Colors.white.withValues(alpha: 0.62),
                       ),
                     ),
                     child: const Icon(
                       Icons.play_arrow_rounded,
-                      size: 20,
+                      size: 16,
                       color: Colors.white,
+                    ),
+                  ),
+                ),
+                // 标题
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 4,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                      height: 1.2,
                     ),
                   ),
                 ),
@@ -445,154 +560,6 @@ class _DetailPageState extends State<DetailPage> {
           ),
         ),
       ),
-    );
-  }
-
-  /// 预告片栏目：本地预告片可在 App 内直接播放；远程外链（YouTube 等）跳转系统浏览器
-  Widget _trailerSection(MediaItem item) {
-    final local = _trailers ?? const <MediaItem>[];
-    final remote = item.trailerUrls;
-    if (local.isEmpty && remote.isEmpty) return const SizedBox.shrink();
-    final total = local.length + remote.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionLabel('预告片', trailing: '$total 个'),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: 98,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: total,
-            itemBuilder: (c, i) {
-              final isLocal = i < local.length;
-              final MediaItem? tr = isLocal ? local[i] : null;
-              final String? remoteUrl =
-                  isLocal ? null : remote[i - local.length];
-              // 本地预告片多为视频 Extra，自身没有海报/剧照，退回电影的 backdrop 当缩略图
-              final thumb =
-                  tr?.posterUrl ?? tr?.backdropUrl ?? item.backdropUrl;
-              final title = tr?.name ?? '远程预告片';
-              final isRemote = remoteUrl != null;
-              return Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: LiquidPress(
-                  radius: 12,
-                  scale: 0.97,
-                  onTap: () {
-                    if (tr != null) {
-                      widget.onPlay(tr, null, resume: false);
-                    } else if (remoteUrl != null) {
-                      unawaited(
-                        launchUrl(
-                          Uri.parse(remoteUrl),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                      );
-                    }
-                  },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox(
-                      width: 168,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (thumb != null)
-                            CachedImage(
-                              url: thumb,
-                              memWidth: 360,
-                              fit: BoxFit.cover,
-                            )
-                          else
-                            Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Color(0x334F8CFF),
-                                    Color(0x14305FB0),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black.withOpacity(0.82),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Center(
-                            child: Container(
-                              width: 34,
-                              height: 34,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.black.withOpacity(0.5),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.7),
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.play_arrow_rounded,
-                                size: 20,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          if (isRemote)
-                            Positioned(
-                              top: 6,
-                              right: 6,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1.5,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(6),
-                                  color: Colors.black.withOpacity(0.55),
-                                ),
-                                child: const Text(
-                                  '外链',
-                                  style: TextStyle(
-                                    fontSize: 8.5,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
     );
   }
 
@@ -617,21 +584,28 @@ class _DetailPageState extends State<DetailPage> {
     _toast('正在检测预告片 / 额外部分接口…');
     final log = await server.trailerDiag(_item.id);
     if (!mounted) return;
+    final fullText = '影片 ID: ${_item.id}\n\n${log.join('\n\n')}';
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xF21A2233),
-        title: const Text(
-          '预告片 / 额外部分诊断',
-          style: TextStyle(fontSize: 16),
-        ),
+        title: const Text('预告片 / 额外部分诊断', style: TextStyle(fontSize: 16)),
         content: SingleChildScrollView(
           child: SelectableText(
-            '影片 ID: ${_item.id}\n\n${log.join('\n\n')}',
+            fullText,
             style: const TextStyle(fontSize: 11, height: 1.5),
           ),
         ),
         actions: [
+          TextButton(
+            // 截图常有滚动截断 / 看不清，直接复制纯文本一次性拿全
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: fullText));
+              if (ctx.mounted) Navigator.of(ctx).pop();
+              _toast('诊断结果已复制，可直接粘贴反馈');
+            },
+            child: const Text('复制'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
@@ -642,13 +616,20 @@ class _DetailPageState extends State<DetailPage> {
               final extras = _item.isSeries
                   ? <MediaItem>[]
                   : await server.extraParts(_item.id);
+              final parts = _item.isSeries
+                  ? const <MediaExtraPart>[]
+                  : await server.mediaSources(_item.id);
               if (mounted) {
                 setState(() {
                   _trailers = list;
                   _extras = extras;
+                  if (parts.isNotEmpty) {
+                    _item = _item.copyWith(extraParts: parts);
+                  }
                 });
                 _toast(
-                  '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个',
+                  '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个'
+                  ' · 分段 ${parts.length} 个',
                 );
               }
             },
@@ -696,6 +677,17 @@ class _DetailPageState extends State<DetailPage> {
           })
           .catchError((_) {});
     }
+    // 分段（同一影片的 -Cd1/-Cd2 等其它 MediaSource）：批量列表只回主版本，
+    // 必须走单条详情补拉一次，否则详情页「额外部分」永远只剩独立子条目。
+    // Emby 网页版能切换 cd2 正是靠这些分段。
+    server
+        .mediaSources(_item.id)
+        .then((parts) {
+          if (mounted && parts.isNotEmpty) {
+            setState(() => _item = _item.copyWith(extraParts: parts));
+          }
+        })
+        .catchError((_) {});
   }
 
   /// 顶部刷新：重新拉取该条目详情并刷新页面数据
@@ -734,6 +726,38 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   void _toast(String text) => showToast(context, text);
+
+  /// 手机端播放行：`[▶ 继续播放（带进度填充）] [字幕 ▾]`
+  ///
+  /// 高度 46（原底部悬浮版 58）。字幕胶囊只在有字幕轨时出现，紧贴右侧；
+  /// 没有字幕时播放按钮独占整行。
+  Widget _playRow(MediaItem item) {
+    final hasSub = item.subtitles.isNotEmpty;
+    return Row(
+      children: [
+        Expanded(
+          child: _ProgressPlayButton(
+            item: item,
+            height: 46,
+            onTap: () => widget.onPlay(item, _selectedSubtitle),
+            onLongPress: () =>
+                widget.onPlay(item, _selectedSubtitle, resume: false),
+          ),
+        ),
+        if (hasSub) ...[
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 46,
+            child: _SubtitlePill(
+              label: _selectedSubtitle?.label ?? '字幕',
+              maxWidth: 118,
+              onTap: _pickSubtitle,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
 
   /// 剧情简介：液态玻璃卡片（手机/平板共用）
   /// 剧情简介玻璃卡片。
@@ -851,52 +875,42 @@ class _DetailPageState extends State<DetailPage> {
   List<Widget> _phoneSections(MediaItem item) {
     final tags = _tagList(item);
     return [
+      // 播放行（v2.0.43）：原来悬浮在底部，会压住简介和剧照，且那条
+      // 常驻模糊带是第三处 BackdropFilter。改成内联到简介上方后，
+      // 底部干净了，也少一层每帧重采样。字幕选择紧贴其右。
+      _playRow(item),
+      const SizedBox(height: 16),
       _overviewCard(item),
       if (item.filePath.isNotEmpty || item.fileSizeBytes > 0) ...[
         const SizedBox(height: 16),
         _mediaInfoCard(item),
       ],
-      if (item.people.isNotEmpty) ...[
-        const SizedBox(height: 22),
-        const _SectionLabel('主演'),
-        const SizedBox(height: 10),
-        _castRow(),
-      ],
-      if (tags.isNotEmpty || itemHasChineseSubtitle(item)) ...[
-        const SizedBox(height: 22),
-        const _SectionLabel('标签'),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            if (itemHasChineseSubtitle(item))
-              _InfoTag(
-                label: '中文字幕',
-                icon: Icons.subtitles_rounded,
-                onTap: _openSubtitleFilter,
-              ),
-            ...tags.map((t) => _TagButton(label: t, onTap: () => _openTag(t))),
-          ],
-        ),
-      ],
-      // 预告片（本地可播 / 远程外链）：置于剧照之上，仅检测到 trailer 文件才显示
-      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
-        const SizedBox(height: 22),
-        _trailerSection(item),
-      ],
-      // 额外部分（分段 / 花絮），有才显示
-      if (item.extraParts.isNotEmpty || (_extras?.isNotEmpty == true)) ...[
-        const SizedBox(height: 22),
-        _extraPartsSection(item),
+      // 信息区（规格三列 + 演员 + 标签）：合并成一块，比原来「主演/标签」
+      // 两个独立板块省空间，同时补出 系列 / 发行日期 / 时长 三项信息
+      const SizedBox(height: 16),
+      _InfoBlock(
+        item: item,
+        tags: tags,
+        hasChineseSub: itemHasChineseSubtitle(item),
+        onOpenSubtitleFilter: _openSubtitleFilter,
+        onOpenTag: _openTag,
+        onOpenPerson: _openPerson,
+      ),
+      // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
+      if ((_trailers?.isNotEmpty == true) ||
+          item.trailerUrls.isNotEmpty ||
+          item.extraParts.isNotEmpty ||
+          (_extras?.isNotEmpty == true)) ...[
+        const SizedBox(height: 16),
+        _videoSection(item),
       ],
       // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
       if (item.backdrops.isNotEmpty) ...[
-        const SizedBox(height: 22),
+        const SizedBox(height: 16),
         _SectionLabel('剧照', trailing: '${item.backdrops.length} 张'),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         SizedBox(
-          height: 136,
+          height: 104,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: item.backdrops.length,
@@ -967,41 +981,23 @@ class _DetailPageState extends State<DetailPage> {
         const SizedBox(height: 10),
         _mediaInfoCard(item, withTitle: false),
       ],
-      // 主演（设计稿板块 3）
-      if (item.people.isNotEmpty) ...[
+      // 信息区（规格三列 + 演员 + 标签）：与手机端共用同一套组件
+      const SizedBox(height: 22),
+      _InfoBlock(
+        item: item,
+        tags: tags,
+        hasChineseSub: itemHasChineseSubtitle(item),
+        onOpenSubtitleFilter: _openSubtitleFilter,
+        onOpenTag: _openTag,
+        onOpenPerson: _openPerson,
+      ),
+      // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
+      if ((_trailers?.isNotEmpty == true) ||
+          item.trailerUrls.isNotEmpty ||
+          item.extraParts.isNotEmpty ||
+          (_extras?.isNotEmpty == true)) ...[
         const SizedBox(height: 22),
-        const _SectionLabel('主演'),
-        const SizedBox(height: 12),
-        _castRow(),
-      ],
-      // 标签（设计稿板块 4）：胶囊 chip 流，与标题同左缘
-      if (tags.isNotEmpty || itemHasChineseSubtitle(item)) ...[
-        const SizedBox(height: 22),
-        const _SectionLabel('标签'),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            if (itemHasChineseSubtitle(item))
-              _InfoTag(
-                label: '中文字幕',
-                icon: Icons.subtitles_rounded,
-                onTap: _openSubtitleFilter,
-              ),
-            ...tags.map((t) => _TagButton(label: t, onTap: () => _openTag(t))),
-          ],
-        ),
-      ],
-      // 预告片（本地可播 / 远程外链）：置于剧照之上，仅检测到 trailer 文件才显示
-      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
-        const SizedBox(height: 22),
-        _trailerSection(item),
-      ],
-      // 额外部分（分段 / 花絮），有才显示
-      if (item.extraParts.isNotEmpty || (_extras?.isNotEmpty == true)) ...[
-        const SizedBox(height: 22),
-        _extraPartsSection(item),
+        _videoSection(item),
       ],
       // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
       if (item.backdrops.isNotEmpty) ...[
@@ -1379,6 +1375,8 @@ class _DetailPageState extends State<DetailPage> {
   @override
   void dispose() {
     widget.state.removeListener(_onStateChanged);
+    _degradeTimer?.cancel();
+    _degradedVN.dispose();
     _offsetVN.dispose();
     _blurOn.dispose();
     _scroll.dispose();
@@ -1457,9 +1455,17 @@ class _DetailPageState extends State<DetailPage> {
                               fit: StackFit.expand,
                               children: [
                                 if ((item.posterUrl ?? item.backdropUrl) !=
-                                    null)
+                                    null) ...[
+                                  // 海报底部渐隐用 ShaderMask（真实 alpha 渐隐）。
+                                  //
+                                  // v2.0.41 曾改为「叠一层纯色渐变」，结果底部出现
+                                  // 明显断层——因为叠的是固定色 #06080E，而页面背景
+                                  // 是随主色变化的，两色对不上就露出硬边。这里恢复
+                                  // ShaderMask：透明处直接透出页面背景，不依赖色值。
+                                  //
+                                  // 性能：外层已有 RepaintBoundary，saveLayer 结果会
+                                  // 被缓存成图层，滚动时只是平移复用，不逐帧重算。
                                   ShaderMask(
-                                    // 海报底部渐隐，透出底下的模糊主色调
                                     blendMode: BlendMode.dstIn,
                                     shaderCallback: (rect) =>
                                         const LinearGradient(
@@ -1478,8 +1484,8 @@ class _DetailPageState extends State<DetailPage> {
                                           item.backdropUrl,
                                       memWidth: 900,
                                     ),
-                                  )
-                                else
+                                  ),
+                                ] else
                                   DecoratedBox(
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
@@ -1568,7 +1574,9 @@ class _DetailPageState extends State<DetailPage> {
                                     ),
                                   ],
                                 ),
-                                if (item.subtitles.isNotEmpty) ...[
+                                // 字幕入口：平板留在这里；手机移到「剧情简介」
+                                // 上方的播放行里（紧挨播放按钮右侧）
+                                if (wide && item.subtitles.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   Row(
                                     children: [
@@ -1589,10 +1597,16 @@ class _DetailPageState extends State<DetailPage> {
                                   ),
                                 ],
                                 const SizedBox(height: 20),
-                                // 板块：简介 → 媒体信息 → 主演 → 标签 → 预告片 →
-                                // 额外部分 → 剧照 → 诊断入口 → 相似推荐（见 _phoneSections）
+                                // 板块：播放行 → 简介 → 媒体信息 → 信息区（系列/
+                                // 演员/标签）→ 视频 → 剧照 → 诊断入口 → 相似推荐
                                 ..._phoneSections(item),
-                                const SizedBox(height: 120),
+                                // 底部不再有悬浮播放条（v2.0.43 移到简介上方），
+                                // 留白 120 → 24，只够避开手势条
+                                SizedBox(
+                                  height:
+                                      24 +
+                                      MediaQuery.of(context).padding.bottom,
+                                ),
                               ],
                             ),
                           ),
@@ -1602,6 +1616,11 @@ class _DetailPageState extends State<DetailPage> {
             ),
           ),
           // 状态栏渐进模糊：上滑后才出现（放在顶栏之前，保证按钮不被糊）
+          //
+          // v2.0.44：与首页（main.dart 的 shell）保持完全一致 —— 不传 degraded，
+          // sigma 用默认 30。之前为了省 GPU 降级成渐变、sigma 压到 14，滚动时
+          // 状态栏会「变样」，跟首页对不上。首页一直实时模糊也很顺，说明这一条
+          // 不是瓶颈（底部模糊带已在 v2.0.43 移除，圆钮也已降级）。
           Positioned(
             top: 0,
             left: 0,
@@ -1609,13 +1628,10 @@ class _DetailPageState extends State<DetailPage> {
             child: IgnorePointer(
               child: ValueListenableBuilder<bool>(
                 valueListenable: _blurOn,
-              builder: (_, on, __) => StatusBarBlur(
-                height: MediaQuery.of(context).padding.top + 24,
-                active: on,
-                // 模糊强度下调：模糊带随滚动每帧重采样，sigma 越大越吃 GPU，
-                // 14 与 20 视觉差别很小，但中低端机滑动明显更顺
-                sigma: 14,
-              ),
+                builder: (_, on, __) => StatusBarBlur(
+                  height: MediaQuery.of(context).padding.top + 24,
+                  active: on,
+                ),
               ),
             ),
           ),
@@ -1624,133 +1640,76 @@ class _DetailPageState extends State<DetailPage> {
             top: 0,
             left: 0,
             right: 0,
-            child: ValueListenableBuilder<double>(
-              valueListenable: _offsetVN,
-              builder: (_, o, __) => Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(
-                        (0.55 * (1 - o / 300)).clamp(0.0, 0.55),
+            child: Stack(
+              children: [
+                // 只有这层随滚动重建（每帧一次渐变），按钮区不再被牵连。
+                // 之前整个顶栏都包在 ValueListenableBuilder 里，滚动时
+                // 3 个按钮每帧重建一遍，纯属白烧。
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _offsetVN,
+                      builder: (_, o, __) => DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black.withValues(
+                                alpha: (0.55 * (1 - o / 300)).clamp(0.0, 0.55),
+                              ),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
                       ),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-                    child: Row(
-                      children: [
-                        _RoundBtn(
-                          icon: Icons.arrow_back_ios_new_rounded,
-                          onTap: () => Navigator.pop(context),
-                        ),
-                        const Spacer(),
-                        _RoundBtn(
-                          icon: _refreshing
-                              ? Icons.sync_rounded
-                              : Icons.refresh_rounded,
-                          onTap: _refreshing ? null : _refreshItem,
-                        ),
-                        const SizedBox(width: 8),
-                        _RoundBtn(
-                          // 收藏状态钮：已收藏点亮成粉红实心，点开收藏夹弹窗管理
-                          icon: _item.userFavorite
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          active: _item.userFavorite,
-                          semanticLabel: _item.userFavorite ? '已收藏' : '收藏',
-                          onTap: _openFolders,
-                        ),
-                      ],
                     ),
                   ),
                 ),
-              ),
+                // 非定位子项：由它决定 Stack 的高度（否则无界高度会断言失败）
+                ValueListenableBuilder<bool>(
+                  valueListenable: _degradedVN,
+                  builder: (_, deg, __) => SizedBox(
+                    width: double.infinity,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+                        child: Row(
+                          children: [
+                            _RoundBtn(
+                              icon: Icons.arrow_back_ios_new_rounded,
+                              degraded: deg,
+                              onTap: () => Navigator.pop(context),
+                            ),
+                            const Spacer(),
+                            _RoundBtn(
+                              icon: _refreshing
+                                  ? Icons.sync_rounded
+                                  : Icons.refresh_rounded,
+                              degraded: deg,
+                              onTap: _refreshing ? null : _refreshItem,
+                            ),
+                            const SizedBox(width: 8),
+                            _RoundBtn(
+                              // 收藏状态钮：已收藏点亮成粉红实心，点开收藏夹弹窗管理
+                              icon: _item.userFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              active: _item.userFavorite,
+                              semanticLabel: _item.userFavorite ? '已收藏' : '收藏',
+                              degraded: deg,
+                              onTap: _openFolders,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          // 底部常驻播放区：渐变模糊带（状态栏镜像） + 整体进度按钮
-          // v2.0.13：仅手机保留 —— 平板横幅操作行已有
-          // 「继续播放 / 从头播放 / 收藏 / 标记已看」，底部再放一条就是重复按钮
-          if (!wide)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Stack(
-                children: [
-                  // ① 渐变模糊带：底部最强、向上连续淡出（与状态栏同款着色器）
-                  IgnorePointer(
-                    child: BottomBarBlur(
-                      height:
-                          math.max(
-                            4.0,
-                            MediaQuery.of(context).padding.bottom - 10,
-                          ) +
-                          110,
-                      active: true,
-                      // BackdropFilter 每帧都在重采样，sigma 越大越吃 GPU，
-                      // 30→16 视觉几乎无差，中低端机滚动明显更顺
-                      sigma: 16,
-                    ),
-                  ),
-                  // ② 按钮行
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      20,
-                      14,
-                      20,
-                      // 全面屏手势条本身已占 24~40dp，这里再收 10dp 让按钮更贴底
-                      math.max(4.0, MediaQuery.of(context).padding.bottom - 10),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _ProgressPlayButton(
-                            item: item,
-                            onTap: () => widget.onPlay(item, _selectedSubtitle),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        LiquidPress(
-                          onTap: () => widget.onPlay(
-                            item,
-                            _selectedSubtitle,
-                            resume: false,
-                          ),
-                          radius: 28,
-                          semanticLabel: '重新播放',
-                          child: Container(
-                            width: 56,
-                            height: 58,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
-                              ),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.20),
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.replay_rounded,
-                              size: 23,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
@@ -1835,103 +1794,6 @@ class _DetailPageState extends State<DetailPage> {
                     ),
                   ],
                 ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _castRow() {
-    final server = widget.state.server;
-    return SizedBox(
-      height: 104,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _item.people.length,
-        itemBuilder: (c, i) {
-          final p = _item.people[i];
-          final img = (server != null && p.id != null)
-              ? server.personImageUrl(p.id!, p.imageTag)
-              : null;
-          return LiquidPress(
-            radius: 14,
-            scale: 0.96,
-            onTap: () {
-              if (p.id == null) return;
-              // v2.0.14：演员页只压栈、不弹自己。
-              // 旧实现给 PersonPage 的 onOpenDetail 里先 Navigator.pop(context)，
-              // context 是详情1的，pop 掉的正好是演员页自身 → 栈变成
-              // [首页→详情1→详情2]，返回就跳过了演员页。改成直接复用
-              // widget.onOpenDetail，与「相似推荐」卡片同一套（逐级压栈可逐级返回）。
-              Navigator.push(
-                context,
-                CambyRoutes.fade(
-                  builder: (_) => PersonPage(
-                    person: p,
-                    state: widget.state,
-                    onOpenDetail: widget.onOpenDetail,
-                  ),
-                ),
-              );
-            },
-            child: Container(
-              width: 68,
-              margin: const EdgeInsets.only(right: 12),
-              child: Column(
-                children: [
-                  // 圆角方头像（参考图样式）
-                  Container(
-                    width: 62,
-                    height: 62,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        colors: demoLibrary[i % demoLibrary.length].colors,
-                      ),
-                      border: Border.all(color: Colors.white.withOpacity(0.18)),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: img != null
-                          ? CachedImage(
-                              url: img,
-                              memWidth: 200,
-                              errorWidget: const Icon(
-                                Icons.person_rounded,
-                                color: Colors.white54,
-                                size: 26,
-                              ),
-                            )
-                          : const Icon(
-                              Icons.person_rounded,
-                              color: Colors.white54,
-                              size: 26,
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    p.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (p.role.isNotEmpty)
-                    Text(
-                      p.role,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 9,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                ],
               ),
             ),
           );
@@ -2218,92 +2080,18 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _TagButton extends StatelessWidget {
-  const _TagButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 999,
-      scale: 0.96,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          color: Colors.white.withOpacity(0.07),
-          border: Border.all(color: Colors.white.withOpacity(0.14)),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFFC6D3E6)),
-        ),
-      ),
-    );
-  }
-}
-
-/// 信息型标签（不可点击，用于「中文字幕」等派生属性）
-class _InfoTag extends StatelessWidget {
-  const _InfoTag({required this.label, required this.icon, this.onTap});
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidPress(
-      onTap: onTap,
-      radius: 999,
-      scale: 0.96,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0x334F8CFF), Color(0x142E6FE0)],
-          ),
-          border: Border.all(color: const Color(0x664F8CFF)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 13, color: const Color(0xFF9CC2FF)),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFFCFE0FF),
-              ),
-            ),
-            if (onTap != null) ...[
-              const SizedBox(width: 3),
-              const Icon(
-                Icons.chevron_right_rounded,
-                size: 14,
-                color: Color(0xFF9CC2FF),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _SubtitlePill extends StatelessWidget {
-  const _SubtitlePill({required this.label, required this.onTap});
+  const _SubtitlePill({
+    required this.label,
+    required this.onTap,
+    this.maxWidth = 200,
+  });
 
   final String label;
   final VoidCallback onTap;
+
+  /// 播放行里空间紧，窄屏要截断（字幕名可能很长，如「简体中文 (ASS)」）
+  final double maxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -2312,6 +2100,7 @@ class _SubtitlePill extends StatelessWidget {
       radius: 999,
       scale: 0.96,
       child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
@@ -2321,12 +2110,16 @@ class _SubtitlePill extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.ink,
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(width: 6),
@@ -2346,13 +2139,27 @@ class _SubtitlePill extends StatelessWidget {
 /// 蓝色填充从左铺到播放百分比 = 已播放部分，右侧保持液态玻璃；
 /// 图标与文字叠在填充层之上（无需细进度条）。
 class _ProgressPlayButton extends StatelessWidget {
-  const _ProgressPlayButton({required this.item, required this.onTap});
+  const _ProgressPlayButton({
+    required this.item,
+    required this.onTap,
+    this.onLongPress,
+    this.height = 58,
+  });
 
   final MediaItem item;
   final VoidCallback onTap;
 
+  /// 长按 = 从头播放。原来底部那条还有独立的「重播」圆钮，移到详情页
+  /// 内联后位置不够，改成长按——功能没丢，只占一个按钮的地方。
+  final VoidCallback? onLongPress;
+
+  /// v2.0.43：按钮从底部悬浮栏移到「剧情简介」上方，高度 58 → 46
+  /// （内联在卡片流里，太厚会顶掉一屏内容）。
+  final double height;
+
   @override
   Widget build(BuildContext context) {
+    final r = height / 2;
     final progress = (item.resumeProgress ?? 0).clamp(0.0, 1.0);
     final label = progress >= 0.99
         ? '重新播放'
@@ -2361,7 +2168,8 @@ class _ProgressPlayButton extends StatelessWidget {
         : '立即播放';
     return LiquidPress(
       onTap: onTap,
-      radius: 29,
+      onLongPress: onLongPress,
+      radius: r,
       scale: 0.97,
       tint: 0.16,
       glow: 0.26,
@@ -2372,17 +2180,17 @@ class _ProgressPlayButton extends StatelessWidget {
           offset: Offset(0, 6),
         ),
       ],
-      child: Container(
-        height: 58,
+      child: SizedBox(
+        height: height,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(29),
+          borderRadius: BorderRadius.circular(r),
           child: Stack(
             children: [
               // 液态玻璃底（未播放部分）
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(29),
+                    borderRadius: BorderRadius.circular(r),
                     gradient: const LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -2504,13 +2312,30 @@ class _RoundBtn extends StatelessWidget {
     this.onTap,
     this.active = false,
     this.semanticLabel,
+    this.degraded = false,
   });
   final IconData icon;
   final VoidCallback? onTap;
 
+  /// 滚动降级：为 true 时不做实时 BackdropFilter，只留半透明渐变。
+  ///
+  /// 三个圆钮各带一个 sigma=16 的 BackdropFilter，常驻压在滚动内容上，
+  /// 滚动时每帧都要重新采样——这是两条模糊带之外最容易漏掉的一处。
+  /// 按钮只有 40×40，去掉模糊后视觉几乎无差（底色本来就是玻璃渐变）。
+  final bool degraded;
+
   /// 激活态（收藏心形点亮）：粉红渐变 + 描边，与收藏夹弹窗「已收藏」一致
   final bool active;
   final String? semanticLabel;
+
+  /// 包一层磨砂；降级时直接返回原 widget（不创建 BackdropFilter）
+  Widget _glassBody(Widget child) {
+    if (degraded) return child;
+    return BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+      child: child,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2526,10 +2351,10 @@ class _RoundBtn extends StatelessWidget {
         ),
       ],
       child: ClipOval(
-        // 真磨砂玻璃：与其他页顶栏圆钮（首页 _GlassCircleBtn 等）统一
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          child: Container(
+        // 真磨砂玻璃：与其他页顶栏圆钮（首页 _GlassCircleBtn 等）统一。
+        // 滚动期间降级为纯渐变（见 [degraded]），避免 3 个按钮每帧重采样。
+        child: _glassBody(
+          Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
@@ -2562,6 +2387,309 @@ class _RoundBtn extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 详情页「信息区」：规格三列（系列 / 发行 / 时长）+ 演员胶囊 + 标签胶囊。
+///
+/// 设计来源：参考截图（浅色三列 + 三色胶囊），转为深色液态玻璃配色；
+/// 采用紧凑版——单行横滑、超出显示 `+N`，锁图标按需求去掉，
+/// 演员带 ♀/♂ 以区分女优/男优。
+class _InfoBlock extends StatelessWidget {
+  const _InfoBlock({
+    required this.item,
+    required this.tags,
+    required this.hasChineseSub,
+    required this.onOpenSubtitleFilter,
+    required this.onOpenTag,
+    required this.onOpenPerson,
+  });
+
+  final MediaItem item;
+  final List<String> tags;
+  final bool hasChineseSub;
+  final VoidCallback onOpenSubtitleFilter;
+  final void Function(String tag) onOpenTag;
+  final void Function(CastMember p) onOpenPerson;
+
+  static const _orange = Color(0xFFF5A052);
+  static const _purple = Color(0xFFB98CFF);
+  static const _green = Color(0xFF4ECF9A);
+
+  /// 「无」用的中性灰（与胶囊行末尾 `+N` 同色，语义都是「占位/弱信息」）
+  static const _dim = Color(0xFF7E8DA6);
+
+  /// 发行日期：优先 PremiereDate，缺失回退到年份
+  String get _releaseText {
+    if (item.premiereDate.isNotEmpty) return item.premiereDate;
+    if (item.year > 0) return '${item.year}';
+    return '—';
+  }
+
+  /// 时长：与参考图同款 `45m` 写法；>=60 分钟显示 `2h32m`
+  String get _runtimeText {
+    final m = item.runtimeMin;
+    if (m <= 0) return '—';
+    if (m < 60) return '${m}m';
+    final h = m ~/ 60;
+    final r = m % 60;
+    return r == 0 ? '${h}h' : '${h}h${r}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seriesName = item.seriesName.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── 规格三列 ──
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 系列：**始终显示**，没有就标「无」——空着会让三列看着少一格，
+            // 反而让人以为信息没加载出来（v2.0.43 按反馈调整）。
+            Expanded(
+              flex: 5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _MiniLabel('系列'),
+                  const SizedBox(height: 6),
+                  _Cap(
+                    text: seriesName.isEmpty ? '无' : seriesName,
+                    color: seriesName.isEmpty ? _dim : _orange,
+                    maxWidth: double.infinity,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 4,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _MiniLabel('发行日期'),
+                  const SizedBox(height: 6),
+                  _Plain(text: _releaseText),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _MiniLabel('时长'),
+                  const SizedBox(height: 6),
+                  _Plain(text: _runtimeText),
+                ],
+              ),
+            ),
+          ],
+        ),
+        // ── 演员 ──
+        if (item.people.isNotEmpty) ...[
+          const _HSep(),
+          const _MiniLabel('演员'),
+          const SizedBox(height: 7),
+          _CapRow(
+            count: item.people.length,
+            itemBuilder: (i) {
+              final p = item.people[i];
+              // Emby 的 Person 没有可靠的性别字段，按名称角色没法判断，
+              // 这里统一用 ♀ 造型符号做视觉标识（不做语义断言）
+              return _Cap(
+                text: p.name,
+                color: _purple,
+                leading: const Text(
+                  '♀',
+                  style: TextStyle(fontSize: 11, color: _purple),
+                ),
+                onTap: () => onOpenPerson(p),
+              );
+            },
+          ),
+        ],
+        // ── 标签 ──
+        if (tags.isNotEmpty || hasChineseSub) ...[
+          const _HSep(),
+          const _MiniLabel('标签'),
+          const SizedBox(height: 7),
+          _CapRow(
+            count: tags.length + (hasChineseSub ? 1 : 0),
+            itemBuilder: (i) {
+              if (hasChineseSub && i == 0) {
+                return _Cap(
+                  text: '中文字幕',
+                  color: _green,
+                  onTap: onOpenSubtitleFilter,
+                );
+              }
+              final t = tags[i - (hasChineseSub ? 1 : 0)];
+              return _Cap(text: t, color: _green, onTap: () => onOpenTag(t));
+            },
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 信息区的小标题（10px，弱化，与参考图一致）
+class _MiniLabel extends StatelessWidget {
+  const _MiniLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    style: const TextStyle(
+      fontSize: 10.5,
+      fontWeight: FontWeight.w600,
+      color: AppColors.muted,
+      letterSpacing: 0.2,
+    ),
+  );
+}
+
+/// 信息区分隔细线（左实右渐隐，弱化但仍分区）
+class _HSep extends StatelessWidget {
+  const _HSep();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: 1,
+    margin: const EdgeInsets.only(top: 13, bottom: 11),
+    decoration: const BoxDecoration(
+      gradient: LinearGradient(colors: [Color(0x17FFFFFF), Color(0x00FFFFFF)]),
+    ),
+  );
+}
+
+/// 纯文字值（发行日期 / 时长）
+class _Plain extends StatelessWidget {
+  const _Plain({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    text,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: const TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: Color(0xFFE9EFFA),
+      letterSpacing: -0.2,
+      height: 1.35,
+    ),
+  );
+}
+
+/// 单个彩色胶囊
+class _Cap extends StatelessWidget {
+  const _Cap({
+    required this.text,
+    required this.color,
+    this.leading,
+    this.onTap,
+    this.maxWidth = 190,
+  });
+
+  final String text;
+  final Color color;
+  final Widget? leading;
+  final VoidCallback? onTap;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Container(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[leading!, const SizedBox(width: 4)],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color.lerp(color, Colors.white, 0.25),
+                letterSpacing: 0.1,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (onTap == null) return body;
+    return LiquidPress(
+      onTap: onTap,
+      radius: 7,
+      scale: 0.96,
+      semanticLabel: text,
+      child: body,
+    );
+  }
+}
+
+/// 单行横滑的胶囊行：末尾自动补 `+N`
+///
+/// 用横向 ListView 而不是 Wrap：紧凑版的核心就是「永远只占一行」，
+/// 标签再多也不撑高板块。`+N` 卡片放在最后，提示还有多少未展开。
+class _CapRow extends StatelessWidget {
+  const _CapRow({required this.count, required this.itemBuilder});
+
+  final int count;
+  final Widget Function(int i) itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return const SizedBox.shrink();
+    // 可见卡片数：估算每张约 78px，多出来的折成 +N；至少保留 1 张
+    return LayoutBuilder(
+      builder: (c, box) {
+        final per = 80.0;
+        final visible = (box.maxWidth / per).floor().clamp(1, count);
+        final more = count - visible;
+        return SizedBox(
+          height: 28,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: more > 0 ? visible + 1 : count,
+            itemBuilder: (c, i) {
+              if (more > 0 && i == visible) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _Cap(
+                    text: '+$more',
+                    color: const Color(0xFF7E8DA6),
+                    maxWidth: 60,
+                  ),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: itemBuilder(i),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }

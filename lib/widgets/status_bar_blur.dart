@@ -13,6 +13,7 @@ class BottomBarBlur extends StatefulWidget {
     required this.height,
     required this.active,
     this.sigma = 30,
+    this.degraded = false,
   });
 
   /// 模糊带总高度（按按钮区高度再往上留一段过渡）。
@@ -23,6 +24,9 @@ class BottomBarBlur extends StatefulWidget {
 
   /// 底部最大模糊强度。
   final double sigma;
+
+  /// 滚动降级（见 [StatusBarBlur.degraded]）。
+  final bool degraded;
 
   @override
   State<BottomBarBlur> createState() => _BottomBarBlurState();
@@ -58,6 +62,28 @@ class _BottomBarBlurState extends State<BottomBarBlur>
 
   @override
   Widget build(BuildContext context) {
+    // 滚动降级：纯渐变顶替，不碰 BackdropFilter（见 widget.degraded 注释）
+    if (widget.degraded) {
+      return SizedBox(
+        height: widget.height,
+        child: RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  AppColors.bg.withValues(alpha: 0.82),
+                  AppColors.bg.withValues(alpha: 0.45),
+                  AppColors.bg.withValues(alpha: 0.0),
+                ],
+                stops: const [0.0, 0.55, 1.0],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
@@ -69,11 +95,13 @@ class _BottomBarBlurState extends State<BottomBarBlur>
             children: [
               // 模糊强度从下到上连续衰减到 0，没有硬边
               Positioned.fill(
-                child: Inspire.backdropBlur(
-                  config: InspireBlurConfig.bottomToTop(
-                    sigma: widget.sigma * t,
-                    extent: 1.0,
-                    fadeCurve: Curves.easeInSine,
+                child: RepaintBoundary(
+                  child: Inspire.backdropBlur(
+                    config: InspireBlurConfig.bottomToTop(
+                      sigma: widget.sigma * t,
+                      extent: 1.0,
+                      fadeCurve: Curves.easeInSine,
+                    ),
                   ),
                 ),
               ),
@@ -112,6 +140,7 @@ class StatusBarBlur extends StatefulWidget {
     required this.height,
     required this.active,
     this.sigma = 30,
+    this.degraded = false,
   });
 
   /// 模糊带总高度（一般取状态栏高度 + 一段过渡）。
@@ -119,6 +148,18 @@ class StatusBarBlur extends StatefulWidget {
 
   /// 是否已经上滑（false 时完全透明、不渲染模糊）。
   final bool active;
+
+  /// **滚动降级开关**（性能关键）。
+  ///
+  /// 为 true 时不渲染 `BackdropFilter`，改用同色半透明渐变。
+  ///
+  /// 原因：`BackdropFilter` 每帧都要把**整块滚动内容**重新采样 + 跑模糊
+  /// 着色器。详情页滚动时上下两条模糊带各跑一遍，中端机直接从 60fps 掉到
+  /// 30fps 左右（媒体库页没有常驻模糊，所以丝滑）。
+  ///
+  /// 策略：滚动开始 → true（立刻换成纯渐变，零 GPU 开销）；
+  /// 滚动停止 180ms → false（淡回真模糊）。静止时液态玻璃一点不少。
+  final bool degraded;
 
   /// 顶部最大模糊强度。
   final double sigma;
@@ -157,6 +198,26 @@ class _StatusBarBlurState extends State<StatusBarBlur>
 
   @override
   Widget build(BuildContext context) {
+    // 滚动降级：纯渐变顶替，不碰 BackdropFilter（见 widget.degraded 注释）
+    if (widget.degraded) {
+      return SizedBox(
+        height: widget.height,
+        child: RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppColors.bg.withValues(alpha: 0.78),
+                  AppColors.bg.withValues(alpha: 0.0),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return AnimatedBuilder(
       animation: _c,
       builder: (context, _) {
@@ -168,11 +229,13 @@ class _StatusBarBlurState extends State<StatusBarBlur>
             children: [
               // 模糊强度从上到下连续衰减到 0，没有硬边
               Positioned.fill(
-                child: Inspire.backdropBlur(
-                  config: InspireBlurConfig.topToBottom(
-                    sigma: widget.sigma * t,
-                    extent: 1.0,
-                    fadeCurve: Curves.easeInSine,
+                child: RepaintBoundary(
+                  child: Inspire.backdropBlur(
+                    config: InspireBlurConfig.topToBottom(
+                      sigma: widget.sigma * t,
+                      extent: 1.0,
+                      fadeCurve: Curves.easeInSine,
+                    ),
                   ),
                 ),
               ),

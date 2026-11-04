@@ -16,7 +16,8 @@ import '../models.dart';
 /// 注意：Emby 的 /Items 默认只返回精简字段，Overview / Tags 等必须显式声明
 const _kItemFields =
     'Genres,People,UserData,MediaStreams,MediaSources,Overview,DateCreated,'
-    'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,Tags,TagItems,Studios';
+    'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,'
+    'Tags,TagItems,Studios,SeriesName';
 
 class EmbyServer {
   EmbyServer({
@@ -651,25 +652,10 @@ class EmbyServer {
           t['Url'] as String,
     ];
     // 额外部分：同一影片的其余 MediaSource（-Cd1/-Cd2 分段、多版本等）。
-    // Emby 网页版把「主版本以外的来源」列成「额外部分」，这里照做：
-    // 先按 Index 排序（服务端本已排序，保险起见），跳过主版本（第一条 /
-    // 与 ms0 同 Id 的那条），其余全部作为可播放分段。
-    final primaryId = (ms0['Id'] as String?) ?? '';
-    final extraParts = <MediaExtraPart>[];
-    if (sources.length > 1) {
-      final sorted = sources.whereType<Map<String, dynamic>>().toList()
-        ..sort(
-          (a, b) => ((a['Index'] as num?)?.toInt() ?? 0).compareTo(
-            (b['Index'] as num?)?.toInt() ?? 0,
-          ),
-        );
-      for (final s in sorted) {
-        final sid = (s['Id'] as String?) ?? '';
-        if (sid == primaryId) continue; // 主版本
-        final part = MediaExtraPart.fromJson(s);
-        if (part != null) extraParts.add(part);
-      }
-    }
+    // Emby 网页版把「主版本以外的来源」列成「额外部分」。批量 /Items 列表
+    // 常只回主版本，详情页会再用 mediaSources() 补一次单条详情，这里先按
+    // 列表已带的数据解析（没有就不加）。解析逻辑见 [_extraPartsFromSources]。
+    final extraParts = _extraPartsFromSources(sources);
     return MediaItem(
       id: id,
       name: j['Name'] as String? ?? '未命名',
@@ -714,6 +700,10 @@ class EmbyServer {
       fileSizeBytes: msSize,
       dateCreatedMs: DateTime.tryParse(j['DateCreated'] as String? ?? '')
           ?.millisecondsSinceEpoch,
+      // 发行日期：Emby 给 ISO8601（2021-12-23T00:00:00.0000000Z），
+      // 这里只截到「YYYY-MM-DD」供详情页信息区展示
+      premiereDate: _dateOnly(j['PremiereDate'] as String?),
+      seriesName: (j['SeriesName'] as String?) ?? '',
       userPlayCount: (userData['PlayCount'] as int?) ?? 0,
       userPlayed: userData['Played'] == true,
       userFavorite: userData['IsFavorite'] == true,
@@ -724,6 +714,18 @@ class EmbyServer {
       ),
       resumeSeconds: _resumeSeconds(userData),
     );
+  }
+
+  /// 把 Emby 的 ISO8601 日期截成 `YYYY-MM-DD`。
+  ///
+  /// Emby 常见形态：`2021-12-23T00:00:00.0000000Z`。直接 `substring(0,10)`
+  /// 比 `DateTime.parse` 稳（后者遇到 7 位小数秒会抛异常）。形态不对时原样返回。
+  static String _dateOnly(String? iso) {
+    final s = (iso ?? '').trim();
+    if (s.length < 10) return '';
+    final head = s.substring(0, 10);
+    // 只接受 2021-12-23 这种形态，防止把别的字符串误截
+    return RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(head) ? head : '';
   }
 
   /// 上次播放位置（秒）：PlaybackPositionTicks 以 100ns 为单位
@@ -1010,6 +1012,32 @@ class EmbyServer {
     return false;
   }
 
+  /// 把 Emby 的 `MediaSources` 列表解析为「非主版本的额外分段」。
+  ///
+  /// 规律：第一条（或 `Index` 最小、`Id` 与 `MediaSources[0]` 相同）是主版本，
+  /// 其余（`-Cd2`、`-Cd3`、另一个分辨率版本…）才是「额外部分」。列表不足 2
+  /// 条视为「没有分段」，返回空。抽成静态方法便于 [_fromJson] 与
+  /// [mediaSources] / 诊断共用，避免三处逻辑漂移。
+  static List<MediaExtraPart> _extraPartsFromSources(dynamic raw) {
+    final sources = raw is List ? raw : const <dynamic>[];
+    if (sources.length <= 1) return const [];
+    final list = sources.whereType<Map<String, dynamic>>().toList()
+      ..sort(
+        (a, b) => ((a['Index'] as num?)?.toInt() ?? 0).compareTo(
+          (b['Index'] as num?)?.toInt() ?? 0,
+        ),
+      );
+    final primaryId = (list.first['Id'] as String?) ?? '';
+    final out = <MediaExtraPart>[];
+    for (final s in list) {
+      final sid = (s['Id'] as String?) ?? '';
+      if (sid == primaryId) continue; // 主版本
+      final part = MediaExtraPart.fromJson(s);
+      if (part != null) out.add(part);
+    }
+    return out;
+  }
+
   /// 预告片候选入口清单。
   ///
   /// 服务端实现差异极大：标准 Emby、Jellyfin，以及各种兼容实现（会出现纯数字
@@ -1248,6 +1276,21 @@ class EmbyServer {
     for (final b in bases) {
       final tag = b == baseUrl ? '' : '[根] ';
       probes
+        // Emby 官方的「附加内容」接口：网页版详情页「附加媒体」就是取它。
+        // 分段（-cd1/-cd2）若被服务端登记成 AdditionalPart，只有这里能拿到，
+        // 而 MediaSources / SpecialFeatures 都可能是空的。
+        ..add(_TrailerProbe(
+          '${tag}Videos/{id}/AdditionalParts',
+          '$b/Videos/$itemId/AdditionalParts',
+          query: {'Fields': childFields},
+          excludeTrailer: true,
+        ))
+        ..add(_TrailerProbe(
+          '${tag}Items/{id}/AdditionalParts',
+          '$b/Items/$itemId/AdditionalParts',
+          query: {'Fields': childFields},
+          excludeTrailer: true,
+        ))
         ..add(_TrailerProbe(
           '${tag}Items/{id}/SpecialFeatures',
           '$b/Items/$itemId/SpecialFeatures',
@@ -1306,10 +1349,12 @@ class EmbyServer {
     // 这条路不依赖「子条目关系」——只要文件被扫进库，且物理上跟正片同目录，
     // 就能捞到（跳过影片自身与预告片，预告片归「预告片」栏目）。
     //
-    // 全库扫描不便宜，所以先用 `ChildCount` 做闸门：服务端明确说「没有子条目」
-    // 时不扫（绝大多数影片走这条，详情页开销不变）。
-    final (dir, childCount) = await _movieDirInfo(itemId);
-    if (dir.isEmpty || childCount == 0) return out;
+    // ⚠️ 不能用 `ChildCount == 0` 当闸门：`-cd1`/`-cd2` 这种分段影片，两个文件
+    // 属于**同一个条目**，ChildCount 天然就是 0，闸门一卡整条兜底永远不跑——
+    // 这正是 15607 一直取不到 cd2 的原因。改为只看目录前缀（精确到影片所在
+    // 文件夹，前缀命中率极低，全库扫一次开销可接受），且仅在没有其它来源时跑。
+    final (dir, _) = await _movieDirInfo(itemId);
+    if (dir.isEmpty) return out;
     final prefix = dir.toLowerCase();
     try {
       final resp = await _getJsonAny(
@@ -1317,14 +1362,16 @@ class EmbyServer {
         query: {
           'userId': _userId!,
           'Recursive': 'true',
-          'IncludeItemTypes': 'Video,Movie',
+          'IncludeItemTypes': 'Video,Movie,Episode,MusicVideo',
           'Fields': 'Path,ExtraType,MediaSources,MediaStreams,RunTimeTicks',
         },
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 10));
       for (final e in _rawItems(resp)) {
         if (looksLikeTrailer(e)) continue;
         final id = (e['Id'] as String?) ?? '';
         if (id.isEmpty || id == itemId || seen.contains(id)) continue;
+        // 路径必须落在**同一个影片文件夹**里（前缀含结尾分隔符），
+        // 防止 ABP-01 误配 ABP-018 之类的同级串味
         final p = ((e['Path'] as String?) ?? '').toLowerCase();
         if (!p.startsWith(prefix)) continue;
         try {
@@ -1334,6 +1381,28 @@ class EmbyServer {
       }
     } catch (_) {/* 全库扫描不可用，返回已拿到的 */}
     return out;
+  }
+
+  /// 影片的「分段」（同一影片的多个 MediaSource，`-Cd1`/`-Cd2`）。
+  ///
+  /// 与 [extraParts]（独立子条目）是一条影片「额外部分」的两类互补来源：
+  /// 分段是**同一个 Emby 条目**下的多个媒体源；子条目是被扫成独立 Extra 的
+  /// 分段/花絮（走 [extraParts]）。
+  ///
+  /// Emby 在批量 `/Items` 列表查询里常常只回「主版本」那一条 MediaSource，
+  /// 完整的多分段只有单条详情 `/Users/{uid}/Items/{id}` 才给全。详情页用这条
+  /// 方法补一次单条详情，保证能列出 cd2 及后续分段（网页版能切、App 之前不显
+  /// 示的根因即此）。任何失败都退化为空列表。
+  Future<List<MediaExtraPart>> mediaSources(String itemId) async {
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {'Fields': 'MediaSources,MediaStreams,RunTimeTicks'},
+      );
+      return _extraPartsFromSources(item['MediaSources']);
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// 影片所在目录（**带结尾分隔符**，避免 ABP-01 误配 ABP-018）+ 子条目数。
@@ -1360,6 +1429,27 @@ class EmbyServer {
   /// 预告片抓取诊断：逐条列出每个候选入口的真实结果，供详情页展示。
   Future<List<String>> trailerDiag(String itemId) async {
     final log = <String>[];
+    // ── 分段（同一影片的 MediaSources：-Cd1/-Cd2）──
+    // 放在最前面：这是「额外部分」最常见的一类来源，而且只依赖单条详情，
+    // 不受下面 SpecialFeatures/子项一堆 404 的干扰。若这里是 0 条，说明服务端
+    // 根本没把 cd2 作为 MediaSource 返回，App 侧无从显示，需另找入口。
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {'Fields': 'MediaSources,MediaStreams,RunTimeTicks,Path'},
+      ).timeout(const Duration(seconds: 4));
+      final raws = (item['MediaSources'] as List<dynamic>?) ?? const [];
+      final parts = _extraPartsFromSources(raws);
+      log.add('[分段] MediaSources=${raws.length} 条 · 额外分段 ${parts.length} 个');
+      for (final p in parts.take(6)) {
+        log.add('    • ${p.name} | ${p.path}');
+      }
+    } on EmbyException catch (e) {
+      log.add('[分段] 读取失败: ${e.message}');
+    } catch (e) {
+      log.add('[分段] 读取失败: $e');
+    }
+
     try {
       final item = await _getJson(
         '$baseUrl/Users/$_userId/Items/$itemId',
@@ -1442,6 +1532,48 @@ class EmbyServer {
       }
     }
     log.add(extraLabel.isEmpty ? '❌ 额外部分：所有入口均未取到' : '✅ 额外部分可用入口: $extraLabel');
+
+    // ── [同目录] 全库反查：和正片同一个文件夹里的其它视频 ──
+    // 分段（-cd2）无论被服务端存成 AdditionalPart、Extra 还是独立条目，
+    // 只要文件进了库就一定落在这里。这一段最能一锤定音。
+    try {
+      final (dir, _) = await _movieDirInfo(itemId).timeout(
+        const Duration(seconds: 4),
+      );
+      if (dir.isEmpty) {
+        log.add('[同目录] 读取影片路径失败，跳过');
+      } else {
+        final resp = await _getJsonAny(
+          '$baseUrl/Items',
+          query: {
+            'userId': _userId!,
+            'Recursive': 'true',
+            'IncludeItemTypes': 'Video,Movie,Episode,MusicVideo',
+            'Fields': 'Path,ExtraType,Name',
+          },
+        ).timeout(const Duration(seconds: 12));
+        final prefix = dir.toLowerCase();
+        final sibs = _rawItems(resp).where((e) {
+          final id = (e['Id'] as String?) ?? '';
+          if (id.isEmpty || id == itemId) return false;
+          final p = ((e['Path'] as String?) ?? '').toLowerCase();
+          return p.startsWith(prefix);
+        }).toList();
+        log.add('[同目录] $dir → 其它视频 ${sibs.length} 个');
+        for (final e in sibs.take(8)) {
+          final type = (e['Type'] as String?) ?? '-';
+          final extra = (e['ExtraType'] as String?) ?? '';
+          log.add(
+            '    • ${e['Name'] ?? '-'} [$type${extra.isEmpty ? '' : '/$extra'}] '
+            '| ${e['Path'] ?? '-'}',
+          );
+        }
+      }
+    } on EmbyException catch (e) {
+      log.add('[同目录] 读取失败: ${e.message}');
+    } catch (e) {
+      log.add('[同目录] 读取失败: $e');
+    }
     return log;
   }
 
