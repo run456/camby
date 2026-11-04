@@ -1713,3 +1713,25 @@ bash tools/verify_release.sh --build
 验证（v2.0.37）：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 269 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.37-release-arm64.apk`。
 
 验证（v2.0.38）：`flutter analyze` 0 error / 0 warning（仅 info 级 deprecated）；`flutter test` 281 全过（新增 diag_entry 12 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.38-release-arm64.apk`。
+
+## §71 · v2.0.45 (245) 在线字幕搜索集成 + 玻璃弹层组件抽取
+
+交付包 `camby-online-subtitle.zip` 的需求说明、补丁与源码，逐项验收如下。
+
+**1. 交付物完整性**：8 个文件 / 4 类（README、LICENSE-UPSTREAM、`+90/-7` 补丁、833 行模块、3041 行对照播放页、PNG+HTML 设计稿、一键编译脚本）。设计稿标注为静态 UI 模拟，非真机截图。
+
+**2. 基准与兼容性**：包声明基准 `22e7205`，本机 HEAD 正是该提交且工作区干净；`git apply --check` 通过、实际 apply 成功。本地播放页 2958 行 + 补丁净增 83 = 3041 行，与包内完整对照文件逐行差异恰好等于补丁本身。项目内被补丁引用的 API（`filePath` / `seasonNumber` / `episodeNumber` / `nativeSubtitles` / `setSubtitle` / `_cueText` / `_SheetRow` / `_resetHideTimer`）全部存在。
+
+**3. 依赖与工具链**：本机 Flutter 3.47.8 / Dart 3.13.7（交付方沙箱为 Dart 2.17，故其 README 第 6 节标注「未做完整 analyze」）。`gbk_codec: ^0.4.0` 包声明 `sdk >=2.13.0 <3.0.0`，实测 Dart 3.13 pub 可正常解析，且 `gbk_bytes.decode(gbk.encode('中文字幕测试'))` 往返正确 —— 该依赖可用，`main.dart` 的解码器注入不会因版本上限失效。
+
+**4. 数据源现况回放**（本机联网实测，确认解析规则未过期）：迅雷 `oracle/subtitle?name=Inception` → HTTP 200、`data` 57 条，首条直链 104 KB、非 UTF-8（GBK）、正文带 `<font color>`；SubtitleCat 搜索页 38 条 `subs/*.html`，首个详情页 13 个静态 `.srt`、`translate_from_server_folder` 兜底正则命中、`-zh-CN.srt` 字面出现 **0 次**。与 README 第 5.3 节的结论一致。
+
+**5. 集成时的主动修正**（超出补丁本身的 4 处）：
+- **弹层外观**：交付模块用 `showModalBottomSheet` + 纯色 `0xFF0E1626` + 原生 `ListTile`、高度写死 68%，与设计稿的玻璃面板和项目的居中卡片都不一致，平板上会拉成整屏色块。抽出 `lib/widgets/glass_sheet.dart`（`GlassPanel` / `GlassPanelRoute` / `SheetRow`），播放页删掉 3 个私有类改引用公共版，在线字幕弹层改用同一套：居中、按短边限宽 470/620、高度按可用空间自适应、键盘弹起不遮输入框、结果行带来源角标。
+- **跨 await 生命周期**：`await _player?.setSubtitle(null)` 之后到 `setState` 之间没有 `mounted` 检查，下载期间退出播放页会崩。补 `if (!context.mounted) return;`，并把另 3 处 `!mounted` 换成 `!context.mounted` 消除 `use_build_context_synchronously`。
+- **剧集关键词重复**：`cleanTitle()` 对已带 `S01E02` 的文件名仍会再拼一次季集号，变成 `Show S01E02 S01E02`，命中率反而下降。加正则跳过。
+- **合规**：`licenses/LICENSE-UPSTREAM.txt` 入库，README「隐私与开源许可」补写在线字幕的数据流（只发清理后的标题/番号、不落盘、显式触发）。
+
+**6. 验证**：`dart analyze` 4 个改动文件 0 error / 0 warning（info 均为项目既有 `withOpacity` 弃用等）；`flutter test` **319 全过**（原 303 + 新增 `online_subtitle_test.dart` 16 条，含手机/平板面板限宽的 `testWidgets`、GBK 注入/未注入双分支、`setSubtitle(null)` 后的二次 mounted 守卫、许可全文与版本号守卫）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+**7. 已知边界**：迅雷端点未文档化、无鉴权无限流；SubtitleCat 强依赖 HTML 结构。两者都做成单源静默降级，且设计为显式点击触发而非起播自动搜索。加载在线字幕后切内核（Exo ↔ MPV），SRT 叠加层字幕仍在，MPV 的 ASS 原生轨可能需要重新选一次。

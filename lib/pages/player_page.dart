@@ -15,8 +15,10 @@ import '../player/boot_watch.dart';
 import '../player/playback.dart';
 import '../player/subtitle_pick.dart';
 import '../subtitles/subtitles.dart';
+import '../subtitles/online_subtitle.dart';
 import '../routes.dart';
 import '../theme.dart';
+import '../widgets/glass_sheet.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/strm_boot_overlay.dart';
@@ -201,6 +203,9 @@ class PlayerPageState extends State<PlayerPage>
 
   // 字幕 / 分集 / 画面信息
   SubtitleTrackInfo? _subtitle;
+  /// 当前挂载的在线字幕（非 Emby 服务端轨道）。底栏 / 信息面板靠它区分
+  /// 「字幕关闭」与「用的是在线字幕」——只看 _subtitle == null 会误显示关闭。
+  OnlineSubtitle? _onlineSubtitle;
   List<SubtitleCue> _cues = const [];
 
   /// 用户在本页字幕菜单里手动选过轨（关掉字幕也算）。
@@ -549,7 +554,7 @@ class PlayerPageState extends State<PlayerPage>
     _hideTimer?.cancel();
     final base = _subStyle;
     await Navigator.of(context).push<void>(
-      _GlassPanelRoute<void>(
+      GlassPanelRoute<void>(
         builder: (ctx) => SubtitleStyleSheet(
           style: base,
           onChanged: (next, commit) {
@@ -1383,7 +1388,7 @@ class PlayerPageState extends State<PlayerPage>
   Future<void> _pickSpeed() async {
     const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
     final picked = await Navigator.of(context).push<double>(
-      _GlassPanelRoute<double>(
+      GlassPanelRoute<double>(
         builder: (ctx) => _Sheet(
           title: '播放速度',
           children: speeds.map((s) {
@@ -1391,7 +1396,7 @@ class PlayerPageState extends State<PlayerPage>
                 .toStringAsFixed(2)
                 .replaceAll(RegExp(r'0+$'), '')
                 .replaceAll(RegExp(r'\.$'), '');
-            return _SheetRow(
+            return SheetRow(
               label: '$label×',
               selected: _playbackSpeed == s,
               onTap: () => Navigator.pop(ctx, s),
@@ -1417,9 +1422,13 @@ class PlayerPageState extends State<PlayerPage>
       '${_playbackSpeed.toStringAsFixed(2).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '')}×';
 
   /// 播放信息面板：字幕一行（语言 · 格式）
-  String _subInfoText() => _subtitle == null
-      ? '关闭'
-      : '${_subtitle!.languageLabel} · ${_subtitle!.codecLabel}';
+  String _subInfoText() {
+    if (_subtitle != null) {
+      return '${_subtitle!.languageLabel} · ${_subtitle!.codecLabel}';
+    }
+    final online = _onlineSubtitle;
+    return online == null ? '关闭' : '在线 · ${online.source.label}';
+  }
 
   /// 文件大小：0 表示服务端没给（strm 常见），显示「未知」而不是 0 B
   String _fmtSize(int bytes) {
@@ -1440,7 +1449,7 @@ class PlayerPageState extends State<PlayerPage>
     // 之前是直接 toast 返回，用户压根找不到「字幕样式」在哪 ——
     // 它被藏在「长按字幕按钮」这个没人会猜到的隐藏手势里。
     final picked = await Navigator.of(context).push<_SubPick>(
-      _GlassPanelRoute<_SubPick>(
+      GlassPanelRoute<_SubPick>(
         builder: (ctx) => _Sheet(
           title: '选择字幕',
           children: [
@@ -1458,13 +1467,13 @@ class PlayerPageState extends State<PlayerPage>
                 ),
               )
             else ...[
-              _SheetRow(
+              SheetRow(
                 label: '关闭字幕',
-                selected: _subtitle == null,
+                selected: _subtitle == null && _onlineSubtitle == null,
                 onTap: () => Navigator.pop(ctx, const _SubPick(null)),
               ),
               ...tracks.map(
-                (t) => _SheetRow(
+                (t) => SheetRow(
                   label: t.menuLabel,
                   hint: t.displayTitle.isEmpty
                       ? _shortSubUrl(t.url)
@@ -1474,8 +1483,28 @@ class PlayerPageState extends State<PlayerPage>
                 ),
               ),
             ],
+            // 已挂载的在线字幕：显示为当前项，点它可重新搜索
+            if (_onlineSubtitle != null)
+              SheetRow(
+                label: _onlineSubtitle!.title,
+                hint: '在线字幕 · 点击重新搜索',
+                selected: true,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  unawaited(_pickOnlineSubtitle());
+                },
+              ),
+            // 在线字幕搜索入口：不占 Emby 字幕轨，选完直接写进叠加层 _cues
+            SheetRow(
+              label: '在线搜索字幕…',
+              hint: '按文件名搜索迅雷 / SubtitleCat',
+              onTap: () {
+                Navigator.pop(ctx);
+                unawaited(_pickOnlineSubtitle());
+              },
+            ),
             // 字幕样式入口：明确一行，不再依赖长按
-            _SheetRow(
+            SheetRow(
               label: '字幕样式…',
               hint: '大小 / 位置 / 描边 / 偏移',
               onTap: () {
@@ -1496,6 +1525,61 @@ class PlayerPageState extends State<PlayerPage>
     await _applySubtitle(picked.track);
   }
 
+  /// 在线字幕：搜索 → 下载 → 解码(UTF-8/GBK) → 解析 → 叠加层渲染。
+  ///  · SRT/VTT 一律走 App 叠加层（两内核外观一致，且不重建播放器、不丢进度）
+  ///  · ASS/SSA 在 MPV 下交给内核原生渲染，保住特效
+  ///  · 不占用 SubtitleTrackInfo（那是 Emby 服务端轨道），故 _subtitle 置 null，
+  ///    用 [_onlineSubtitle] 单独记录，避免底栏误显示「字幕关闭」
+  Future<void> _pickOnlineSubtitle() async {
+    final picked = await showOnlineSubtitleSheet(
+      context,
+      fileName: widget.item.filePath.isNotEmpty
+          ? widget.item.filePath
+          : widget.item.name,
+      season: widget.item.seasonNumber,
+      episode: widget.item.episodeNumber,
+    );
+    if (picked == null || !context.mounted) return;
+
+    // 与手动选轨同等对待：后续切集 / 切内核不再被自动选轨覆盖
+    _userPickedSub = true;
+    try {
+      showToast(context, '正在下载字幕…');
+      if (picked.isAss && (_player?.nativeSubtitles ?? false)) {
+        await _player?.setSubtitle(picked.url);
+        if (!context.mounted) return;
+        setState(() {
+          _subtitle = null;
+          _onlineSubtitle = picked;
+          _cues = const [];
+          _cueText = '';
+        });
+        showToast(context, '字幕：${picked.title}');
+      } else {
+        final cues = await OnlineSubtitleService.fetchCues(picked);
+        if (!context.mounted) return;
+        // MPV 文本字幕要先摘掉内核轨，否则会出现两份字幕重叠；
+        // Exo 的 setSubtitle 返回 false、无副作用，调用它是安全的
+        await _player?.setSubtitle(null);
+        // 第二个 await 之后必须再查一次：下载期间用户可能已经退出播放页
+        if (!context.mounted) return;
+        setState(() {
+          _subtitle = null;
+          _onlineSubtitle = picked;
+          _cues = cues;
+          _cueText = '';
+        });
+        showToast(
+          context,
+          cues.isEmpty ? '字幕解析失败，换一条试试' : '已加载：${picked.title}',
+        );
+      }
+    } catch (e) {
+      if (context.mounted) showToast(context, '字幕下载失败：$e');
+    }
+    _resetHideTimer();
+  }
+
   /// 切换字幕：**不重建播放器**，因此不会丢进度。
   ///  · MPV + ASS/SSA：内核原生挂载，ASS 特效也能显示
   ///  · 其余（Exo 全部、MPV 的 SRT/VTT）：用 App 叠加层自己渲染，
@@ -1508,6 +1592,8 @@ class PlayerPageState extends State<PlayerPage>
   }) async {
     setState(() {
       _subtitle = track;
+      // 选回服务端轨道（或关闭字幕）就不再处于「在线字幕」状态
+      _onlineSubtitle = null;
       if (track == null) {
         _cues = const [];
         _cueText = '';
@@ -1623,7 +1709,7 @@ class PlayerPageState extends State<PlayerPage>
   void _showInfo() {
     final item = widget.item;
     Navigator.of(context).push<void>(
-      _GlassPanelRoute<void>(
+      GlassPanelRoute<void>(
         builder: (ctx) => _Sheet(
           title: '播放信息',
           children: [
@@ -2265,9 +2351,9 @@ class PlayerPageState extends State<PlayerPage>
                         GestureDetector(
                           onLongPress: _showSubtitleStyle,
                           child: _Chip(
-                            label: _subtitle == null
-                                ? '字幕'
-                                : '字幕 · ${_subtitle!.languageLabel}',
+                            label: _subtitle != null
+                                ? '字幕 · ${_subtitle!.languageLabel}'
+                                : (_onlineSubtitle == null ? '字幕' : '字幕 · 在线'),
                             icon: Icons.subtitles_outlined,
                             onTap: _pickSubtitle,
                           ),
@@ -2558,85 +2644,8 @@ class _ProgressBarState extends State<_ProgressBar> {
 
 // ---------------- 玻璃弹层 ----------------
 
-/// 通用玻璃面板容器：底部弹层的统一外观（与播放信息/码率面板共用）。
-/// 播放页一律关闭实时模糊（blurEnabled=false），避免每次唤出都把视频压停。
-/// 居中玻璃面板的容器（v1.7.32）
-///
-/// 原来是 `showModalBottomSheet` 的底部抽屉，四类弹层（变速/字幕/信息/样式）
-/// 全都从屏幕底边推上来，遮住进度条又不方便单手够。统一改成居中卡片：
-/// 固定最大宽度、最大高度留 12% 余量、内容超出时面板内部滚动。
-class _GlassPanel extends StatelessWidget {
-  const _GlassPanel({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    // 横屏播放时屏幕高度只有 ~500px，之前用 0.88 倍高 → 只有 440px，
-    // 播放信息这类长内容直接被切掉（截图里「音频 aac 2ch」下面没了）。
-    // 改成按可用高度尽可能给满，并把标题栏固定在外面、只让内容区滚动。
-    final media = MediaQuery.of(context);
-    final avail = media.size.height - media.padding.vertical;
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: PlayerUi.of(context).panelMaxW,
-          // 上下各留 12px，尽量吃满
-          maxHeight: avail - 24,
-        ),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: const Color(0xF2141A28),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.5),
-                blurRadius: 40,
-                offset: const Offset(0, 18),
-              ),
-            ],
-          ),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-/// 居中面板的路由：自带可点暗层、淡入缩放入场，退场走反向动画。
-///
-/// 为什么不用 `showGeneralDialog`：它底层的 `RawDialogRoute` 不接受返回手势，
-/// 系统侧滑返回时面板会「啪」地消失。`PageRouteBuilder` 是标准 `PageRoute`，
-/// 参与返回手势并驱动 [transitionsBuilder] 的反向播放。
-class _GlassPanelRoute<T> extends PageRouteBuilder<T> {
-  _GlassPanelRoute({required WidgetBuilder builder, super.settings})
-    : super(
-        opaque: false,
-        barrierDismissible: true,
-        barrierColor: const Color(0x99000000),
-        barrierLabel: '关闭面板',
-        transitionDuration: Anim.base,
-        reverseTransitionDuration: Anim.fast,
-        pageBuilder: (ctx, _, _) => builder(ctx),
-        transitionsBuilder: (ctx, animation, _, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Anim.curve,
-            reverseCurve: Anim.curveIn,
-          );
-          return FadeTransition(
-            opacity: curved,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.94, end: 1).animate(curved),
-              child: child,
-            ),
-          );
-        },
-      );
-}
+/// 玻璃面板 / 居中路由 / 通用行组件已抽到 `widgets/glass_sheet.dart`，
+/// 在线字幕搜索面板复用同一套外观（手机 470 / 平板 620 的最大宽度）。
 
 /// 倍速胶囊：非 1.0 倍速时高亮，避免和「字幕 / 画面比例」混淆
 class _SpeedChip extends StatelessWidget {
@@ -2704,7 +2713,7 @@ class _Sheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _GlassPanel(
+    return GlassPanel(
       child: Material(
         type: MaterialType.transparency,
         child: Column(
@@ -2768,75 +2777,8 @@ class _Sheet extends StatelessWidget {
   }
 }
 
-class _SheetRow extends StatelessWidget {
-  const _SheetRow({
-    required this.label,
-    this.hint,
-    this.selected = false,
-    required this.onTap,
-  });
-  final String label;
-  final String? hint;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: selected
-                ? AppColors.accent.withOpacity(0.18)
-                : Colors.white.withOpacity(0.04),
-            border: Border.all(
-              color: selected
-                  ? AppColors.accent.withOpacity(0.5)
-                  : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              if (hint != null)
-                Text(
-                  hint!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF9FB0CC),
-                  ),
-                ),
-              if (selected) ...[
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.check_rounded,
-                  size: 16,
-                  color: AppColors.accent,
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// 通用行组件 `_SheetRow` 已抽到 `widgets/glass_sheet.dart`（`SheetRow`），
+/// 字幕轨道行与在线字幕结果行共用。
 
 /// 蓝竖条分节标题（设计稿「媒体信息」样式）
 class _InfoSection extends StatelessWidget {

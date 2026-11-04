@@ -4,7 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:gbk_codec/gbk_codec.dart';
 
+import 'subtitles/online_subtitle.dart';
 import 'app_state.dart';
 import 'layout.dart';
 import 'models.dart';
@@ -21,6 +23,10 @@ import 'pages/settings_page.dart';
 import 'pages/search_page.dart';
 
 void main() {
+  // 在线字幕：迅雷字幕是 GBK 编码，注入解码器避免中文乱码。
+  // 漏掉这一步不会报错，但字幕会显示成乱码，属于「静默失败」。
+  OnlineSubtitleConfig.gbkDecoder = (bytes) => gbk_bytes.decode(bytes);
+
   // ErrorWidget 兜底：正常情况下永远不会看到它；
   // 但如果真的某个组件构建失败，原来是一片纯黑（用户只会说「App 打不开」），
   // 现在至少能看见是哪个组件出错、错在哪一行。
