@@ -451,11 +451,17 @@ class MpvController implements PlaybackController {
       final dir = Directory('${base.path}/subfonts');
       await dir.create(recursive: true);
       final file = File('${dir.path}/FangSong.ttf');
-      if (!__fontReady || !await file.exists()) {
-        final bytes = await rootBundle.load('assets/fonts/FangSong.ttf');
-        await file.writeAsBytes(bytes.buffer.asUint8List());
+      if (__fontReady && await file.exists()) return dir.path;
+      // 用 asset 字节数当版本指纹：v2.0.46 起内置字体换成简繁并集子集，
+      // 体积从 2.6MB 变成 4.4MB。老用户覆盖安装后，应用私有目录里还是旧
+      // 字体文件，只判断 exists() 会一直沿用旧的繁体缺字版本。
+      final bytes = await rootBundle.load('assets/fonts/FangSong.ttf');
+      if (await file.exists() && await file.length() == bytes.lengthInBytes) {
         __fontReady = true;
+        return dir.path;
       }
+      await file.writeAsBytes(bytes.buffer.asUint8List());
+      __fontReady = true;
       return dir.path;
     } catch (_) {
       return null;

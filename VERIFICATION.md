@@ -1735,3 +1735,10 @@ bash tools/verify_release.sh --build
 **6. 验证**：`dart analyze` 4 个改动文件 0 error / 0 warning（info 均为项目既有 `withOpacity` 弃用等）；`flutter test` **319 全过**（原 303 + 新增 `online_subtitle_test.dart` 16 条，含手机/平板面板限宽的 `testWidgets`、GBK 注入/未注入双分支、`setSubtitle(null)` 后的二次 mounted 守卫、许可全文与版本号守卫）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
 
 **7. 已知边界**：迅雷端点未文档化、无鉴权无限流；SubtitleCat 强依赖 HTML 结构。两者都做成单源静默降级，且设计为显式点击触发而非起播自动搜索。加载在线字幕后切内核（Exo ↔ MPV），SRT 叠加层字幕仍在，MPV 的 ASS 原生轨可能需要重新选一次。
+
+验证（v2.0.46）：`dart analyze` 0 error / 0 warning（383 条 info 均为项目既有 `withOpacity` 弃用 / 测试变量命名等）；`flutter test` **332 全过**（原 319 + 新增 `subtitle_cache_test.dart` 9 条存取/导出/边界 + `release_2_0_46_test.dart` 4 条交付守卫：OFL 随附、字体 >4MB、字幕菜单三入口、非 Android 导出兜底）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.46-release-arm64.apk`。
+1. **本机缓存与自动复用**：`lib/subtitles/subtitle_cache.dart` 新增 `OnlineSubtitleCache`，按 `MediaItem.id` 写 `subtitle_cache/<id>.{sub,json}`（`getApplicationDocumentsDirectory` 私有目录）。播放页 `_restoreCachedSubtitle` 在「无外部字幕轨 + 未手动选轨 + 无服务端字幕轨」时自动 `parseAny` 挂回叠加层，置 `_subtitleFromCache=true`；信息面板 / 底栏显示「本机」而非「在线」。
+2. **导出字幕**：字幕菜单加「导出字幕…」→ `getExternalStorageDirectory()?.`（非 Android 用 `try/catch` 兜异常回退文档目录）写成 `片名.zh-CN.srt`，再弹「系统分享 / 复制路径」面板（`share_plus` + `Clipboard`）；另加「删除本机字幕」即时撤下并阻断本页自动选轨。
+3. **简繁并集字体**：`assets/fonts/FangSong.ttf` 由 GB2312 简体子集（~9.6MB→4.4MB）替换为 Noto Serif SC+TC 并集子集（fontTools 子集化 GB2312 ∪ Big5 一级 ∪ 港台补字），family 名保持 `FangSong`；实测繁体样本 `體臺灣麵國學會說這時開關` 不再缺字。OFL 全文随附 `licenses/OFL-NotoSerif.txt`。
+4. **健壮性**：`load`/`remove` 全程 try/catch 返回 null；缓存写失败不阻断本次播放（`_pickOnlineSubtitle` 内单独 try）。
+5. **已知边界**：字幕仍只存 App 私有目录，未直写影片所在文件夹（服务器路径 + Emby 无上传 API 双重限制）；导出后需用户自行拷到 NAS。

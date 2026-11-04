@@ -203,8 +203,10 @@ void main() {
       final src = File('lib/pages/player_page.dart').readAsStringSync();
       expect(src.contains('OnlineSubtitle? _onlineSubtitle'), isTrue);
       expect(src.contains("'在线搜索字幕…'"), isTrue);
-      expect(src.contains("'字幕 · 在线'"), isTrue);
-      expect(src.contains(r'在线 · ${online.source.label}'), isTrue);
+      expect(src.contains(r"_subtitleFromCache ? '本机' : '在线'"), isTrue,
+          reason: '底栏 chip 应区分「本机」缓存与「在线」现搜');
+      expect(src.contains(r"'} · ${online.source.label}"), isTrue,
+          reason: '_subInfoText 应区分本机/在线来源（在线/本机 后接 source.label）');
       // 下载期间退出播放页 → 第二个 await 之后必须再查一次 mounted
       final secondAwaitGuard = RegExp(
         r'setSubtitle\(null\);[\s\S]{0,240}?if \(!context\.mounted\) return;',
@@ -220,7 +222,7 @@ void main() {
 
       final pub = File('pubspec.yaml').readAsStringSync();
       expect(pub.contains('gbk_codec: ^0.4.0'), isTrue);
-      expect(pub.contains('version: 2.0.45+245'), isTrue);
+      expect(pub.contains('version: 2.0.46+246'), isTrue);
 
       final license = File('licenses/LICENSE-UPSTREAM.txt');
       expect(license.existsSync(), isTrue,

@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -16,6 +19,7 @@ import '../player/playback.dart';
 import '../player/subtitle_pick.dart';
 import '../subtitles/subtitles.dart';
 import '../subtitles/online_subtitle.dart';
+import '../subtitles/subtitle_cache.dart';
 import '../routes.dart';
 import '../theme.dart';
 import '../widgets/glass_sheet.dart';
@@ -206,6 +210,10 @@ class PlayerPageState extends State<PlayerPage>
   /// 当前挂载的在线字幕（非 Emby 服务端轨道）。底栏 / 信息面板靠它区分
   /// 「字幕关闭」与「用的是在线字幕」——只看 _subtitle == null 会误显示关闭。
   OnlineSubtitle? _onlineSubtitle;
+
+  /// 当前在线字幕是**本机缓存**恢复的（而不是本次现搜的）。信息面板 / 底栏
+  /// 据此显示「本机 · 迅雷」而不是「在线 · 迅雷」，避免用户以为又联网搜了一次。
+  bool _subtitleFromCache = false;
   List<SubtitleCue> _cues = const [];
 
   /// 用户在本页字幕菜单里手动选过轨（关掉字幕也算）。
@@ -496,7 +504,35 @@ class PlayerPageState extends State<PlayerPage>
       await _autoPickSubtitle();
       if (!mounted) return;
     }
+    // 本机缓存字幕：没有服务端字幕轨时优先复用，省掉再次联网搜索
+    await _restoreCachedSubtitle();
+    if (!mounted) return;
     await _open();
+  }
+
+  /// 起播时恢复本机缓存的在线字幕。
+  ///
+  /// 三个不覆盖条件：外部显式指定了字幕轨、用户已手动选过轨、影片本身有
+  /// Emby 服务端字幕轨。最后一条尤其重要 —— 服务端字幕是用户精心配好的，
+  /// 不能被一条缓存的在线搜索结果顶掉。
+  ///
+  /// 缓存里存的是解码后的字幕原文，一律走 App 叠加层渲染；ASS 特效字幕在
+  /// 这里会退化为纯文本（首次在线加载时若用 MPV 仍走内核原生轨）。
+  Future<void> _restoreCachedSubtitle() async {
+    if (widget.subtitle != null || _userPickedSub) return;
+    if (widget.item.subtitles.isNotEmpty) return;
+    final cached = await OnlineSubtitleCache.load(widget.item.id);
+    if (cached == null || !mounted) return;
+    final cues = Subtitles.parseAny(cached.text);
+    if (cues.isEmpty) return;
+    setState(() {
+      _subtitle = null;
+      _onlineSubtitle = cached.toOnlineSubtitle();
+      _subtitleFromCache = true;
+      _cues = cues;
+      _cueText = '';
+    });
+    _userPickedSub = true;
   }
 
   Future<void> _applySavedPreferences() async {
@@ -1427,7 +1463,8 @@ class PlayerPageState extends State<PlayerPage>
       return '${_subtitle!.languageLabel} · ${_subtitle!.codecLabel}';
     }
     final online = _onlineSubtitle;
-    return online == null ? '关闭' : '在线 · ${online.source.label}';
+    if (online == null) return '关闭';
+    return '${_subtitleFromCache ? '本机' : '在线'} · ${online.source.label}';
   }
 
   /// 文件大小：0 表示服务端没给（strm 常见），显示「未知」而不是 0 B
@@ -1503,6 +1540,26 @@ class PlayerPageState extends State<PlayerPage>
                 unawaited(_pickOnlineSubtitle());
               },
             ),
+            // 本机已保存的字幕：导出成 .srt 到手机 / 删除（下次不再自动加载）。
+            // _onlineSubtitle 非空即代表已保存成功（现搜或缓存恢复都会写缓存）。
+            if (_onlineSubtitle != null) ...[
+              SheetRow(
+                label: '导出字幕…',
+                hint: '保存到手机，可再拷到影片目录',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  unawaited(_exportCachedSubtitle());
+                },
+              ),
+              SheetRow(
+                label: '删除本机字幕',
+                hint: '下次播放不再自动加载',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  unawaited(_removeCachedSubtitle());
+                },
+              ),
+            ],
             // 字幕样式入口：明确一行，不再依赖长按
             SheetRow(
               label: '字幕样式…',
@@ -1545,19 +1602,27 @@ class PlayerPageState extends State<PlayerPage>
     _userPickedSub = true;
     try {
       showToast(context, '正在下载字幕…');
+      // 拿解码后的原文，而不是只拿 cues：既要写本机缓存，也要能导出 .srt
+      final text = await OnlineSubtitleService.downloadText(picked);
+      if (!context.mounted) return;
+      try {
+        await OnlineSubtitleCache.save(widget.item.id, picked, text);
+      } catch (_) {
+        // 缓存写失败不影响本次播放，最多下次要重新搜
+      }
       if (picked.isAss && (_player?.nativeSubtitles ?? false)) {
         await _player?.setSubtitle(picked.url);
         if (!context.mounted) return;
         setState(() {
           _subtitle = null;
           _onlineSubtitle = picked;
+          _subtitleFromCache = false;
           _cues = const [];
           _cueText = '';
         });
         showToast(context, '字幕：${picked.title}');
       } else {
-        final cues = await OnlineSubtitleService.fetchCues(picked);
-        if (!context.mounted) return;
+        final cues = Subtitles.parseAny(text);
         // MPV 文本字幕要先摘掉内核轨，否则会出现两份字幕重叠；
         // Exo 的 setSubtitle 返回 false、无副作用，调用它是安全的
         await _player?.setSubtitle(null);
@@ -1566,6 +1631,7 @@ class PlayerPageState extends State<PlayerPage>
         setState(() {
           _subtitle = null;
           _onlineSubtitle = picked;
+          _subtitleFromCache = false;
           _cues = cues;
           _cueText = '';
         });
@@ -1577,6 +1643,96 @@ class PlayerPageState extends State<PlayerPage>
     } catch (e) {
       if (context.mounted) showToast(context, '字幕下载失败：$e');
     }
+    _resetHideTimer();
+  }
+
+  /// 导出本机字幕：先写成用户可见的文件，再给一个「复制路径 / 系统分享」面板。
+  Future<void> _exportCachedSubtitle() async {
+    try {
+      final path = await OnlineSubtitleCache.export(
+        widget.item.id,
+        movieName: widget.item.name,
+      );
+      final cached = await OnlineSubtitleCache.load(widget.item.id);
+      if (!context.mounted || cached == null) return;
+      showToast(context, '字幕已保存到手机');
+      await _showExportSheet(path, cached);
+    } catch (e) {
+      if (context.mounted) showToast(context, '导出失败：$e');
+    } finally {
+      _resetHideTimer();
+    }
+  }
+
+  Future<void> _showExportSheet(String path, CachedSubtitle cached) async {
+    final fileName = path.split(Platform.pathSeparator).last;
+    await Navigator.of(context).push<void>(
+      GlassPanelRoute<void>(
+        builder: (ctx) => _Sheet(
+          title: '字幕已保存到手机',
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Text(
+                path,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  height: 1.5,
+                  color: Color(0xFF9FB0CC),
+                ),
+              ),
+            ),
+            SheetRow(
+              label: '系统分享…',
+              hint: '发给 NAS / 文件管理器',
+              onTap: () async {
+                Navigator.pop(ctx);
+                try {
+                  await SharePlus.instance.share(
+                    ShareParams(
+                      files: [
+                        XFile.fromData(
+                          utf8.encode(cached.text),
+                          name: fileName,
+                          mimeType: 'text/plain',
+                        ),
+                      ],
+                      subject: fileName,
+                    ),
+                  );
+                } catch (e) {
+                  if (context.mounted) showToast(context, '分享失败：$e');
+                }
+              },
+            ),
+            SheetRow(
+              label: '复制文件路径',
+              hint: '可在文件管理器里粘贴定位',
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Clipboard.setData(ClipboardData(text: path));
+                if (context.mounted) showToast(context, '路径已复制');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 删除本机缓存并立即撤下当前字幕，避免「删了却还在显示」。
+  Future<void> _removeCachedSubtitle() async {
+    await OnlineSubtitleCache.remove(widget.item.id);
+    if (!mounted) return;
+    setState(() {
+      _onlineSubtitle = null;
+      _subtitleFromCache = false;
+      _cues = const [];
+      _cueText = '';
+    });
+    // 本页不再自动选轨，否则删掉后又被服务端轨顶上来，用户会觉得没删干净
+    _userPickedSub = true;
+    showToast(context, '已删除本机字幕');
     _resetHideTimer();
   }
 
@@ -1594,6 +1750,7 @@ class PlayerPageState extends State<PlayerPage>
       _subtitle = track;
       // 选回服务端轨道（或关闭字幕）就不再处于「在线字幕」状态
       _onlineSubtitle = null;
+      _subtitleFromCache = false;
       if (track == null) {
         _cues = const [];
         _cueText = '';
@@ -2353,7 +2510,9 @@ class PlayerPageState extends State<PlayerPage>
                           child: _Chip(
                             label: _subtitle != null
                                 ? '字幕 · ${_subtitle!.languageLabel}'
-                                : (_onlineSubtitle == null ? '字幕' : '字幕 · 在线'),
+                                : (_onlineSubtitle == null
+                                    ? '字幕'
+                                    : '字幕 · ${_subtitleFromCache ? '本机' : '在线'}'),
                             icon: Icons.subtitles_outlined,
                             onTap: _pickSubtitle,
                           ),

@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.45 (245)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.46 (246)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -29,7 +29,7 @@ Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面�
 | --- | --- |
 | **双播放内核** | ExoPlayer（兼容最佳·通用渲染）/ MPV（ASS 特效字幕·`hwdec=auto-safe` 自动硬解），设置内一键切换，播放页统一抽象 `PlaybackController`；**支持硬解/软解播放中热切换**（MPV 走 `hwdec` 属性实时生效，Exo 恒为硬解） |
 | **字幕** | 外挂 / 内封字幕加载；MPV 原生挂载字幕轨；ExoPlayer 由播放页 Flutter 叠加层自绘；切字幕**不重建播放器**、不跳进度 |
-| **在线字幕** | 字幕弹窗内按文件名搜迅雷 / SubtitleCat，下载后 UTF-8 / GBK 自动解码写入叠加层；两源并行、单源失败静默降级；手机 / 平板共用玻璃搜索面板 |
+| **在线字幕** | 字幕弹窗内按文件名搜迅雷 / SubtitleCat，下载后 UTF-8 / GBK 自动解码写入叠加层；两源并行、单源失败静默降级；手机 / 平板共用玻璃搜索面板；**按影片 ID 缓存**下次自动加载，可**导出 .srt** 到手机 |
 | **字幕样式** | 叠加层字幕的字号 / 位置 / 偏移 / 不透明度 / 描边 / 颜色全部可调，实时预览；播放页长按「字幕」、设置页「字幕样式」双入口；持久化键 `camby_sub_*` |
 | **播放控制** | 进度条点击跳转 + 拖动预览；快进/快退对称手势；双击判定（去竞技场延迟）；长按锁定；亮度/音量侧滑浮层与倍速条互斥 |
 | **画面比例** | 自适配（完整显示）/ 满屏（裁切铺满），实时生效 |
@@ -157,6 +157,37 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.46 (246) 在线字幕：本机缓存复用 + 导出 + 简繁宋体
+
+**1. 字幕本机缓存与自动复用**
+播放页下载在线字幕后，按 `MediaItem.id` 把**解码并去标签后的字幕原文**与来源元信息写入 App
+私有文档目录 `subtitle_cache/<id>.{sub,json}`（不占 Emby 字幕轨、不污染媒体库、不写临时文件）。
+下次进入该影片播放页时，若**没有外部指定字幕轨、用户未手动选过轨、且影片本身无 Emby 服务端
+字幕轨**，则自动 `parseAny` 挂回叠加层，省掉再次联网搜索。底栏 / 信息面板据此显示「字幕 · **本机**」
+而非「字幕 · 在线」，避免用户以为又搜了一次。
+
+**2. 导出字幕到手机**
+字幕菜单新增「**导出字幕…**」：写成用户可见的 `.srt`（命名 `片名.zh-CN.srt`，与 Emby 外挂习惯一致，
+拷到影片目录即可被识别），并弹出面板提供「**系统分享…**」（发 NAS / 文件管理器）与「**复制文件路径**」。
+> 为什么不是直接写到影片所在文件夹：`MediaItem.filePath` 是 **Emby 服务器上**的路径，手机 App 无写权限；
+> Emby 也**没有字幕上传 API**（官方至多建议手动拷到媒体目录，Jellyfin 才有对应端点）。故采用本机缓存 +
+> 用户自行拷到 NAS 的稳妥路径。
+
+**3. 内置宋体升级为简繁并集子集**
+`assets/fonts/FangSong.ttf` 由原先的 **GB2312 简体子集**替换为 **Noto Serif SC + Noto Serif TC 的并集子集**
+（OFL 可商用），用 `fontTools` 子集化到 GB2312 + Big5 一级常用 + 港台补字，内部 family 名保持 `FangSong` 不变。
+实测简繁样本均不再缺字，繁体字幕（如 `zh-TW` 结果、外挂繁体）不再回退系统黑体/豆腐块。许可全文随附
+`licenses/OFL-NotoSerif.txt`。
+
+**4. 清理与健壮性**
+- `export()` 对非 Android 平台用 `try/catch` 兜住 `getExternalStorageDirectory()` 的异常并回退文档目录；
+- 缓存 `load` / `remove` 全程 try/catch，读不到 / 损坏一律返回 null，绝不因缓存问题卡住播放页；
+- 字幕菜单加「**删除本机字幕**」：删后立即撤下当前字幕并标记本页不再自动选轨，下次不再自动加载。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **332 全过**（新增 `subtitle_cache_test.dart`
+9 条存取/导出/边界、`release_2_0_46_test.dart` 4 条交付守卫）；`perf_audit.py` 0 命中；
+`verify_release.sh --build` 出包 `releases/camby-2.0.46-release-arm64.apk`。
 
 ### v2.0.44 (244) 状态栏模糊与首页对齐（取消降级、sigma 恢复 30）
 
@@ -955,6 +986,7 @@ v1.7.21 (61) 之后的工作副本丢失，本仓库的 v1.7.38 由以下两条�
 - **在线字幕是显式点击才触发的功能**：只有用户点「在线搜索字幕…」时，App 才会把**清理后的影片标题 / 番号**（不含服务器地址、账号、Token）发给迅雷与 SubtitleCat 的公开端点，下载的字幕只在本机内存里解析显示，不落盘、不上传任何播放记录。不使用该功能时没有任何对外请求。
 - 内置「演示库」为离线占位数据，不含真实服务器信息。
 - 许可证见仓库 `LICENSE` 文件（如有）。在线字幕模块移植自 MIT 项目 `PotplayerJavChineseSubs_subtitlecat` 3.0，按 MIT 要求随附许可全文于 `licenses/LICENSE-UPSTREAM.txt`（版权人 `Exhen & Contributors` 原样保留）。MIT 只覆盖代码，不覆盖第三方字幕网站 / 接口的服务条款。
+- 内置字幕字体 `FangSong.ttf` 为 **Noto Serif SC + Noto Serif TC 的并子集**，版权归 Google / SIL（OFL-1.1 可商用、可再分发），许可全文见 `licenses/OFL-NotoSerif.txt`。导出 / 缓存的字幕文件保存在 App 私有目录，不会上传，用户可经系统分享自行拷到 NAS。
 
 ---
 
