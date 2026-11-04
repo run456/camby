@@ -597,17 +597,34 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   /// 预告片诊断：逐端点列出真实返回，便于定位「网页能播、App 不显示」
+  /// 是否显示「诊断」入口。
+  ///
+  /// 规则只有一条：**内容没齐全就显示**（预告片或额外部分任一缺失）。
+  /// 之前两端各写一份条件，平板那份还是旧逻辑（有预告片就整行隐藏），
+  /// 结果「额外部分」取不到时连诊断入口也看不见，彻底没法排查。
+  bool get _showDiagEntry {
+    if (_item.id.startsWith('demo-')) return false;
+    final hasTrailer =
+        (_trailers?.isNotEmpty == true) || _item.trailerUrls.isNotEmpty;
+    final hasExtra =
+        _item.extraParts.isNotEmpty || (_extras?.isNotEmpty == true);
+    return !hasTrailer || !hasExtra;
+  }
+
   Future<void> _showTrailerDiag() async {
     final server = widget.state.server;
     if (server == null) return;
-    _toast('正在检测预告片接口…');
+    _toast('正在检测预告片 / 额外部分接口…');
     final log = await server.trailerDiag(_item.id);
     if (!mounted) return;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xF21A2233),
-        title: const Text('预告片诊断', style: TextStyle(fontSize: 16)),
+        title: const Text(
+          '预告片 / 额外部分诊断',
+          style: TextStyle(fontSize: 16),
+        ),
         content: SingleChildScrollView(
           child: SelectableText(
             '影片 ID: ${_item.id}\n\n${log.join('\n\n')}',
@@ -622,9 +639,17 @@ class _DetailPageState extends State<DetailPage> {
                 _item.id,
                 includeLocalChildren: !_item.isSeries,
               );
+              final extras = _item.isSeries
+                  ? <MediaItem>[]
+                  : await server.extraParts(_item.id);
               if (mounted) {
-                setState(() => _trailers = list);
-                _toast(list.isEmpty ? '仍未找到预告片' : '已重新加载 ${list.length} 个');
+                setState(() {
+                  _trailers = list;
+                  _extras = extras;
+                });
+                _toast(
+                  '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个',
+                );
               }
             },
             child: const Text('重新加载'),
@@ -819,6 +844,107 @@ class _DetailPageState extends State<DetailPage> {
   /// 分集 / 剧情简介 / 媒体信息 / 主演 / 标签 / 剧照 / 相似推荐。
   /// 剧情简介与媒体信息用「列左缘外部标题」+ 玻璃卡片（withTitle: false），
   /// 与 主演/标签/剧照/相似 的板块标题严格同左缘。
+  /// 手机端详情板块（`< 840`）：返回 `ListView` 的 children 中「头部横幅之后」
+  /// 的那一段。抽成独立方法是为了让 [widget._showDiagEntry] 之类需要
+  /// `setState` 状态的条件随状态刷新（之前内联在 build 里，条件读的是构建期
+  /// 快照，异步加载完成后入口不会出现）。
+  List<Widget> _phoneSections(MediaItem item) {
+    final tags = _tagList(item);
+    return [
+      _overviewCard(item),
+      if (item.filePath.isNotEmpty || item.fileSizeBytes > 0) ...[
+        const SizedBox(height: 16),
+        _mediaInfoCard(item),
+      ],
+      if (item.people.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        const _SectionLabel('主演'),
+        const SizedBox(height: 10),
+        _castRow(),
+      ],
+      if (tags.isNotEmpty || itemHasChineseSubtitle(item)) ...[
+        const SizedBox(height: 22),
+        const _SectionLabel('标签'),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            if (itemHasChineseSubtitle(item))
+              _InfoTag(
+                label: '中文字幕',
+                icon: Icons.subtitles_rounded,
+                onTap: _openSubtitleFilter,
+              ),
+            ...tags.map((t) => _TagButton(label: t, onTap: () => _openTag(t))),
+          ],
+        ),
+      ],
+      // 预告片（本地可播 / 远程外链）：置于剧照之上，仅检测到 trailer 文件才显示
+      if ((_trailers?.isNotEmpty == true) || item.trailerUrls.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _trailerSection(item),
+      ],
+      // 额外部分（分段 / 花絮），有才显示
+      if (item.extraParts.isNotEmpty || (_extras?.isNotEmpty == true)) ...[
+        const SizedBox(height: 22),
+        _extraPartsSection(item),
+      ],
+      // 剧照（设计稿板块 5）：横向滚动 16:9，标题右侧数量
+      if (item.backdrops.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _SectionLabel('剧照', trailing: '${item.backdrops.length} 张'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 136,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: item.backdrops.length,
+            itemBuilder: (c, i) => Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: LiquidPress(
+                onTap: () => _showBackdrops(item.backdrops, i),
+                radius: 12,
+                scale: 0.97,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 214,
+                    child: CachedImage(url: item.backdrops[i], memWidth: 480),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+      // 诊断入口：内容没齐全就显示（见 _showDiagEntry）
+      if (_showDiagEntry) ...[
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _showTrailerDiag,
+            icon: const Icon(Icons.bug_report_outlined, size: 15),
+            label: const Text('没看到预告片/额外部分？点此诊断'),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.muted,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 11.5),
+            ),
+          ),
+        ),
+      ],
+      // 相似推荐（设计稿板块 6）
+      const SizedBox(height: 22),
+      const _SectionLabel('相似推荐'),
+      const SizedBox(height: 12),
+      _similarRow(),
+    ];
+  }
+
   List<Widget> _tabletSections(MediaItem item, List<String> tags) {
     return [
       if (item.isSeries) ...[
@@ -906,9 +1032,7 @@ class _DetailPageState extends State<DetailPage> {
         ),
       ],
       // 预告片/额外部分缺失时的诊断入口（都有就不打扰）
-      if (((_trailers?.isEmpty ?? true) && item.trailerUrls.isEmpty ||
-              (item.extraParts.isEmpty && (_extras?.isEmpty ?? true))) &&
-          !item.id.startsWith('demo-')) ...[
+      if (_showDiagEntry) ...[
         const SizedBox(height: 10),
         Align(
           alignment: Alignment.centerLeft,
@@ -1465,134 +1589,9 @@ class _DetailPageState extends State<DetailPage> {
                                   ),
                                 ],
                                 const SizedBox(height: 20),
-                                // 剧情简介：液态玻璃卡片（手机/平板共用）
-                                _overviewCard(item),
-                                // 媒体信息：文件路径 / 封装 / 大小 / 入库时间
-                                // （v1.7.50：按设计稿移到剧情简介之后）
-                                if (item.filePath.isNotEmpty ||
-                                    item.fileSizeBytes > 0) ...[
-                                  const SizedBox(height: 22),
-                                  _mediaInfoCard(item),
-                                ],
-                                if (item.isSeries) ...[
-                                  const SizedBox(height: 22),
-                                  _SectionLabel(
-                                    '分集',
-                                    trailing: _episodes == null
-                                        ? null
-                                        : '共 ${_episodes!.length} 集',
-                                  ),
-                                  const SizedBox(height: 10),
-                                  _episodeList(),
-                                ],
-                                if (item.people.isNotEmpty) ...[
-                                  const SizedBox(height: 22),
-                                  _SectionLabel('主演'),
-                                  const SizedBox(height: 12),
-                                  _castRow(),
-                                ],
-                                if (_tagList(item).isNotEmpty ||
-                                    itemHasChineseSubtitle(item)) ...[
-                                  const SizedBox(height: 22),
-                                  const _SectionLabel('标签'),
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      if (itemHasChineseSubtitle(item))
-                                        _InfoTag(
-                                          label: '中文字幕',
-                                          icon: Icons.subtitles_rounded,
-                                          onTap: _openSubtitleFilter,
-                                        ),
-                                      ..._tagList(item).map(
-                                        (t) => _TagButton(
-                                          label: t,
-                                          onTap: () => _openTag(t),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                if ((_trailers?.isNotEmpty == true) ||
-                                    item.trailerUrls.isNotEmpty) ...[
-                                  const SizedBox(height: 22),
-                                  _trailerSection(item),
-                                ],
-                                if (item.extraParts.isNotEmpty ||
-                                    (_extras?.isNotEmpty == true)) ...[
-                                  const SizedBox(height: 22),
-                                  _extraPartsSection(item),
-                                ],
-                                if (item.backdrops.isNotEmpty) ...[
-                                  const SizedBox(height: 22),
-                                  _SectionLabel(
-                                    '剧照',
-                                    trailing: '${item.backdrops.length} 张',
-                                  ),
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    height: 136,
-                                    child: ListView.builder(
-                                      scrollDirection: Axis.horizontal,
-                                      itemCount: item.backdrops.length,
-                                      itemBuilder: (c, i) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 10,
-                                        ),
-                                        child: LiquidPress(
-                                          onTap: () =>
-                                              _showBackdrops(item.backdrops, i),
-                                          radius: 12,
-                                          scale: 0.97,
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                            child: SizedBox(
-                                              width: 214,
-                                              child: CachedImage(
-                                                url: item.backdrops[i],
-                                                memWidth: 480,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                if ((_trailers?.isEmpty ?? true) &&
-                                    item.trailerUrls.isEmpty &&
-                                    !item.id.startsWith('demo-')) ...[
-                                  const SizedBox(height: 10),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: TextButton.icon(
-                                      onPressed: _showTrailerDiag,
-                                      icon: const Icon(
-                                        Icons.bug_report_outlined,
-                                        size: 15,
-                                      ),
-                                      label: const Text('没看到预告片/额外部分？点此诊断'),
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: AppColors.muted,
-                                        padding: EdgeInsets.zero,
-                                        minimumSize: const Size(0, 32),
-                                        tapTargetSize:
-                                            MaterialTapTargetSize.shrinkWrap,
-                                        textStyle: const TextStyle(
-                                          fontSize: 11.5,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                                const SizedBox(height: 22),
-                                _SectionLabel('相似推荐'),
-                                const SizedBox(height: 12),
-                                _similarRow(),
+                                // 板块：简介 → 媒体信息 → 主演 → 标签 → 预告片 →
+                                // 额外部分 → 剧照 → 诊断入口 → 相似推荐（见 _phoneSections）
+                                ..._phoneSections(item),
                                 const SizedBox(height: 120),
                               ],
                             ),
