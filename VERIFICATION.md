@@ -1752,3 +1752,29 @@ bash tools/verify_release.sh --build
 3. **测试同步**：`subtitle_cache_test.dart` 的 `exportFileName` 用例更新为新语义（保留原文件名 + 拼后缀）；`flutter test` 全过。
 
 验证（v2.0.47）：`dart analyze` 0 error / 0 warning；`flutter test` **全过**；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.47-release-arm64.apk`。
+
+## §73 · v2.0.48 (248) Lara 翻译集成（标题 / 简介一键中译 + 确认后本机缓存）
+
+按用户选择接「官方 API + 我的 key」，实现 Lara Translate 官方 REST 鉴权与翻译，标题 / 简介旁加翻译按钮、弹层展示、确认后缓存。逐项验收：
+
+**1. 协议来源**：官方无 Dart SDK、REST 文档「按需提供」。GitHub API 限流后改由 jsDelivr CDN 逐文件下载 `@translated/lara@1.18.2` 的 `lib/net/lara/client.js` / `lib/credentials.js` / `lib/crypto` 源码，据其移植 Access Key 签名换 JWT 流程：base `https://api.laratranslate.com`；`POST /v2/auth` body `{"id": <accessKeyId>}`，头带 `X-Lara-Date`（RFC1123/GMT）、`Content-MD5`（body MD5 的 Base64）、`Authorization: Lara:<Base64(HMAC-SHA256(secret, "METHOD\nPATH\nMD5\nTYPE\nDATE"))>`；响应 `token` 为 Bearer、刷新令牌在响应头 `x-lara-refresh-token`；`POST /v2/auth/refresh` 续期；`POST /v2/translate` 发 `q/target/style/instructions` 取 `translation` + `source_language`。
+
+**2. 客户端** `lib/lara/lara_client.dart`：`_ensureToken()` 三级（本地未过期复用 → refresh → access key 重签）；`_handleAuth` 解析 JWT `exp` 做本地过期判断、失败靠 401 兜底刷新；`translate()` 省略 `source` 即由 Lara 自动检测（对齐需求）；`parseTranslation` 抽出为 public static，兼容单 JSON / NDJSON / SSE（`data:` 前缀），取最后一个含 `translation` 的对象；签名原语 `LaraSigning` 暴露 `challenge/sign/md5Base64` 供纯函数单测。依赖新增 `crypto: ^3.0.6`。
+
+**3. 凭证设置**：`设置 → Lara 翻译`（`_LaraSection`）填 Access Key ID + Secret，存 `SharedPreferences`（键 `lara_access_key_*`），可「测试连接」调 `testConnection()`；`isValid` 供翻译弹层判断是否引导去设置页。
+
+**4. 缓存** `lib/lara/translate_cache.dart`：按 `MediaItem.id + 字段`（title / overview）写 App 私有目录 `lara_translate_cache/<id>_<field>.json`，含译文与目标语 / 风格 / 检测源语言 / 时间戳；`load` 对文件不存在 / 损坏 / meta 缺失一律静默兜底（返回 null 或默认值），不阻断详情页；`loadAll` 进页预读两字段。翻译是个人偏好且 Lara 无「按影片存译文」概念，故只落本机。
+
+**5. 交互** `lib/lara/translate_sheet.dart` 复用 `GlassPanelRoute`：有缓存时打开即回显译文并沿用上次风格，可「重新翻译」/「复制」/「确认并缓存」；三风格用 `ChoiceChip`。详情页标题旁、剧情简介标题旁（手机 `withTitle` 分支 + 平板 sections 共 3 处）加 `_translateButton`，已缓存时按钮高亮主题色、tooltip「查看 / 重新翻译」。
+
+**6. 修复的 3 处回归**（均由新增 UI 触发、非需求本身）：
+- `_SectionLabel` 内部含 `Spacer`（`Expanded`），被新 `Row` 包后拿到 unbounded width，`performLayout` 抛「non-zero flex + unbounded constraints」→ 两处改为 `Expanded(child: _SectionLabel(...))` 给其有界宽度。回归测试 `diag_entry_test.dart` 12 条一度全挂，修复后全过。
+- 设置主页 `ListView` 无 `Material` 祖先，新增的 `_Field`（`TextField`）在 `global_search_test.dart` 的 `MaterialApp(home: SettingsPage)` 裸宿主下抛「No Material widget found」→ `_Field` 自带一层 `Material(type: transparency)`，任何宿主都能独立渲染。
+- `online_subtitle_test.dart` 源码守卫硬编码版本号 `2.0.47+247` → 同步为 `2.0.48+248`。
+- 另清理工具链升级后暴露的 5 条既有 `unused_import` / `unused_local_variable` 警告（`detail_page.dart` 的 `dart:math`、3 个测试文件），确保门禁 0 warning。
+
+**7. 测试**：新增 `lara_client_test.dart`（HMAC-SHA256 命中 RFC 4231 向量 `W9zBRr9g...`、MD5 空串向量 `1B2M2Y8...`、挑战串格式、单 JSON / NDJSON / SSE 解析、无 translation 抛错、凭证 save/load/clear/isValid）与 `translate_cache_test.dart`（safeId / 存取 / title 与 overview 隔离 / remove / loadAll / 中文 UTF-8 无损 / meta 缺省回落 / 文件损坏兜底），共 26 条。
+
+验证（v2.0.48）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **356 全过**（原 330 + 新增 26）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.48-release-arm64.apk`。
+
+**已知边界**：官方 REST 需用户自备 Lara Access Key（设置页配置），未配置时翻译按钮仅引导去设置页；无 key 时无法真机联调翻译链路（签名/解析已由纯函数单测覆盖）；风格 / 指令对译文的影响取决于 Lara 账户与模型版本；译文只存本机，卸载 App 或清数据后丢失。

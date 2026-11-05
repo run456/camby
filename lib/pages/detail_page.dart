@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -17,6 +16,8 @@ import '../widgets/media_poster.dart';
 import 'tag_page.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
+import '../lara/translate_cache.dart';
+import '../lara/translate_sheet.dart';
 import '../widgets/status_bar_blur.dart';
 import 'person_page.dart';
 import 'subtitle_filter_page.dart';
@@ -78,6 +79,10 @@ class _DetailPageState extends State<DetailPage> {
   bool _refreshing = false;
   static const String _offSubtitle = '__off__';
 
+  /// 本机缓存的 Lara 译文（title / overview），进入详情页时预读，
+  /// 用于翻译按钮的「已译」高亮与「下次点开直接查看」。
+  Map<String, CachedTranslation>? _cachedTrans;
+
   /// 滚动降级：滚动期间关掉实时模糊（换成纯渐变），停下 180ms 后恢复。
   ///
   /// 详情页上下两条渐进模糊带都是 `BackdropFilter`，每帧要把整块滚动内容
@@ -133,6 +138,55 @@ class _DetailPageState extends State<DetailPage> {
     // 播放页退出后会回写进度 / 收藏到全局状态，这里跟着刷新按钮文案
     widget.state.addListener(_onStateChanged);
     _loadExtras();
+    _loadTranslationCache();
+  }
+
+  /// 预读本机缓存的 Lara 译文（title / overview），供翻译按钮「已译」标记与
+  /// 「下次点开直接查看」使用。读不到也不影响主流程。
+  Future<void> _loadTranslationCache() async {
+    try {
+      final m = await LaraTranslateCache.loadAll(_item.id);
+      if (!mounted) return;
+      setState(() => _cachedTrans = m);
+    } catch (_) {
+      // 缓存读取出错静默忽略，不阻断详情页
+    }
+  }
+
+  /// 打开翻译弹层：先按字段读缓存（有则弹层直接展示译文），关闭后刷新「已译」标记。
+  Future<void> _openTranslate(String field, String original) async {
+    if (original.trim().isEmpty) {
+      if (context.mounted) showToast(context, '没有可翻译的内容');
+      return;
+    }
+    final existing = await LaraTranslateCache.load(_item.id, field);
+    if (!mounted) return;
+    if (!context.mounted) return;
+    await showTranslateSheet(
+      context,
+      itemId: _item.id,
+      field: field,
+      original: original,
+      existing: existing,
+    );
+    if (mounted) await _loadTranslationCache();
+  }
+
+  /// 标题 / 简介旁的翻译按钮：已缓存译文时高亮成主题色并提示「查看/重新翻译」。
+  Widget _translateButton(String field, String original) {
+    final cached = _cachedTrans?[field];
+    return IconButton(
+      onPressed: () => _openTranslate(field, original),
+      icon: Icon(
+        Icons.translate_rounded,
+        size: 18,
+        color: cached != null ? AppColors.accent : const Color(0xFF9FB0CC),
+      ),
+      tooltip: cached != null ? '查看 / 重新翻译' : '翻译',
+      splashRadius: 16,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      padding: EdgeInsets.zero,
+    );
   }
 
   /// 全局条目变了（播放进度、收藏、字幕轨）→ 同步到本页
@@ -171,6 +225,7 @@ class _DetailPageState extends State<DetailPage> {
       _mediaExpanded = false;
       if (_scroll.hasClients) _scroll.jumpTo(0);
       _loadExtras();
+      _loadTranslationCache();
     }
   }
 
@@ -788,7 +843,13 @@ class _DetailPageState extends State<DetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (withTitle) ...[
-            const _SectionLabel('剧情简介'),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: const _SectionLabel('剧情简介')),
+                _translateButton('overview', item.overview),
+              ],
+            ),
             const SizedBox(height: 8),
           ],
           GestureDetector(
@@ -971,7 +1032,13 @@ class _DetailPageState extends State<DetailPage> {
         const SizedBox(height: 22),
       ],
       // 剧情简介（设计稿板块 1）
-      const _SectionLabel('剧情简介'),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: const _SectionLabel('剧情简介')),
+          _translateButton('overview', item.overview),
+        ],
+      ),
       const SizedBox(height: 10),
       _overviewCard(item, withTitle: false),
       // 媒体信息（设计稿板块 2）
@@ -1212,20 +1279,28 @@ class _DetailPageState extends State<DetailPage> {
           ),
         ),
         const SizedBox(height: 10),
-        IgnorePointer(
-          child: Text(
-            item.name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w900,
-              height: 1.18,
-              letterSpacing: -0.5,
-              color: Colors.white,
-              shadows: [Shadow(color: Color(0xCC000000), blurRadius: 16)],
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: IgnorePointer(
+                child: Text(
+                  item.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    height: 1.18,
+                    letterSpacing: -0.5,
+                    color: Colors.white,
+                    shadows: [Shadow(color: Color(0xCC000000), blurRadius: 16)],
+                  ),
+                ),
+              ),
             ),
-          ),
+            _translateButton('title', item.name),
+          ],
         ),
         const SizedBox(height: 8),
         IgnorePointer(

@@ -1,7 +1,7 @@
 name: camby
 description: "Camby · Android 端 Emby 播放器（Yamby 的能力 + EplayerX 的页面 + 数据总结）"
 publish_to: 'none'
-version: 2.0.47+247
+version: 2.0.48+248
 
 environment:
   sdk: ^3.13.0
@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   # 在线字幕：迅雷接口返回 GBK 编码字幕，项目自带的解码器不认 GBK
   gbk_codec: ^0.4.0
+  # Lara 翻译：HMAC-SHA256 签名鉴权 + MD5 校验需要 crypto
+  crypto: ^3.0.6
   # 导出字幕时弹系统分享面板（可发给 NAS / 文件管理器）
   share_plus: ^13.3.1
   video_player: ^2.11.0

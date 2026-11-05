@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.47 (247)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.48 (248)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -30,6 +30,7 @@ Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面�
 | **双播放内核** | ExoPlayer（兼容最佳·通用渲染）/ MPV（ASS 特效字幕·`hwdec=auto-safe` 自动硬解），设置内一键切换，播放页统一抽象 `PlaybackController`；**支持硬解/软解播放中热切换**（MPV 走 `hwdec` 属性实时生效，Exo 恒为硬解） |
 | **字幕** | 外挂 / 内封字幕加载；MPV 原生挂载字幕轨；ExoPlayer 由播放页 Flutter 叠加层自绘；切字幕**不重建播放器**、不跳进度 |
 | **在线字幕** | 字幕弹窗内按文件名搜迅雷 / SubtitleCat，下载后 UTF-8 / GBK 自动解码写入叠加层；两源并行、单源失败静默降级；手机 / 平板共用玻璃搜索面板；**按影片 ID 缓存**下次自动加载，可**导出 .srt** 到手机 |
+| **Lara 翻译** | 标题 / 剧情简介旁一键翻译：官方 REST API（Access Key 签名鉴权）、自动检测源语言译中文、忠实/流畅/创意三风格；确认后**按影片缓存译文**，下次点开直接查看（设置页配置凭证、可测试连接） |
 | **字幕样式** | 叠加层字幕的字号 / 位置 / 偏移 / 不透明度 / 描边 / 颜色全部可调，实时预览；播放页长按「字幕」、设置页「字幕样式」双入口；持久化键 `camby_sub_*` |
 | **播放控制** | 进度条点击跳转 + 拖动预览；快进/快退对称手势；双击判定（去竞技场延迟）；长按锁定；亮度/音量侧滑浮层与倍速条互斥 |
 | **画面比例** | 自适配（完整显示）/ 满屏（裁切铺满），实时生效 |
@@ -157,6 +158,20 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.48 (248) Lara 翻译：标题 / 简介一键中译 + 确认后本机缓存
+
+集成 **Lara Translate 官方 REST API**（按用户选择走「官方 API + 我的 key」，非免密钥网页接口）：详情页**标题旁**、**剧情简介标题旁**（手机 / 平板两处布局）各加一个翻译按钮，点击弹出玻璃面板，自动检测源语言翻译成中文，可选**忠实 / 流畅 / 创意**三种风格；点「确认并缓存」后译文落到 App 私有目录，下次点开直接回显，翻译按钮高亮为「已译」。
+
+- **官方鉴权客户端** `lib/lara/lara_client.dart`：移植官方 SDK `@translated/lara` v1.18.2 的 Access Key 签名换 JWT 流程（`POST /v2/auth` 用 `X-Lara-Date` + `Content-MD5` + `Authorization: Lara:<HMAC-SHA256 签名>`；`x-lara-refresh-token` 续期；`POST /v2/translate` 发送 `q/target/style/instructions`）。响应兼容单 JSON / NDJSON / SSE 流式。新增依赖 `crypto: ^3.0.6`。
+- **凭证设置** `设置 → Lara 翻译`：填 Access Key ID + Secret（存 SharedPreferences），可「测试连接」验证有效性；未配置时点翻译会引导去设置页。
+- **本机缓存** `lib/lara/translate_cache.dart`：按 `MediaItem.id + 字段`（title / overview）写 `lara_translate_cache/<id>_<field>.json`，含译文与来源元信息（目标语 / 风格 / 检测到的源语言 / 时间）；读不到或文件损坏静默返回 null，绝不卡住详情页。翻译属个人偏好，故只存本机，不写服务器。
+- **弹层** `lib/lara/translate_sheet.dart` 复用 `GlassPanelRoute`；已缓存时打开即展示译文，可「重新翻译」（沿用上次风格）/「复制」/「确认并缓存」。
+- **测试**：新增 `lara_client_test.dart`（HMAC-SHA256 / MD5 命中 RFC 基准向量、签名挑战串、多格式响应解析、凭证存取）与 `translate_cache_test.dart`（存取 / 标题与简介隔离 / 中文 UTF-8 无损 / meta 缺省 / 文件损坏兜底）。
+
+> 修复回归：新按钮把 `_SectionLabel`（内部含 `Spacer`/`Expanded`）包进 `Row` 曾导致「unbounded width」渲染异常、以及设置页新增输入框缺 `Material` 祖先——分别用 `Expanded` 包裹标签、`_Field` 自带透明 `Material` 解决；同步更新了 `online_subtitle_test.dart` 的版本号守卫。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **356 全过**（新增 26 条 Lara 测试）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.48-release-arm64.apk`。
 
 ### v2.0.47 (247) 导出字幕按影片名（优先视频文件原名）命名
 

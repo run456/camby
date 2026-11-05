@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app_state.dart';
+import '../lara/lara_client.dart';
 import '../layout.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
@@ -252,6 +253,8 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          _LaraSection(),
           const SizedBox(height: 18),
           // v1.7.60：版本号改为运行时从包信息读取，不再手改硬编码
           // （以前每次发版都得记得同步这一行，漏一次就显示旧版本）
@@ -1014,33 +1017,40 @@ class _Field extends StatelessWidget {
             style: const TextStyle(fontSize: 11, color: AppColors.muted),
           ),
           const SizedBox(height: 6),
-          // 固定 48 高：和「协议」切换器（48）同高，两个控件顶底对齐
-          SizedBox(
-            height: 48,
-            child: TextField(
-              controller: controller,
-              obscureText: obscure,
-              keyboardType: numeric ? TextInputType.number : TextInputType.text,
-              style: const TextStyle(fontSize: 13, color: AppColors.ink),
-              decoration: InputDecoration(
-                hintText: hint,
-                hintStyle: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF5D7291),
-                ),
-                filled: true,
-                fillColor: Colors.white.withOpacity(0.06),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(color: AppColors.primary),
+          // 固定 48 高：和「协议」切换器（48）同高，两个控件顶底对齐。
+          // TextField 要求祖先有 Material：底部弹层由 showModalBottomSheet 隐式提供，
+          // 但设置主页的 ListView 没有，故这里自带一层透明 Material，令 _Field
+          // 在任何宿主下都能独立渲染（不依赖调用方是否包了 Scaffold）。
+          Material(
+            type: MaterialType.transparency,
+            child: SizedBox(
+              height: 48,
+              child: TextField(
+                controller: controller,
+                obscureText: obscure,
+                keyboardType: numeric ? TextInputType.number : TextInputType.text,
+                style: const TextStyle(fontSize: 13, color: AppColors.ink),
+                decoration: InputDecoration(
+                  hintText: hint,
+                  hintStyle: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF5D7291),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white.withOpacity(0.06),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide:
+                        BorderSide(color: Colors.white.withOpacity(0.12)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: AppColors.primary),
+                  ),
                 ),
               ),
             ),
@@ -1291,6 +1301,149 @@ class _ProtocolToggle extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Lara 翻译凭证：Access Key ID + Secret，存到 SharedPreferences（与 Emby 密码同风格）。
+/// 仅在详情页点「翻译」且本地无凭证时引导至此；保存后可立即「测试连接」验证有效性。
+class _LaraSection extends StatefulWidget {
+  const _LaraSection();
+
+  @override
+  State<_LaraSection> createState() => _LaraSectionState();
+}
+
+class _LaraSectionState extends State<_LaraSection> {
+  final _idCtl = TextEditingController();
+  final _secretCtl = TextEditingController();
+  bool _testing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    LaraCredentials.load().then((c) {
+      if (c == null || !mounted) return;
+      _idCtl.text = c.id;
+      _secretCtl.text = c.secret;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _idCtl.dispose();
+    _secretCtl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final id = _idCtl.text.trim();
+    final secret = _secretCtl.text.trim();
+    if (id.isEmpty || secret.isEmpty) {
+      showToast(context, 'Access Key ID 与 Secret 均需填写');
+      return;
+    }
+    await LaraCredentials.save(LaraCredentials(id: id, secret: secret));
+    if (!mounted) return;
+    showToast(context, '已保存 Lara 凭证', icon: Icons.check_circle_outline_rounded);
+  }
+
+  Future<void> _test() async {
+    final id = _idCtl.text.trim();
+    final secret = _secretCtl.text.trim();
+    if (id.isEmpty || secret.isEmpty) {
+      showToast(context, '请先填写 Access Key ID 与 Secret');
+      return;
+    }
+    setState(() => _testing = true);
+    try {
+      await LaraClient(LaraCredentials(id: id, secret: secret)).testConnection();
+      if (!mounted) return;
+      showToast(context, '连接成功，凭证有效', icon: Icons.check_circle_outline_rounded);
+    } on LaraAuthError catch (e) {
+      if (!mounted) return;
+      showToast(context, '鉴权失败：${e.message}');
+    } on LaraApiError catch (e) {
+      if (!mounted) return;
+      showToast(context, '连接失败（${e.statusCode}）：${e.message}');
+    } catch (e) {
+      if (!mounted) return;
+      showToast(context, '连接失败：$e');
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Group(
+      children: [
+        const _RowItem(
+          title: 'Lara 翻译',
+          desc: '标题 / 简介一键翻译成中文（官方 API）',
+          trailing: SizedBox.shrink(),
+          last: true,
+        ),
+        _Field(
+          controller: _idCtl,
+          label: 'Access Key ID',
+          hint: '在 laratranslate.com → API 凭证 获取',
+        ),
+        _Field(
+          controller: _secretCtl,
+          label: 'Access Key Secret',
+          hint: '下载凭证后妥善保存',
+          obscure: true,
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _save,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.accent,
+                    side: BorderSide(
+                      color: AppColors.accent.withValues(alpha: 0.5),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('保存'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _testing ? null : _test,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFC6D3E6),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.16),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _testing
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: Color(0xFFC6D3E6),
+                          ),
+                        )
+                      : const Text('测试连接'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

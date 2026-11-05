@@ -9,7 +9,6 @@
 // 2. 主版本（cd1）被正确跳过，不重复进「额外部分」；
 // 3. 单条只有 1 个 MediaSource 时返回空（无分段）；
 // 4. 请求失败时安全返回空列表。
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -28,7 +27,6 @@ void main() {
     detailSources = const [];
     server = await HttpServer.bind('127.0.0.1', 0);
     server.listen((req) async {
-      final body = await utf8.decoder.bind(req).join();
       final path = req.uri.path;
       void json(Object o, {int code = 200}) {
         req.response.statusCode = code;
