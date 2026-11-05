@@ -1646,12 +1646,25 @@ class PlayerPageState extends State<PlayerPage>
     _resetHideTimer();
   }
 
+  /// 导出文件名用的「影片名」：优先用**视频文件原名**（去扩展名），这样字幕
+  /// 落到影片旁时 Emby 能按同名自动关联；拿不到服务器路径时回退到影片展示名。
+  String _exportMovieName() {
+    final fp = widget.item.filePath;
+    if (fp.isNotEmpty) {
+      final raw = fp.split(RegExp(r'[/\\]')).last;
+      final dot = raw.lastIndexOf('.');
+      final name = dot > 0 ? raw.substring(0, dot) : raw;
+      if (name.trim().isNotEmpty) return name.trim();
+    }
+    return widget.item.name;
+  }
+
   /// 导出本机字幕：先写成用户可见的文件，再给一个「复制路径 / 系统分享」面板。
   Future<void> _exportCachedSubtitle() async {
     try {
       final path = await OnlineSubtitleCache.export(
         widget.item.id,
-        movieName: widget.item.name,
+        movieName: _exportMovieName(),
       );
       final cached = await OnlineSubtitleCache.load(widget.item.id);
       if (!context.mounted || cached == null) return;

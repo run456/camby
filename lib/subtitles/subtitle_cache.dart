@@ -62,10 +62,15 @@ abstract final class OnlineSubtitleCache {
     return t.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
   }
 
-  /// 导出文件名：`片名.zh-CN.srt`，与 Emby 外挂字幕命名习惯一致，
+  /// 导出文件名：`<影片名>.<语言>.<格式>`，与 Emby 外挂字幕命名习惯一致，
   /// 拷到影片目录后改不改后缀都能被识别。
+  ///
+  /// [movieName] 由调用方决定——优先用**视频文件原名**（去扩展名），这样字幕
+  /// 落到影片旁时 Emby 能按同名自动关联；否则用影片展示名。这里只负责清洗
+  /// 成合法文件名并拼上语言 / 格式后缀，不再额外去掉画质标签（避免破坏与原
+  /// 视频文件的同名匹配）。
   static String exportFileName(String movieName, String language, String format) {
-    var base = OnlineSubtitleService.cleanTitle(movieName);
+    var base = movieName.trim();
     if (base.isEmpty) base = 'subtitle';
     final lang = language.isEmpty ? 'und' : language;
     final ext = format.isEmpty ? 'srt' : format;
@@ -142,6 +147,12 @@ abstract final class OnlineSubtitleCache {
   static Future<String> export(String itemId, {required String movieName}) async {
     final cached = await load(itemId);
     if (cached == null) throw StateError('没有可导出的本机字幕');
+    // 影片名兜底链：调用方传入的影片名 → 缓存里记录的字幕来源标题 → 占位。
+    // 优先信任调用方（通常是视频文件原名 / 影片展示名），缺了再用字幕标题补，
+    // 绝不让导出文件落到无意义的 `subtitle.*`。
+    final name = movieName.trim().isNotEmpty
+        ? movieName
+        : (cached.title.trim().isNotEmpty ? cached.title : 'subtitle');
     // 非 Android 平台 getExternalStorageDirectory() 会直接抛异常（而非返回
     // null），用 try/catch 兜住并回退到应用文档目录，保证导出在所有平台都能跑。
     Directory base;
@@ -154,7 +165,7 @@ abstract final class OnlineSubtitleCache {
     final dir = Directory('${base.path}/$exportDirName');
     if (!await dir.exists()) await dir.create(recursive: true);
     final file = File(
-      '${dir.path}/${exportFileName(movieName, cached.language, cached.format)}',
+      '${dir.path}/${exportFileName(name, cached.language, cached.format)}',
     );
     await file.writeAsString(cached.text, encoding: utf8, flush: true);
     return file.path;

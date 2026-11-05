@@ -43,14 +43,14 @@ void main() {
   });
 
   group('OnlineSubtitleCache.exportFileName', () {
-    test('用清理后的片名拼出 语言.格式', () {
+    test('影片名直接拼出 语言.格式（保留原文件名便于 Emby 匹配）', () {
       final name = OnlineSubtitleCache.exportFileName(
-        'Movie.Name-1080p.mkv',
+        'Movie.Name-1080p',
         'zh-CN',
         'srt',
       );
-      // cleanTitle 去画质并把分隔符规范成空格 → Movie Name
-      expect(name, 'Movie Name.zh-CN.srt');
+      // 调用方已去掉扩展名，这里只清洗非法字符并拼上 语言.格式
+      expect(name, 'Movie.Name-1080p.zh-CN.srt');
     });
     test('空片名用 subtitle 兜底', () {
       expect(

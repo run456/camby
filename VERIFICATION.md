@@ -1742,3 +1742,13 @@ bash tools/verify_release.sh --build
 3. **简繁并集字体**：`assets/fonts/FangSong.ttf` 由 GB2312 简体子集（~9.6MB→4.4MB）替换为 Noto Serif SC+TC 并集子集（fontTools 子集化 GB2312 ∪ Big5 一级 ∪ 港台补字），family 名保持 `FangSong`；实测繁体样本 `體臺灣麵國學會說這時開關` 不再缺字。OFL 全文随附 `licenses/OFL-NotoSerif.txt`。
 4. **健壮性**：`load`/`remove` 全程 try/catch 返回 null；缓存写失败不阻断本次播放（`_pickOnlineSubtitle` 内单独 try）。
 5. **已知边界**：字幕仍只存 App 私有目录，未直写影片所在文件夹（服务器路径 + Emby 无上传 API 双重限制）；导出后需用户自行拷到 NAS。
+
+## §72 · v2.0.47 (247) 导出字幕按影片名（优先视频文件原名）命名
+
+针对 v2.0.46 导出文件名 `cleanTitle(片名).zh-CN.srt` 的二次反馈：把命名基准改为「影片名」，且优先用**视频文件原名**（去扩展名），让字幕落到影片旁时 Emby 按同名自动关联。
+
+1. **命名基准前移**：`OnlineSubtitleCache.exportFileName` 不再调用 `cleanTitle` 去画质标签（避免破坏与原视频文件的同名匹配），仅做非法字符清洗 + 拼 `语言.格式` 后缀；命名形如 `<视频文件原名>.zh-CN.srt`（如 `Movie.2023.1080p.zh-CN.srt`）。
+2. **影片名兜底链**：播放页新增 `_exportMovieName()`，取 `MediaItem.filePath` 基名（跨 `/` `\` 分隔、去扩展名）作导出名，拿不到服务器路径时回退 `item.name`；`export()` 内再加一层：调用方传入名 → 缓存字幕来源标题 → `subtitle`，绝不会落到 `subtitle.*`。
+3. **测试同步**：`subtitle_cache_test.dart` 的 `exportFileName` 用例更新为新语义（保留原文件名 + 拼后缀）；`flutter test` 全过。
+
+验证（v2.0.47）：`dart analyze` 0 error / 0 warning；`flutter test` **全过**；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.47-release-arm64.apk`。
