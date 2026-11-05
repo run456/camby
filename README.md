@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.52 (252)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.53 (253)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,17 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.53 (253) 翻译弹层改为按内容自适应高度（下方留空过多）
+
+承接 v2.0.52 真机反馈：翻译弹窗大小不太对，译文卡片下方留空比较多，且原文越短留白越大（两张截图对比可见）。
+
+- **根因**：`_TranslateSheet` 用 `SizedBox(height: panelH)` 把玻璃面板**钉死在固定高度** `clamp(屏幕可用高 - 24, 300, 620)`（手机上恒为 620），而内容（原文卡片 / 风格选择 / 翻译按钮 / 译文卡片）按自然高度从上往下排，短原文或未翻译时译文卡片下方就空出一大截。原注释里「定高」是为了给弹层一个明确尺寸、避免长简介把译文挤出屏幕，但用固定高度实现过头了。
+- **修复**：把「固定高度」改为「最大高度上限 + 按内容收缩」——外层 `ConstrainedBox(maxHeight: maxPanelH)`、`Column(mainAxisSize: MainAxisSize.min)`、滚动区由 `Expanded` 换成 `Flexible`。`Expanded` 会强制吃满剩余空间、把面板重新撑成固定高度；`Flexible` 只在内容超过上限时才压缩并让 `SingleChildScrollView` 滚动。于是短原文时面板贴合内容，长译文时自动长高到 620 上限后内部滚动，`blur: true` 的高斯磨砂区域也随卡片一起缩放。
+- **实测（390×844）**：短原文面板高度 **620 → 472**，译文卡片底部到面板底部 **约 210px → 63px**（63 是译文卡片 padding 14 + 滚动区底部 padding 18 等正常内边距）；有译文时面板自动长高、超长译文时停在 620 且可滚动。
+- **回归**：新增 `test/translate_sheet_height_test.dart` 3 条 `testWidgets`，直接 `showTranslateSheet` 渲染并测量 `BackdropFilter`（玻璃卡片本体）尺寸：短原文留白 < 90 且面板 < 560；有译文时面板 > 520 且 ≤ 620、操作按钮可见；超长译文时面板 ≤ 620 且存在可滚动视图。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **370 全过**（原 367 + 新增 3 条弹层高度回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.53-release-arm64.apk`。
 
 ### v2.0.52 (252) 详情页 banner 板块间距回退修复（继续播放 / 剧情简介离标题太远）
 

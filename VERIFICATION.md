@@ -1854,3 +1854,38 @@ v2.0.48 真机截图反馈：① 翻译弹窗样式不好、弹框有黄线；�
 **版本**：v2.0.51 已打 tag / 出包，本次为缺陷修复，bump 到 **2.0.52+252**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
 
 验证（v2.0.52）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **367 全过**（原 366 + 新增 1 条几何回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.52-release-arm64.apk`。
+
+## §78 · v2.0.53 (253) 翻译弹层按内容自适应高度（v2.0.52 真机反馈）
+
+**背景**：用户两张截图复核翻译弹层，反馈「弹窗大小不太对，下方留空比较多」；对比可见原文越短，译文卡片下方空白越大。这是弹层高度策略问题，与 §76/§77 的命中测试/布局占位无关。
+
+**根因**：`lib/lara/translate_sheet.dart` 的 `_TranslateSheetState.build` 计算
+```dart
+final avail = media.size.height - media.padding.vertical - inset - 24;
+final panelH = avail.clamp(300.0, 620.0).toDouble();
+...
+child: SizedBox(height: panelH, child: Material(child: Column(children: [Header, Expanded(SingleChildScrollView(...))])))
+```
+把玻璃面板**固定**成 `panelH`（390×844 手机上恒为 620），但内容按自然高度从上往下排：Header + 原文卡片（限高 132）+ 风格选择 + 主按钮 + 译文卡片（minHeight 78）+ 各间距 ≈ 440。短原文时多出的 ~150px 全落在译文卡片下方；原文较长时原文卡片撑到 132，留白看似变小——正好解释「原文越短留白越大」。
+
+为何当初定高：初始版本把裸 `Column` 直接 push 进 `GlassPanelRoute`，没有卡片容器、整块内容无明确高度，长简介会把译文挤出屏幕。定高解决了溢出，但用「固定高度」实现过头。
+
+**修复**：改为「最大高度上限 + 按内容收缩」三处，层级不变：
+| 原 | 改 | 作用 |
+|---|---|---|
+| `SizedBox(height: panelH)` | `ConstrainedBox(constraints: BoxConstraints(maxHeight: maxPanelH))` | 620 从固定值变成上限 |
+| `Column(children: ...)` | `Column(mainAxisSize: MainAxisSize.min, ...)` | 按内容收缩 |
+| `Expanded(SingleChildScrollView)` | `Flexible(SingleChildScrollView)` | `Expanded` 会强制吃满剩余空间、把面板重新撑回固定高度；`Flexible` 只在内容超过上限时压缩并让 ScrollView 滚动 |
+
+`GlassPanel` 内部是 `Center > ConstrainedBox(maxHeight: avail-24) > Container`，child 得到 loose 约束，因此 `Container` 会 shrink-wrap 到 Column 的收缩高度，玻璃卡片与 `BackdropFilter` 磨砂区域随内容一起变小；`Padding(bottom: inset)` 与 `maxPanelH` 减 inset 的既有键盘避让逻辑保持不变。
+
+**测试**：新增 `test/translate_sheet_height_test.dart` 3 条 `testWidgets`，通过公开函数 `showTranslateSheet` 直接 push 弹层（不经过 DetailPage，无需 mock path_provider），`pumpAndSettle` 后测量 `find.byType(BackdropFilter)` 的 rect——注意不能测 `find.byType(GlassPanel)`，其外层 `RepaintBoundary` 在 `Center` 下占满整屏（实测 844），不是卡片本体；`blur:true` 时 `BackdropFilter` 唯一且尺寸即卡片。
+| 场景 | 面板高度 | 断言 |
+|---|---|---|
+| 短原文、无译文 | 472（修复前 620） | 译文提示到卡片底 gap < 90（实测 63，修复前约 210）；面板 < 560 |
+| 有缓存译文 | 620 | 面板 > 520（较短文自动长高）且 ≤ 621；「确认并缓存」可见 |
+| 超长译文 | 620 | ≤ 621 且存在 `SingleChildScrollView`（内部滚动承接） |
+
+**版本**：v2.0.52 已打 tag / 出包，本次为缺陷修复，bump 到 **2.0.53+253**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
+
+验证（v2.0.53）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **370 全过**（原 367 + 新增 3 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.53-release-arm64.apk`。

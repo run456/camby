@@ -144,26 +144,34 @@ class _TranslateSheetState extends State<_TranslateSheet> {
     final media = MediaQuery.of(context);
     final inset = media.viewInsets.bottom;
     // 与在线字幕面板同口径：键盘弹起时让出 inset，最高 620，避免小屏溢出。
+    // v2.0.53：这是「最大高度」而不是「固定高度」。此前用 SizedBox(height:)
+    // 把面板钉死在 620，内容却按自然高度从上往下排，原文短 / 尚未翻译时
+    // 译文卡片下方会空出一大块（用户反馈「下方留空比较多」）。改为按内容
+    // 自适应收缩，只在内容超高时才受此上限约束并滚动。
     final avail = media.size.height - media.padding.vertical - inset - 24;
-    final panelH = avail.clamp(300.0, 620.0).toDouble();
+    final maxPanelH = avail.clamp(300.0, 620.0).toDouble();
     final hasResult = _translation != null && _translation!.isNotEmpty;
 
     // 以前这里直接把裸 Column push 进 GlassPanelRoute：没有卡片容器，
     // 详情页文字会从半透明背景后透出来，且整块内容没有明确高度，长简介
-    // 会把译文挤到屏幕外。现在补齐 GlassPanel + 定高 + Material 三件套，
+    // 会把译文挤到屏幕外。现在补齐 GlassPanel + Material + 高度上限三件套，
     // 并开启 blur（详情页非播放器场景，真正的高斯磨砂液态玻璃）。
+    // Column 用 mainAxisSize.min 按内容收缩；滚动区用 Flexible 而非 Expanded：
+    // Expanded 会强制吃满剩余空间，把面板重新撑成固定高度；Flexible 只在
+    // 内容超过 maxPanelH 时才压缩并让 SingleChildScrollView 滚动。
     return Padding(
       padding: EdgeInsets.only(bottom: inset),
       child: GlassPanel(
         blur: true,
-        child: SizedBox(
-          height: panelH,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxPanelH),
           child: Material(
             type: MaterialType.transparency,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 _Header(onClose: () => Navigator.pop(context)),
-                Expanded(
+                Flexible(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
                     child: Column(
