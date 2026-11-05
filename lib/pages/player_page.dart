@@ -1427,6 +1427,7 @@ class PlayerPageState extends State<PlayerPage>
       GlassPanelRoute<double>(
         builder: (ctx) => _Sheet(
           title: '播放速度',
+          blur: true,
           children: speeds.map((s) {
             final label = s
                 .toStringAsFixed(2)
@@ -1489,6 +1490,7 @@ class PlayerPageState extends State<PlayerPage>
       GlassPanelRoute<_SubPick>(
         builder: (ctx) => _Sheet(
           title: '选择字幕',
+          blur: true,
           children: [
             if (tracks.isEmpty)
               const Padding(
@@ -1683,6 +1685,7 @@ class PlayerPageState extends State<PlayerPage>
       GlassPanelRoute<void>(
         builder: (ctx) => _Sheet(
           title: '字幕已保存到手机',
+          blur: true,
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
@@ -1882,6 +1885,7 @@ class PlayerPageState extends State<PlayerPage>
       GlassPanelRoute<void>(
         builder: (ctx) => _Sheet(
           title: '播放信息',
+          blur: true,
           children: [
             _InfoRow(k: '片名', v: item.name),
             const _InfoSection('媒体信息'),
@@ -2879,13 +2883,23 @@ class _SubPick {
 }
 
 class _Sheet extends StatelessWidget {
-  const _Sheet({required this.title, required this.children});
+  const _Sheet({
+    required this.title,
+    required this.children,
+    this.blur = false,
+  });
   final String title;
   final List<Widget> children;
+
+  /// 是否开启真正的液态玻璃磨砂（与详情页翻译弹层同款）。
+  /// 播放页弹层默认 false（高不透明底色，避免模糊每帧重采样压停视频）；
+  /// 字幕选择弹窗按用户要求改用 true。
+  final bool blur;
 
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
+      blur: blur,
       child: Material(
         type: MaterialType.transparency,
         child: Column(
