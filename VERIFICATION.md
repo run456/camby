@@ -1808,3 +1808,22 @@ v2.0.48 真机截图反馈：① 翻译弹窗样式不好、弹框有黄线；�
 验证（v2.0.50）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **362 全过**（原 360 + 新增 2）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.50-release-arm64.apk`。
 
 **已知边界**：液态玻璃只用于详情页翻译弹层；播放器弹层（变速/字幕/信息/样式）仍为无模糊玻璃卡片，保持翻页/滚动顺滑。若后续希望播放器弹层也磨砂，需先确认 GPU 余量——那是 §74 注释里刻意回避的取舍。
+
+## §76 · v2.0.51 (251) 在线字幕弹窗液态玻璃 + 标题翻译按钮点不动根治（v2.0.50 真机反馈 2 项）
+
+**背景**：v2.0.50 发布后用户截图复核，反馈 ①「搜索字幕的弹窗不是液态玻璃」②「点击标题旁边的翻译按钮还是没反应」。这两项在 §74/§75 都声称修过，说明前两次修复都没真正生效，且当时的测试只做源码守卫、没有真正 `tester.tap` 验证。本轮逐一定位到真因并用真实点击回归锁死。
+
+**1. 在线字幕搜索弹窗不是液态玻璃**：`showOnlineSubtitleSheet → _OnlineSubtitleSheet`（`lib/subtitles/online_subtitle.dart`）里的 `GlassPanel` 未传 `blur` 参数，走默认 `blur:false` → 高不透明纯色伪装卡片，所以看起来和已磨砂的翻译/字幕弹层不一样。修复：补 `blur: true`，与其他弹层同款真高斯磨砂。播放页四类弹层不动。
+
+**2. 标题翻译按钮点不动——真正根因（命中测试错位）**：v2.0.50 已把 `onBanner` 变体从 `Tooltip > GestureDetector` 换成 `LiquidPress`（独立测试证明 `LiquidPress` 本身可点，含 ListView 内），但真机仍无反应。诊断测试 `test/diag_detail_tap_test.dart`（临时）在手机布局 390×844 下打印两个翻译按钮位置：标题按钮 `center=(350,500)`（视觉落在海报区）、简介按钮 `center=(329,719)`。点简介按钮 → `_openTranslate(overview)` 触发；点标题按钮 → `_openTranslate` **完全不被调用**。据此排除 `LiquidPress`、`_openTranslate` 内部 await 卡死、平板分支误判等方向，定位真因：手机 banner 用 `ListView` 垂直排列「海报 `AspectRatio` + 内容」，再用 `Transform.translate(offset: Offset(0,-titleLift))` 把内容视觉上移到海报上方；**`Transform` 只改视觉位置、不改布局槽位**，命中测试按布局位置把标题按钮所在区域判给下层海报，事件到不了 `LiquidPress`。简介按钮因布局位置本就在海报下方、不与海报重叠，故正常——这正是反证。
+
+**修复**：把手机 banner 的「海报 + 标题块」从 `ListView` 垂直排列 + `Transform.translate` 改为 `Stack` 重叠——海报作底、`Positioned(bottom: titleLift)` 放标题块（`Row` 含标题 + 翻译按钮 + 元信息 + 徽章），标题块在绘制/命中顺序上位于海报之上，事件正确派发到按钮；与平板 `_tabletBanner` 的 Stack 做法一致。`clipBehavior: Clip.none` 防止标题块上抬后顶部被裁。其余板块（播放行→简介→…）作为 `ListView` 第二个 child 正常排列。
+
+**3. 测试（关键：补上真实点击）**：新增 `test/translate_banner_tap_test.dart` 2 条 `testWidgets`——强制手机布局 390×844，**真正 `tester.tap` 标题/简介翻译按钮**并断言 `GlassPanel` 弹层出现。这是 v2.0.49/2.0.50 一直缺的一环（当时 `lara_sheet_ui_test.dart` 仅做源码守卫，检查用了 `LiquidPress`/`onBanner:true`，没验证按钮真能触发弹层，故「修复」从未被验证）。测试工程要点：
+- `path_provider` 按项目既有做法 mock `MethodChannel('plugins.flutter.io/path_provider')` 的 `getApplicationDocumentsDirectory`（`PathProviderPlatform` 子类 mock 在此版本不生效，会挂起）。
+- `testWidgets` 的 `FakeAsync` 会让 `LaraTranslateCache.load` 的真实文件 I/O（`Directory.exists()` 等）永久挂起 → `_openTranslate` 卡在 `await load`。故把 `tap` 放进 `tester.runAsync`（真实异步区）让 I/O 完成、route 被 push，再回 `FakeAsync` 固定帧 `pump` 让 `GlassPanelRoute` 的过渡动画把 `_TranslateSheet`（`GlassPanel`）渲染出来。不能用 `pumpAndSettle`（详情页有持续动画不收敛）。
+- 诊断用的 `_diag` 打印与两个临时 `diag_*.dart` 测试已全部删除/还原。
+
+**4. 版本**：v2.0.50 已打 tag / 出包，本次为缺陷修复，bump 到 **2.0.51+251**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / changelog / 本记录同步）。合并 `28b76ae` 的「播放页四类弹窗统一液态玻璃（方案 B）」一并发布。
+
+验证（v2.0.51）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **364 全过**（原 362 + 新增 2 条真实点击回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`（`aapt dump badging` 复核 `versionCode=251 / versionName=2.0.51`）。

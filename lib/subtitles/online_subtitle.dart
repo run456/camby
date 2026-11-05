@@ -672,6 +672,7 @@ class _OnlineSubtitleSheetState extends State<_OnlineSubtitleSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: inset),
       child: GlassPanel(
+        blur: true,
         child: SizedBox(
           height: panelH,
           child: Material(

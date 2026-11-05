@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.50 (250)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.51 (251)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,17 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.51 (251) 在线字幕弹窗液态玻璃 + 标题翻译按钮点不动根治
+
+承接 v2.0.50 真机反馈的 2 项残留问题（用户截图复核：搜索字幕弹窗仍是实色卡片、标题旁翻译按钮依旧点不动），并合并方案 B 的播放页弹窗统一磨砂。
+
+- **播放页四类弹窗统一液态玻璃（方案 B）**：变速、字幕、信息、字幕样式四类 `GlassPanel` 统一开 `blur: true`，与详情页弹层观感一致；播放器视频层本就常驻高负载，磨砂仅在弹窗打开的静态帧生效，不引入逐帧重采样。
+- **在线字幕搜索弹窗补液态玻璃**：`showOnlineSubtitleSheet → _OnlineSubtitleSheet` 里的 `GlassPanel` 未传 `blur`，走默认 `blur:false`（高不透明纯色伪装），与已磨砂的其他弹层不一致。补 `blur: true`，与详情页翻译弹层同款真高斯磨砂，播放页四类弹层保持不动。
+- **标题翻译按钮点不动——真正根因与修复**：v2.0.50 把 `Tooltip > GestureDetector` 换成 `LiquidPress` 后仍点不动，且 `lara_sheet_ui_test.dart` 只做源码守卫、从未真正 `tester.tap` 验证过弹层。诊断测试证明：点标题按钮时 `_openTranslate` **完全不被调用**，而点简介按钮正常——真因是手机 banner 用 `ListView` 垂直排列「海报 + 内容」，再用 `Transform.translate(offset: Offset(0, -titleLift))` 把内容视觉上移到海报上方；`Transform` 只改**视觉位置**、不改**布局槽位**，命中测试按布局位置把标题按钮所在区域判给下层海报，事件到不了 `LiquidPress`。改为 `Stack` 重叠（海报作底、`Positioned(bottom: titleLift)` 放标题块），标题块位于绘制上层，命中测试正确派发到按钮，与平板 `_tabletBanner` 一致。
+- **回归测试补上真实点击**：新增 `test/translate_banner_tap_test.dart` 2 条 `testWidgets`，强制手机布局 390×844，**真正 `tester.tap` 标题/简介翻译按钮**并断言 `GlassPanel` 弹层出现，锁死这次修复（此前只有源码守卫）。测试里 `path_provider` 按项目既有做法 mock 原生通道；`testWidgets` 的 `FakeAsync` 会让 `LaraTranslateCache.load` 的真实文件 I/O 挂起，故点击放 `tester.runAsync`（真实异步区）完成 I/O，再回 `FakeAsync` 固定帧 pump 让 route 渲染出弹层。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **364 全过**（原 362 + 新增 `translate_banner_tap_test.dart` 2 条真实点击回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`。
 
 ### v2.0.50 (250) 翻译弹层液态玻璃 + 标题翻译按钮可点修复
 

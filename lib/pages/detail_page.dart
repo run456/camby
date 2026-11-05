@@ -1598,182 +1598,186 @@ class _DetailPageState extends State<DetailPage> {
                       cacheExtent: 800,
                       padding: EdgeInsets.zero,
                       children: [
-                        // 海报按原始比例完整显示（不裁切）
-                        RepaintBoundary(
-                          child: AspectRatio(
-                            aspectRatio: posterAspect,
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                if ((item.posterUrl ?? item.backdropUrl) !=
-                                    null) ...[
-                                  // 海报底部渐隐用 ShaderMask（真实 alpha 渐隐）。
-                                  //
-                                  // v2.0.41 曾改为「叠一层纯色渐变」，结果底部出现
-                                  // 明显断层——因为叠的是固定色 #06080E，而页面背景
-                                  // 是随主色变化的，两色对不上就露出硬边。这里恢复
-                                  // ShaderMask：透明处直接透出页面背景，不依赖色值。
-                                  //
-                                  // 性能：外层已有 RepaintBoundary，saveLayer 结果会
-                                  // 被缓存成图层，滚动时只是平移复用，不逐帧重算。
-                                  ShaderMask(
-                                    blendMode: BlendMode.dstIn,
-                                    shaderCallback: (rect) =>
-                                        const LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Colors.white,
-                                            Colors.white,
-                                            Colors.transparent,
-                                          ],
-                                          stops: [0.0, 0.72, 1.0],
-                                        ).createShader(rect),
-                                    child: CachedImage(
-                                      url:
-                                          item.posterUrlFor(900) ??
-                                          item.backdropUrl,
-                                      memWidth: 900,
-                                    ),
-                                  ),
-                                ] else
-                                  DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          item.colors.first.withOpacity(0.9),
-                                          AppColors.bgTop,
-                                          AppColors.bg,
-                                        ],
+                        // 手机横幅：海报 + 标题块用 Stack 重叠（标题压在封面上）。
+                        // 不能再用「ListView 垂直排列 + Transform.translate 上移」：
+                        // Transform 只改「视觉位置」、不改「布局槽位」，命中测试按布局
+                        // 位置把标题按钮所在区域判给下层海报，按钮永远收不到点击——
+                        // 这就是本次修复前「标题旁翻译按钮点不动」的根因。改用 Stack
+                        // 后，标题块在绘制顺序上位于海报之上，命中测试会把事件正确
+                        // 派发到上层标题块，按钮即可点击。平板 _tabletBanner 本就如此，
+                        // 此处与之对齐（v2.0.51）。
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            // 海报按原始比例完整显示（不裁切）
+                            RepaintBoundary(
+                              child: AspectRatio(
+                                aspectRatio: posterAspect,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if ((item.posterUrl ?? item.backdropUrl) !=
+                                        null) ...[
+                                      // 海报底部渐隐用 ShaderMask（真实 alpha 渐隐）。
+                                      //
+                                      // v2.0.41 曾改为「叠一层纯色渐变」，结果底部出现
+                                      // 明显断层——因为叠的是固定色 #06080E，而页面背景
+                                      // 是随主色变化的，两色对不上就露出硬边。这里恢复
+                                      // ShaderMask：透明处直接透出页面背景，不依赖色值。
+                                      //
+                                      // 性能：外层已有 RepaintBoundary，saveLayer 结果会
+                                      // 被缓存成图层，滚动时只是平移复用，不逐帧重算。
+                                      ShaderMask(
+                                        blendMode: BlendMode.dstIn,
+                                        shaderCallback: (rect) =>
+                                            const LinearGradient(
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                              colors: [
+                                                Colors.white,
+                                                Colors.white,
+                                                Colors.transparent,
+                                              ],
+                                              stops: [0.0, 0.72, 1.0],
+                                            ).createShader(rect),
+                                        child: CachedImage(
+                                          url: item.posterUrlFor(900) ??
+                                              item.backdropUrl,
+                                          memWidth: 900,
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                              ],
+                                    ] else
+                                      DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: [
+                                              item.colors.first.withOpacity(0.9),
+                                              AppColors.bgTop,
+                                              AppColors.bg,
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                        Transform.translate(
-                          offset: Offset(0, -titleLift),
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: wide ? 32 : 20,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // 标题压在封面上：右上角挂翻译按钮（v2.0.49 补齐手机布局，
-                                // 之前只有平板 banner 有，手机看不到）
-                                Row(
+                            // 标题块压在封面底部（bottom: titleLift 使其上抬，露出下方
+                            // 海报）；右上角挂翻译按钮。此块在 Stack 上层，命中测试可
+                            // 正常点到按钮（修复前在 Transform 平移层里点不动）。
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: titleLift,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 20),
+                                child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        item.name,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: wide ? 32 : 26,
-                                          fontWeight: FontWeight.w900,
-                                          height: 1.16,
-                                          letterSpacing: -0.6,
-                                          color: Colors.white,
-                                          shadows: const [
-                                            Shadow(
-                                              color: Color(0xCC000000),
-                                              blurRadius: 16,
+                                    // 标题压在封面上：右上角挂翻译按钮（v2.0.49 补齐手机布局，
+                                    // 之前只有平板 banner 有，手机看不到）
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            item.name,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 26,
+                                              fontWeight: FontWeight.w900,
+                                              height: 1.16,
+                                              letterSpacing: -0.6,
+                                              color: Colors.white,
+                                              shadows: const [
+                                                Shadow(
+                                                  color: Color(0xCC000000),
+                                                  blurRadius: 16,
+                                                ),
+                                              ],
                                             ),
-                                          ],
+                                          ),
                                         ),
+                                        const SizedBox(width: 8),
+                                        _translateButton(
+                                          'title',
+                                          item.name,
+                                          onBanner: true,
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      [
+                                        if (item.year > 0) '${item.year}',
+                                        if (item.runtimeMin > 0)
+                                          '${item.runtimeMin} 分钟',
+                                        if (item.director.isNotEmpty)
+                                          '导演 ${item.director}',
+                                        if (item.studio.isNotEmpty) item.studio,
+                                      ].join('  ·  '),
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: Color(0xFFD3DEF0),
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    _translateButton(
-                                      'title',
-                                      item.name,
-                                      onBanner: true,
+                                    const SizedBox(height: 9),
+                                    // 规格徽章
+                                    Wrap(
+                                      spacing: 7,
+                                      runSpacing: 7,
+                                      children: [
+                                        if (item.rating > 0)
+                                          _Badge(
+                                            icon: Icons.star_rounded,
+                                            label: item.rating
+                                                .toStringAsFixed(1),
+                                            gold: true,
+                                          ),
+                                        if (item.isTrue4K)
+                                          _Badge(
+                                            icon: Icons.hd_rounded,
+                                            label: '2160p',
+                                          ),
+                                        _Badge(
+                                          icon: Icons.movie_creation_outlined,
+                                          label: item.videoCodec,
+                                        ),
+                                        _Badge(
+                                          icon: Icons.graphic_eq_rounded,
+                                          label:
+                                              '${item.audioCodec} ${item.audioChannels}ch',
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  [
-                                    if (item.year > 0) '${item.year}',
-                                    if (item.runtimeMin > 0)
-                                      '${item.runtimeMin} 分钟',
-                                    if (item.director.isNotEmpty)
-                                      '导演 ${item.director}',
-                                    if (item.studio.isNotEmpty) item.studio,
-                                  ].join('  ·  '),
-                                  style: const TextStyle(
-                                    fontSize: 11.5,
-                                    color: Color(0xFFD3DEF0),
-                                  ),
-                                ),
-                                const SizedBox(height: 9),
-                                // 规格徽章
-                                Wrap(
-                                  spacing: 7,
-                                  runSpacing: 7,
-                                  children: [
-                                    if (item.rating > 0)
-                                      _Badge(
-                                        icon: Icons.star_rounded,
-                                        label: item.rating.toStringAsFixed(1),
-                                        gold: true,
-                                      ),
-                                    if (item.isTrue4K)
-                                      _Badge(
-                                        icon: Icons.hd_rounded,
-                                        label: '2160p',
-                                      ),
-                                    _Badge(
-                                      icon: Icons.movie_creation_outlined,
-                                      label: item.videoCodec,
-                                    ),
-                                    _Badge(
-                                      icon: Icons.graphic_eq_rounded,
-                                      label:
-                                          '${item.audioCodec} ${item.audioChannels}ch',
-                                    ),
-                                  ],
-                                ),
-                                // 字幕入口：平板留在这里；手机移到「剧情简介」
-                                // 上方的播放行里（紧挨播放按钮右侧）
-                                if (wide && item.subtitles.isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      const Text(
-                                        '字幕',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.muted,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _SubtitlePill(
-                                        label:
-                                            _selectedSubtitle?.label ?? '关闭字幕',
-                                        onTap: _pickSubtitle,
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                                const SizedBox(height: 20),
-                                // 板块：播放行 → 简介 → 媒体信息 → 信息区（系列/
-                                // 演员/标签）→ 视频 → 剧照 → 诊断入口 → 相似推荐
-                                ..._phoneSections(item),
-                                // 底部不再有悬浮播放条（v2.0.43 移到简介上方），
-                                // 留白 120 → 24，只够避开手势条
-                                SizedBox(
-                                  height:
-                                      24 +
-                                      MediaQuery.of(context).padding.bottom,
-                                ),
-                              ],
+                              ),
                             ),
+                          ],
+                        ),
+                        // 其余内容（播放行 → 简介 → 板块），在海报/标题块下方正常排列
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 16),
+                              // 板块：播放行 → 简介 → 媒体信息 → 信息区（系列/
+                              // 演员/标签）→ 视频 → 剧照 → 诊断入口 → 相似推荐
+                              ..._phoneSections(item),
+                              // 底部不再有悬浮播放条（v2.0.43 移到简介上方），
+                              // 留白 120 → 24，只够避开手势条
+                              SizedBox(
+                                height: 24 +
+                                    MediaQuery.of(context).padding.bottom,
+                              ),
+                            ],
                           ),
                         ),
                       ],
