@@ -168,7 +168,9 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 - **标题翻译按钮点不动——真正根因与修复**：v2.0.50 把 `Tooltip > GestureDetector` 换成 `LiquidPress` 后仍点不动，且 `lara_sheet_ui_test.dart` 只做源码守卫、从未真正 `tester.tap` 验证过弹层。诊断测试证明：点标题按钮时 `_openTranslate` **完全不被调用**，而点简介按钮正常——真因是手机 banner 用 `ListView` 垂直排列「海报 + 内容」，再用 `Transform.translate(offset: Offset(0, -titleLift))` 把内容视觉上移到海报上方；`Transform` 只改**视觉位置**、不改**布局槽位**，命中测试按布局位置把标题按钮所在区域判给下层海报，事件到不了 `LiquidPress`。改为 `Stack` 重叠（海报作底、`Positioned(bottom: titleLift)` 放标题块），标题块位于绘制上层，命中测试正确派发到按钮，与平板 `_tabletBanner` 一致。
 - **回归测试补上真实点击**：新增 `test/translate_banner_tap_test.dart` 2 条 `testWidgets`，强制手机布局 390×844，**真正 `tester.tap` 标题/简介翻译按钮**并断言 `GlassPanel` 弹层出现，锁死这次修复（此前只有源码守卫）。测试里 `path_provider` 按项目既有做法 mock 原生通道；`testWidgets` 的 `FakeAsync` 会让 `LaraTranslateCache.load` 的真实文件 I/O 挂起，故点击放 `tester.runAsync`（真实异步区）完成 I/O，再回 `FakeAsync` 固定帧 pump 让 route 渲染出弹层。
 
-验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **364 全过**（原 362 + 新增 `translate_banner_tap_test.dart` 2 条真实点击回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`。
+- **回归测试补齐**：`translate_banner_tap_test.dart` 2 条真实点击回归（锁死标题/简介翻译按钮），`online_subtitle_test.dart` 新增 2 条（`blur:true` 必须产生 `BackdropFilter`、源码守卫锁死字幕面板 `blur:true`），把两个「只改代码没验证」的漏洞都堵上。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **366 全过**（原 362 + 新增 4 条回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`。
 
 ### v2.0.50 (250) 翻译弹层液态玻璃 + 标题翻译按钮可点修复
 

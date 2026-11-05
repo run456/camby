@@ -1826,4 +1826,6 @@ v2.0.48 真机截图反馈：① 翻译弹窗样式不好、弹框有黄线；�
 
 **4. 版本**：v2.0.50 已打 tag / 出包，本次为缺陷修复，bump 到 **2.0.51+251**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / changelog / 本记录同步）。合并 `28b76ae` 的「播放页四类弹窗统一液态玻璃（方案 B）」一并发布。
 
-验证（v2.0.51）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **364 全过**（原 362 + 新增 2 条真实点击回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`（`aapt dump badging` 复核 `versionCode=251 / versionName=2.0.51`）。
+**5. 问题① 也补上回归**：为避免问题②「只改代码没验证」的教训重演，`test/online_subtitle_test.dart` 新增 2 条——widget 断言 `GlassPanel(blur:true)` 必须真的产生 `BackdropFilter`（`blur:false` 仍是纯色卡片，守住播放器性能取舍），以及源码守卫锁死 `_OnlineSubtitleSheet` 的 `GlassPanel` 调用带 `blur:true`。
+
+验证（v2.0.51）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **366 全过**（原 362 + 新增 4 条回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.51-release-arm64.apk`（`aapt dump badging` 复核 `versionCode=251 / versionName=2.0.51`）。

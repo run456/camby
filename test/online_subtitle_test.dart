@@ -150,13 +150,15 @@ void main() {
   });
 
   group('弹层外观：玻璃面板 + 手机/平板限宽', () {
-    Future<void> pumpAt(WidgetTester tester, Size size) async {
+    Future<void> pumpAt(WidgetTester tester, Size size,
+        {bool blur = false}) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
         home: Scaffold(
           body: GlassPanel(
+            blur: blur,
             // 故意给一个远超上限的宽度，验证约束真的生效
             child: const SizedBox(width: 1200, height: 100),
           ),
@@ -183,6 +185,18 @@ void main() {
       expect(panelWidth(tester), lessThanOrEqualTo(620));
       expect(panelWidth(tester), greaterThan(560));
     });
+
+    // v2.0.51：blur:true 必须真的产生背景磨砂（BackdropFilter），而不是只挂个
+    // flag 走回高不透明纯色卡片——这正是「搜索字幕弹窗不是液态玻璃」的根因。
+    testWidgets('blur:true 走 BackdropFilter，blur:false 为纯色卡片', (tester) async {
+      await pumpAt(tester, const Size(430, 932), blur: true);
+      expect(find.byType(BackdropFilter), findsOneWidget,
+          reason: '液态玻璃必须真的做背景模糊');
+
+      await pumpAt(tester, const Size(430, 932), blur: false);
+      expect(find.byType(BackdropFilter), findsNothing,
+          reason: '播放器弹层保持无模糊（性能）');
+    });
   });
 
   group('源码守卫：静默失败点', () {
@@ -197,6 +211,17 @@ void main() {
       final glass = File('lib/widgets/glass_sheet.dart').readAsStringSync();
       expect(glass.contains('maxWidth: PlayerUi.of(context).panelMaxW'), isTrue,
           reason: '玻璃面板组件必须按短边断点限宽（手机 470 / 平板 620）');
+    });
+
+    test('v2.0.51：在线字幕搜索弹窗玻璃面板开启真实磨砂（blur:true）', () {
+      final src = File('lib/subtitles/online_subtitle.dart').readAsStringSync();
+      // 锁死 _OnlineSubtitleSheet 里的 GlassPanel 必须传 blur:true，避免退化成
+      // 默认 blur:false 的高不透明纯色卡片（用户反馈「搜索字幕弹窗不是液态玻璃」）。
+      final panelCall = RegExp(
+        r'GlassPanel\(\s*blur:\s*true\s*,',
+      );
+      expect(panelCall.hasMatch(src), isTrue,
+          reason: '在线字幕弹层的 GlassPanel 必须 blur:true，做真正的背景磨砂');
     });
 
     test('播放页：在线字幕状态 + 菜单入口 + 二次 mounted 检查', () {
