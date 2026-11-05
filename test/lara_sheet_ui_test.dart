@@ -92,6 +92,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('翻译弹层开启真正的液态玻璃磨砂（BackdropFilter）', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (ctx) => Center(
+              child: ElevatedButton(
+                onPressed: () {
+                  showTranslateSheet<void>(
+                    ctx,
+                    itemId: 'm1',
+                    field: 'title',
+                    original: 'Hello world',
+                  );
+                },
+                child: const Text('打开翻译'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开翻译'));
+    await tester.pumpAndSettle();
+
+    // 真正的 frosted / liquid glass：GlassPanel(blur:true) 必须渲染出
+    // BackdropFilter；否则只是高不透明纯色卡片，谈不上「玻璃」。
+    expect(find.byType(BackdropFilter), findsWidgets,
+        reason: '翻译弹层未开启背景磨砂，仍是纯色卡片');
+    // 非模糊路径用普通 Container，不应出现——这里只验证模糊路径确实存在
+    expect(tester.takeException(), isNull);
+  });
+
   group('源码守卫（v2.0.49 UI 修复）', () {
     test('剧照查看器补 Material，且页码与图片同组居中', () {
       final src = File('lib/pages/detail_page.dart').readAsStringSync();
@@ -123,6 +159,29 @@ void main() {
           reason: '压在封面上的按钮需深色圆底才看得清');
       // 平板 banner 的标题按钮也换成同一变体
       expect(src.contains('item.name, onBanner: true'), isTrue);
+    });
+
+    test('标题 banner 按钮走 LiquidPress（可点，且不引入多余模糊层）', () {
+      final src = File('lib/pages/detail_page.dart').readAsStringSync();
+      final start = src.indexOf('Widget _translateButton(');
+      final end = src.indexOf('void _onStateChanged', start);
+      expect(start, greaterThan(-1));
+      expect(end, greaterThan(start));
+      final seg = src.substring(start, end);
+      // 新实现：onBanner 分支用 LiquidPress 圆钮（顶部圆钮同款，已验证可点），
+      // 且不复用 _RoundBtn（后者自带 BackdropFilter，会凭空多一层实时模糊、
+      // 破坏「顶栏 3 圆钮」的模糊计数与滚动降级）。
+      expect(seg.contains('return LiquidPress('), isTrue,
+          reason: '标题 banner 按钮应走可点的 LiquidPress');
+      expect(seg.contains('_RoundBtn('), isFalse,
+          reason: '标题按钮不应复用带模糊的 _RoundBtn，避免新增模糊层');
+      // 旧实现：Tooltip 内部的 opaque GestureDetector 只认 onLongPress，
+      // 会吞掉短按 → 按钮「按不了」。
+      expect(
+        seg.contains('Tooltip(\n        message: tip,\n        child: GestureDetector('),
+        isFalse,
+        reason: 'Tooltip 内部的 opaque GestureDetector 会吞掉标题按钮的短按',
+      );
     });
   });
 }

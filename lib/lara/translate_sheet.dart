@@ -150,10 +150,12 @@ class _TranslateSheetState extends State<_TranslateSheet> {
 
     // 以前这里直接把裸 Column push 进 GlassPanelRoute：没有卡片容器，
     // 详情页文字会从半透明背景后透出来，且整块内容没有明确高度，长简介
-    // 会把译文挤到屏幕外。现在补齐 GlassPanel + 定高 + Material 三件套。
+    // 会把译文挤到屏幕外。现在补齐 GlassPanel + 定高 + Material 三件套，
+    // 并开启 blur（详情页非播放器场景，真正的高斯磨砂液态玻璃）。
     return Padding(
       padding: EdgeInsets.only(bottom: inset),
       child: GlassPanel(
+        blur: true,
         child: SizedBox(
           height: panelH,
           child: Material(

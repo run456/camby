@@ -28,6 +28,7 @@ ALLOW = {
     ("lib/pages/search_page.dart", "blur"): "搜索栏玻璃态：静态浮层",
     ("lib/pages/tag_page.dart", "blur"): "顶栏玻璃态：静态浮层",
     ("lib/widgets/status_bar_blur.dart", "blur"): "状态栏模糊本体（自带 RepaintBoundary）",
+    ("lib/widgets/glass_sheet.dart", "blur"): "GlassPanel 最外层已包 RepaintBoundary；弹层为居中浮层，模糊只合成一次，不在滚动路径上",
     ("lib/theme.dart", "blur"): "Glass 组件本体（调用方按需自包 RepaintBoundary）",
     ("lib/widgets/media_filter_sheet.dart", "blur"): "底部筛选弹窗：静态浮层，条目数有限",
     ("lib/widgets/media_filter_sheet.dart", "shrinkWrap"): "弹窗内短列表（筛选项 < 20），一次性构建可接受",

@@ -200,24 +200,47 @@ class _DetailPageState extends State<DetailPage> {
         padding: EdgeInsets.zero,
       );
     }
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Tooltip(
-        message: tip,
-        child: GestureDetector(
-          onTap: () => _openTranslate(field, original),
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.42),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.18),
-              ),
+    // 压在封面上的变体：用 LiquidPress 圆钮（顶部返回/刷新/收藏同款，已验证可点）。
+    // 此前用 Tooltip > GestureDetector 包裹，而 Tooltip 内部会给子节点套一层
+    // behavior: opaque 的 GestureDetector，它只认 onLongPress，会吞掉短按，导致按钮
+    // 「按不了」——故不再经过 Tooltip。这里不复用 _RoundBtn（它自带 BackdropFilter
+    // 且未接滚动降级），以免在详情页凭空多一层实时模糊；海报本身已是模糊底，半透明
+    // 玻璃圆钮观感足够。
+    return LiquidPress(
+      onTap: () => _openTranslate(field, original),
+      radius: 20,
+      semanticLabel: tip,
+      child: ClipOval(
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: cached != null
+                  ? [
+                      AppColors.accent.withOpacity(0.26),
+                      AppColors.accent.withOpacity(0.10),
+                    ]
+                  : [
+                      Colors.white.withOpacity(0.20),
+                      Colors.white.withOpacity(0.06),
+                    ],
             ),
-            child: Center(child: icon),
+            border: Border.all(
+              color: cached != null
+                  ? AppColors.accent.withOpacity(0.55)
+                  : Colors.white.withOpacity(0.24),
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              Icons.translate_rounded,
+              size: 17,
+              color: cached != null ? AppColors.accent : Colors.white,
+            ),
           ),
         ),
       ),
@@ -2495,7 +2518,7 @@ class _RoundBtn extends StatelessWidget {
       child: ClipOval(
         // 真磨砂玻璃：与其他页顶栏圆钮（首页 _GlassCircleBtn 等）统一。
         // 滚动期间降级为纯渐变（见 [degraded]），避免 3 个按钮每帧重采样。
-        child: _glassBody(
+      child: _glassBody(
           Container(
             width: 40,
             height: 40,
@@ -2523,8 +2546,8 @@ class _RoundBtn extends StatelessWidget {
               color: onTap == null
                   ? Colors.white38
                   : active
-                  ? const Color(0xFFFFE1E8)
-                  : Colors.white,
+                      ? const Color(0xFFFFE1E8)
+                      : Colors.white,
             ),
           ),
         ),

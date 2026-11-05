@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.49 (249)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.50 (250)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,11 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.50 (250) 翻译弹层液态玻璃 + 标题翻译按钮可点修复
+
+- **翻译弹层真正液态玻璃**：`GlassPanel` 新增 `blur` 参数；翻译弹层（详情页场景，非播放器）开启 `BackdropFilter` 背景磨砂 + 半透明深色玻璃 + 顶部高光，不再是高不透明纯色卡片。播放器四类弹层保持无模糊（性能考量，设计注释已说明）。
+- **标题翻译按钮按不动修复**：根因是 `onBanner` 变体用 `Tooltip > GestureDetector` 包裹，而 `Tooltip` 内部会给子节点套一层 `behavior: opaque` 的 `GestureDetector`（只认 `onLongPress`），把短按吞了。改为基于 `LiquidPress` 的圆形玻璃钮（与顶部返回/刷新/收藏同款，已验证可点），且不复用带 `BackdropFilter` 的 `_RoundBtn`，避免详情页凭空多一层实时模糊、破坏「顶栏 3 圆钮」的滚动降级计数。已缓存译文时青色高亮。
 
 ### v2.0.49 (249) 翻译/剧照弹层 UI 优化：消除黄线 + 补标题按钮 + 圆角/间距调整
 

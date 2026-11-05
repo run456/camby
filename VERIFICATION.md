@@ -1796,3 +1796,15 @@ v2.0.48 真机截图反馈：① 翻译弹窗样式不好、弹框有黄线；�
 **6. 测试**：新增 `test/lara_sheet_ui_test.dart` 4 条——`GlassPanelRoute` push 后面板文字的 `DefaultTextStyle.decoration` 不再是 underline / `decorationColor` 不再是黄色（直接锁住根因）；翻译弹层 `find.byType(GlassPanel)` + 关键文案 + 无 `tester.takeException()`；剧照查看器与手机标题按钮的源码守卫（防止以后又退回屏幕顶端/漏挂按钮）。
 
 验证（v2.0.49）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **360 全过**（原 356 + 新增 4）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.49-release-arm64.apk`。
+
+## §75 · v2.0.50 (250) 翻译弹层液态玻璃 + 标题翻译按钮可点修复（v2.0.49 真机反馈 2 项）
+
+**1. 标题翻译按钮「按不了」根因**：v2.0.49 的 `onBanner` 变体把按钮包成 `Tooltip > GestureDetector`。`Tooltip` 内部会给子节点套一层 `GestureDetector(behavior: HitTestBehavior.opaque, onLongPress: ...)`，该 detector 命中整个按钮盒子、且**只认长按**，会把短按吞掉（平板 banner 用的是 `IconButton`，其 tooltip 是内置机制不吞点击，所以没这问题）。修复：标题变体改用 `LiquidPress` 圆形玻璃钮（与顶部返回/刷新/收藏同一套，已验证可点）。**关键取舍**：不复用 `_RoundBtn`——它会自带 `ClipOval > BackdropFilter` 且未接滚动降级机制，会令详情页凭空多一层实时模糊、把 `scroll_degrade_test` 断言的「顶栏 3 圆钮」磨砂计数从 3 变成 4；海报本身已是模糊底，半透明玻璃圆钮观感足够。已缓存译文时青色高亮。
+
+**2. 翻译弹层不是液态玻璃**：v2.0.49 的 `GlassPanel` 是 `0xF2` 高不透明纯色 + 边框 + 投影「伪装」玻璃，**根本没做背景模糊**。给 `GlassPanel` 加 `blur` 参数：`blur:true` 时走 `ClipRRect > BackdropFilter(sigma 24) > Container(半透明深色玻璃渐变 + 顶部高光) > child`，是真正的 frosted / liquid glass；`blur:false`（默认，播放器弹层）保持无模糊（性能考量，`glass_sheet.dart` 注释已说明播放器避免实时重采样）。翻译弹层在 `showTranslateSheet` 里传 `blur:true`（详情页非播放器，磨砂廉价且合适）。
+
+**3. 测试**：`test/lara_sheet_ui_test.dart` 新增/调整——`翻译弹层开启真正的液态玻璃磨砂（BackdropFilter）` 直接断言 push 后面板树里出现 `BackdropFilter`（确认 blur 真正生效、不是只挂个 flag）；源码守卫「标题 banner 按钮走 LiquidPress（可点，且不引入多余模糊层）」断言 onBanner 分支用 `LiquidPress`、不包含 `_RoundBtn(`、且不再有 `Tooltip > GestureDetector` 旧模式。`scroll_degrade_test` 仍断言顶栏 3 圆钮磨砂（标题按钮不引入新模糊层，计数保持 3）。
+
+验证（v2.0.50）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **362 全过**（原 360 + 新增 2）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.50-release-arm64.apk`。
+
+**已知边界**：液态玻璃只用于详情页翻译弹层；播放器弹层（变速/字幕/信息/样式）仍为无模糊玻璃卡片，保持翻页/滚动顺滑。若后续希望播放器弹层也磨砂，需先确认 GPU 余量——那是 §74 注释里刻意回避的取舍。

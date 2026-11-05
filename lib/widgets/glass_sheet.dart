@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../layout.dart';
@@ -10,13 +12,19 @@ import '../theme.dart';
 /// 也不方便单手够。最大宽度走 [PlayerUi.panelMaxW]（手机 470 / 平板 620），
 /// 因此手机和平板都不会拉成一条横贯屏幕的色块。
 ///
-/// 播放页一律不做实时背景重采样，避免每次唤出面板都把视频压停；这里用
-/// 高不透明底色 + 细边框 + 投影还原同样的玻璃观感。面板本身是静态的，
-/// 外层包 RepaintBoundary，父层重绘时不会跟着重绘整块卡片。
+/// [blur] 控制是否做真正的液态玻璃磨砂：
+/// - `false`（默认，播放器弹层）：高不透明底色 + 细边框 + 投影，**不做**
+///   实时背景重采样，避免每次唤出面板都把视频压停；用厚重底色 + 边框 + 投影
+///   还原玻璃观感。面板本身是静态的，外层包 RepaintBoundary。
+/// - `true`（详情页的翻译弹层等）：对面板背后的内容做 [BackdropFilter] 高斯模糊，
+///   叠半透明深色玻璃质感 + 顶部高光，是真正的 frosted / liquid glass。
 class GlassPanel extends StatelessWidget {
-  const GlassPanel({super.key, required this.child});
+  const GlassPanel({super.key, required this.child, this.blur = false});
 
   final Widget child;
+
+  /// 是否开启真正的背景磨砂（液态玻璃）。详见类注释。
+  final bool blur;
 
   @override
   Widget build(BuildContext context) {
@@ -34,10 +42,11 @@ class GlassPanel extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 16),
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: const Color(0xF2141A28),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10),
+                color: blur
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : Colors.white.withValues(alpha: 0.10),
               ),
               boxShadow: [
                 BoxShadow(
@@ -47,7 +56,33 @@ class GlassPanel extends StatelessWidget {
                 ),
               ],
             ),
-            child: child,
+            child: blur
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.white.withValues(alpha: 0.12),
+                              Colors.white.withValues(alpha: 0.04),
+                            ],
+                          ),
+                        ),
+                        child: child,
+                      ),
+                    ),
+                  )
+                : Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xF2141A28),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: child,
+                  ),
           ),
         ),
       ),
