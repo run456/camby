@@ -69,7 +69,17 @@ class GlassPanelRoute<T> extends PageRouteBuilder<T> {
         barrierLabel: '关闭面板',
         transitionDuration: Anim.base,
         reverseTransitionDuration: Anim.fast,
-        pageBuilder: (ctx, _, _) => builder(ctx),
+        // PageRouteBuilder 的页面挂在 Navigator 的 Overlay 上，不会继承主页的
+        // Scaffold/Material。缺 Material 祖先时，WidgetsApp 的兜底
+        // DefaultTextStyle（debugLabel: "fallback style; consider putting your
+        // text in a Material"，黄色双下划线）会 merge 进弹层里每一个 Text，
+        // 即使 Text 自带 style 也只覆盖颜色/字号、盖不掉 decoration ——
+        // 这就是弹层文字一片黄线的原因。这里统一补一层透明 Material，
+        // 所有走 GlassPanelRoute 的面板一次性修好，且完全不改变外观。
+        pageBuilder: (ctx, _, _) => Material(
+          type: MaterialType.transparency,
+          child: builder(ctx),
+        ),
         transitionsBuilder: (ctx, animation, _, child) {
           final curved = CurvedAnimation(
             parent: animation,

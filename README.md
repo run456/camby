@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.48 (248)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.49 (249)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,20 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.49 (249) 翻译/剧照弹层 UI 优化：消除黄线 + 补标题按钮 + 圆角/间距调整
+
+承接 v2.0.48 真机反馈的 5 项 UI 问题，逐项修复：
+
+- **弹层黄色双下划线（根因）**：`GlassPanelRoute` 与剧照查看器都是裸 route（前者 `PageRouteBuilder`、后者 `showDialog` 直接返回 `GestureDetector`），不继承主页 `Scaffold` 的 `Material`。缺 `Material` 祖先时 `WidgetsApp` 的兜底 `DefaultTextStyle`（`debugLabel: "fallback style; consider putting your text in a Material"`，**黄色双下划线**）会 merge 进每个 `Text`——`Text` 自带 `style` 只能覆盖颜色/字号，盖不掉 `decoration`。两处统一补透明 `Material`，一次性修好所有玻璃面板。
+- **翻译弹层样式**：此前把裸 `Column` 直接 push 进 route，缺 `GlassPanel` 卡片容器和明确高度，详情页文字从半透明背景后透出、长简介把译文挤出屏幕。补齐 `GlassPanel + 定高 + Material` 三件套；原文/译文各自限高内滚、加副标题与「识别为 xx」源语言提示、主按钮改蓝紫渐变、风格 chips 收成小圆角。
+- **标题翻译按钮**：手机布局标题压在封面上，此前只有平板 banner 挂了按钮。手机标题改 `Row` 挂按钮，并新增 `onBanner` 变体（半透明深色圆底 + 白图标），保证在浅色海报上也看得清。
+- **剧照页码**：原固定在屏幕最顶部、与居中的图片隔一大片黑。改为「页码 + 图片区」组成居中 `Column`，页码紧贴图片区上缘 10px；`SizedBox.expand` 保留点按空白关闭。
+- **服务器「切换」按钮**：~30px 高的按钮用 14 圆角几乎成胶囊，收成 8px 小圆角矩形，与卡片 24 圆角、旁边方形编辑/删除图标更协调。
+
+新增 `test/lara_sheet_ui_test.dart` 4 条回归：`GlassPanelRoute` 提供 Material（直接断言面板文字 `DefaultTextStyle.decoration` 不再是黄色下划线）、翻译弹层含 `GlassPanel` 且无布局异常、剧照查看器与手机标题按钮的源码守卫。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **360 全过**（新增 4 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.49-release-arm64.apk`。
 
 ### v2.0.48 (248) Lara 翻译：标题 / 简介一键中译 + 确认后本机缓存
 

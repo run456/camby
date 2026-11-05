@@ -173,19 +173,54 @@ class _DetailPageState extends State<DetailPage> {
   }
 
   /// 标题 / 简介旁的翻译按钮：已缓存译文时高亮成主题色并提示「查看/重新翻译」。
-  Widget _translateButton(String field, String original) {
+  ///
+  /// [onBanner] 用于压在封面图上的标题：那里背景明暗不定，纯图标容易糊进海报，
+  /// 改为半透明深色圆底 + 白图标（与顶部返回/收藏圆钮同一套）。
+  Widget _translateButton(
+    String field,
+    String original, {
+    bool onBanner = false,
+  }) {
     final cached = _cachedTrans?[field];
-    return IconButton(
-      onPressed: () => _openTranslate(field, original),
-      icon: Icon(
-        Icons.translate_rounded,
-        size: 18,
-        color: cached != null ? AppColors.accent : const Color(0xFF9FB0CC),
+    final tip = cached != null ? '查看 / 重新翻译' : '翻译';
+    final icon = Icon(
+      Icons.translate_rounded,
+      size: 18,
+      color: cached != null
+          ? AppColors.accent
+          : (onBanner ? Colors.white : const Color(0xFF9FB0CC)),
+    );
+    if (!onBanner) {
+      return IconButton(
+        onPressed: () => _openTranslate(field, original),
+        icon: icon,
+        tooltip: tip,
+        splashRadius: 16,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        padding: EdgeInsets.zero,
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Tooltip(
+        message: tip,
+        child: GestureDetector(
+          onTap: () => _openTranslate(field, original),
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.42),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.18),
+              ),
+            ),
+            child: Center(child: icon),
+          ),
+        ),
       ),
-      tooltip: cached != null ? '查看 / 重新翻译' : '翻译',
-      splashRadius: 16,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      padding: EdgeInsets.zero,
     );
   }
 
@@ -352,68 +387,86 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 剧照查看器：多张剧照可左右滑动切换，点按空白关闭，顶部显示页码
+  /// 剧照查看器：多张剧照可左右滑动切换，点按空白关闭，页码紧贴图片。
+  ///
+  /// v2.0.49 两处修正：
+  /// - showDialog 的 builder 直接返回 GestureDetector（不是 AlertDialog / Dialog），
+  ///   没有 Material 祖先，WidgetsApp 的兜底 DefaultTextStyle 会给页码套上黄色
+  ///   双下划线。补一层透明 Material 修掉（与 GlassPanelRoute 同源问题）。
+  /// - 页码原固定在屏幕最顶部，图片居中，中间隔一大片黑。改为「页码 + 图片区」
+  ///   组成一个居中的 Column，页码紧贴图片区上缘 10px，不再孤零零飘在顶部。
   void _showBackdrops(List<String> urls, int initial) {
     if (urls.isEmpty) return;
     showDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.92),
+      barrierColor: Colors.black.withValues(alpha: 0.92),
       builder: (ctx) {
         final page = PageController(
           initialPage: initial.clamp(0, urls.length - 1),
         );
         final idx = ValueNotifier<int>(initial.clamp(0, urls.length - 1));
+        final size = MediaQuery.of(ctx).size;
+        // 图片区占屏高 68%：宽图 contain 后仍按屏宽铺满，竖图也有足够高度；
+        // 上下留白对称，页码贴在区顶，二者成为一个整体。
+        final imageH = size.height * 0.68;
         return StatefulBuilder(
-          builder: (ctx2, setSt) => GestureDetector(
-            onTap: () => Navigator.of(ctx).pop(),
-            child: Stack(
-              children: [
-                PageView.builder(
-                  controller: page,
-                  itemCount: urls.length,
-                  onPageChanged: (i) => idx.value = i,
-                  // 关键：不包裹 InteractiveViewer。它的缩放手势会与 PageView 的
-                  // 横向翻页在手势竞技场里互相抢，导致左右滑动卡顿/粘连。去掉后
-                  // 翻页顺滑；点按空白关闭由外层 GestureDetector 处理。
-                  itemBuilder: (c, i) => RepaintBoundary(
-                    child: Center(
-                      child: CachedImage(
-                        url: urls[i],
-                        fit: BoxFit.contain,
-                        // 全屏查看 1100 足清，比 1280 再省一截解码/显存，滑动更跟手
-                        memWidth: 1100,
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: MediaQuery.of(ctx).padding.top + 12,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: ValueListenableBuilder<int>(
-                        valueListenable: idx,
-                        builder: (_, v, __) => Text(
-                          '${v + 1} / ${urls.length}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.white70,
+          builder: (ctx2, setSt) => Material(
+            type: MaterialType.transparency,
+            child: SizedBox.expand(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(ctx).pop(),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: ValueListenableBuilder<int>(
+                          valueListenable: idx,
+                          builder: (_, v, __) => Text(
+                            '${v + 1} / ${urls.length}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white70,
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: size.width,
+                        height: imageH,
+                        child: PageView.builder(
+                          controller: page,
+                          itemCount: urls.length,
+                          onPageChanged: (i) => idx.value = i,
+                          // 关键：不包裹 InteractiveViewer。它的缩放手势会与 PageView
+                          // 的横向翻页在手势竞技场里互抢，导致滑动卡顿/粘连。
+                          itemBuilder: (c, i) => RepaintBoundary(
+                            child: Center(
+                              child: CachedImage(
+                                url: urls[i],
+                                fit: BoxFit.contain,
+                                // 全屏查看 1100 足清，滑动更跟手
+                                memWidth: 1100,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -1299,7 +1352,7 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ),
             ),
-            _translateButton('title', item.name),
+            _translateButton('title', item.name, onBanner: true),
           ],
         ),
         const SizedBox(height: 8),
@@ -1587,24 +1640,38 @@ class _DetailPageState extends State<DetailPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // 标题压在封面上
-                                Text(
-                                  item.name,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: wide ? 32 : 26,
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.16,
-                                    letterSpacing: -0.6,
-                                    color: Colors.white,
-                                    shadows: const [
-                                      Shadow(
-                                        color: Color(0xCC000000),
-                                        blurRadius: 16,
+                                // 标题压在封面上：右上角挂翻译按钮（v2.0.49 补齐手机布局，
+                                // 之前只有平板 banner 有，手机看不到）
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        item.name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: wide ? 32 : 26,
+                                          fontWeight: FontWeight.w900,
+                                          height: 1.16,
+                                          letterSpacing: -0.6,
+                                          color: Colors.white,
+                                          shadows: const [
+                                            Shadow(
+                                              color: Color(0xCC000000),
+                                              blurRadius: 16,
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _translateButton(
+                                      'title',
+                                      item.name,
+                                      onBanner: true,
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 8),
                                 Text(

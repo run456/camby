@@ -657,7 +657,10 @@ class _ServerCard extends StatelessWidget {
               if (!active)
                 LiquidPress(
                   onTap: onSwitch,
-                  radius: 14,
+                  // v2.0.49：按钮实际只有 ~30px 高，14 圆角几乎等于胶囊，
+                  // 与卡片 24 圆角、旁边方形的编辑/删除图标放一起显得别扭。
+                  // 收成 8px 的小圆角矩形，和整页的圆角层级更协调。
+                  radius: 8,
                   scale: 0.94,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -665,7 +668,7 @@ class _ServerCard extends StatelessWidget {
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(8),
                       gradient: const LinearGradient(
                         colors: [AppColors.accent, Color(0xFF159F88)],
                       ),

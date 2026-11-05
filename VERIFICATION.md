@@ -1778,3 +1778,21 @@ bash tools/verify_release.sh --build
 验证（v2.0.48）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **356 全过**（原 330 + 新增 26）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.48-release-arm64.apk`。
 
 **已知边界**：官方 REST 需用户自备 Lara Access Key（设置页配置），未配置时翻译按钮仅引导去设置页；无 key 时无法真机联调翻译链路（签名/解析已由纯函数单测覆盖）；风格 / 指令对译文的影响取决于 Lara 账户与模型版本；译文只存本机，卸载 App 或清数据后丢失。
+
+## §74 · v2.0.49 (249) 翻译/剧照弹层 UI 优化（真机反馈 5 项）
+
+v2.0.48 真机截图反馈：① 翻译弹窗样式不好、弹框有黄线；② 标题没有翻译按钮；③ 剧照的数字离图片太远、也有黄线；④ 服务器「切换」按钮圆角过大。逐项验收：
+
+**1. 黄线根因（不是描边/主题问题）**：`GlassPanelRoute` 是 `PageRouteBuilder`，剧照查看器是 `showDialog` 直接返回 `GestureDetector`——两者的页面都挂在 Navigator Overlay 上，**不继承主页 `Scaffold` 的 `Material`**。缺 `Material` 祖先时 `WidgetsApp` 提供的兜底 `DefaultTextStyle`（源码 debugLabel 为 `fallback style; consider putting your text in a Material`，`decoration: underline / decorationColor: 0xFFFFFF00 / double`）生效；`Text` 的 `style` 与 `DefaultTextStyle` 是 **merge**，自带 style 只覆盖颜色字号、盖不掉 `decoration`，于是弹层里每个文字都带黄色双下划线。详情页本身有 `Scaffold` 所以无黄线，与截图完全吻合。修复：`GlassPanelRoute.pageBuilder` 统一包 `Material(type: transparency)`（覆盖全部玻璃面板），剧照查看器同样补一层。透明 Material 不改变外观。
+
+**2. 翻译弹层外观**：v2.0.48 把裸 `Column` 直接 push 进 route，**没有 `GlassPanel` 卡片容器、也没有明确高度** → 详情页文字从半透明背景后透出、长简介把译文挤出可视区。按项目既有在线字幕面板的口径补齐 `GlassPanel + SizedBox(定高, 键盘 inset 自适应, 上限 620) + Material`；原文限高 132、译文限高 220 各自内滚；标题栏加「自动检测源语言 · 译为中文」副标题、译文区显示「识别为 xx」；主按钮由纯亮蓝色块改蓝紫渐变 + 透明 Material 叠 InkWell；风格 chips 圆角 20→12。
+
+**3. 标题翻译按钮**：手机布局标题（`Transform.translate` 压在封面图上）此前只有 `_tabletBanner` 挂了 `_translateButton`。手机标题改 `Row`（`Expanded` 包 Text 保证有界宽度，避免上次修过的 `_SectionLabel` unbounded width 重演），并新增 `onBanner` 变体：半透明深色圆底 + 白图标，与顶部返回/收藏圆钮同风格，浅色海报上也清晰；平板 banner 一并切到该变体。
+
+**4. 剧照页码**：原 `Positioned(top: padding.top + 12)` 固定在屏幕最顶端，图片居中，中间隔约 350px 黑。改为「页码胶囊 + 10px + 图片区（屏宽 × 0.68 屏高）」组成 `Center` 里的 `Column(mainAxisSize: min)`，页码紧贴图片区上缘、整体居中；`SizedBox.expand + HitTestBehavior.opaque` 保留点按任意空白关闭；图片仍 `BoxFit.contain`，不改 `CachedNetworkImage` 在无高度约束下的尺寸行为（避免引入回归）；`InteractiveViewer` 依旧不加，保持翻页手势不互抢。
+
+**5. 切换按钮**：按钮实高约 30px，`BorderRadius.circular(14)` 几乎等于胶囊。容器与 `LiquidPress` 的 radius 一并收为 8，与卡片 24 圆角、旁边方形编辑/删除图标的层级更协调。
+
+**6. 测试**：新增 `test/lara_sheet_ui_test.dart` 4 条——`GlassPanelRoute` push 后面板文字的 `DefaultTextStyle.decoration` 不再是 underline / `decorationColor` 不再是黄色（直接锁住根因）；翻译弹层 `find.byType(GlassPanel)` + 关键文案 + 无 `tester.takeException()`；剧照查看器与手机标题按钮的源码守卫（防止以后又退回屏幕顶端/漏挂按钮）。
+
+验证（v2.0.49）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **360 全过**（原 356 + 新增 4）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.49-release-arm64.apk`。
