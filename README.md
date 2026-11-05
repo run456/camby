@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.51 (251)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.52 (252)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,16 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.52 (252) 详情页 banner 板块间距回退修复（继续播放 / 剧情简介离标题太远）
+
+承接 v2.0.51 真机反馈：标题旁翻译按钮已能点，但「继续播放」和「剧情简介」被推到海报底部之后，与标题之间空出一大截。
+
+- **根因**：v2.0.51 把标题块改为 `Stack` 里的 `Positioned` 后，作为 `ListView` 第一个 child 的 `Stack` 仍占**完整海报高度 `posterH`**；标题块只是压在海报内部，后续板块（播放行 → 剧情简介 → 其余信息）却仍从 `posterH` 之后开始排，凭空多出 `titleLift`（56~150px）的空白。原版是整个 `Column` 一起 `Transform.translate` 上移，所有板块同步上抬。
+- **修复**：把第一个 child 的**布局占位高度**缩短为 `posterH - titleLift`（`SizedBox`），再用 `OverflowBox(minHeight/maxHeight: posterH, alignment: topCenter)` 让内部 `Stack` 仍以完整海报高度布局并溢出显示（`clipBehavior: Clip.none`）。视觉完全不变，但布局槽位上抬 `titleLift`，后续板块自然紧跟标题块；徽章 → 播放行间距恢复为 20（v2.0.51 之前的值）。**全程不用 `Transform`**，布局位置与视觉位置一致，不会重演 v2.0.51 修掉的命中测试错位。
+- **回归**：新增 `test/detail_banner_layout_test.dart`（手机 390×844 真实渲染）1 条 `testWidgets`，几何断言四条：播放按钮 `top < posterH - titleLift + 60`（修复前 ≈601、修复后 ≈512）、标题→播放按钮间距 < 150（修复前 ≈180、修复后 90.5）、剧情简介紧跟播放行、海报渲染高度仍等于 `posterH`（`OverflowBox` 不能压扁海报）；并真实 `tester.tap` 播放按钮断言 `onPlay` 触发，锁死按钮仍可点。v2.0.51 的标题/简介翻译按钮点击回归与字幕弹窗 `blur` 回归一并复跑通过。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **367 全过**（原 366 + 新增 1 条几何回归）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.52-release-arm64.apk`。
 
 ### v2.0.51 (251) 在线字幕弹窗液态玻璃 + 标题翻译按钮点不动根治
 
