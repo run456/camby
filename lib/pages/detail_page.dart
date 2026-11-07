@@ -2782,10 +2782,11 @@ class _InfoBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── 规格三列 ──
-        // v2.0.58：系列胶囊改为可点（打开同系列影片聚合页），并允许两行显示，
-        // 长系列名不再被截成「10番中出し…」几个字（用户反馈「文字被切了」）。
-        // 三列值区统一放进等高（40）盒、左对齐垂直居中，保证「系列」两行胶囊
-        // 与「发行日期 / 时长」纯文本水平对齐（沿用 v2.0.57 的对齐方案）。
+        // v2.0.59：系列名**完整显示**。上一版用 SizedBox(height:40) 固定盒 +
+        // maxLines:2 + ellipsis，真机上第二行被垂直裁掉、行尾还带省略号
+        // （用户反馈「系列文字还是被切了」）。现在系列胶囊不限行数、占满列宽
+        // 自然换行；三列靠「标签行 + 值起始线」顶部对齐，发行日期 / 时长放在
+        // 26px 盒里垂直居中，单行文字基线与胶囊第一行基本一致。
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2798,27 +2799,22 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('系列'),
                   const SizedBox(height: 6),
-                  SizedBox(
-                    height: 40,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: _Cap(
-                        text: seriesName.isEmpty ? '无' : seriesName,
-                        color: seriesName.isEmpty ? _dim : _orange,
-                        maxWidth: double.infinity,
-                        maxLines: 2,
-                        onTap: seriesName.isEmpty
-                            ? null
-                            : () => onOpenSeries(seriesName),
-                        trailing: seriesName.isEmpty
-                            ? null
-                            : const Icon(
-                                Icons.chevron_right,
-                                size: 12,
-                                color: _orange,
-                              ),
-                      ),
-                    ),
+                  _Cap(
+                    text: seriesName.isEmpty ? '无' : seriesName,
+                    color: seriesName.isEmpty ? _dim : _orange,
+                    maxWidth: double.infinity,
+                    maxLines: seriesName.isEmpty ? 1 : null,
+                    fillWidth: true,
+                    onTap: seriesName.isEmpty
+                        ? null
+                        : () => onOpenSeries(seriesName),
+                    trailing: seriesName.isEmpty
+                        ? null
+                        : const Icon(
+                            Icons.chevron_right,
+                            size: 12,
+                            color: _orange,
+                          ),
                   ),
                 ],
               ),
@@ -2832,7 +2828,7 @@ class _InfoBlock extends StatelessWidget {
                   const _MiniLabel('发行日期'),
                   const SizedBox(height: 6),
                   SizedBox(
-                    height: 40,
+                    height: 26,
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: _Plain(text: _releaseText),
@@ -2850,7 +2846,7 @@ class _InfoBlock extends StatelessWidget {
                   const _MiniLabel('时长'),
                   const SizedBox(height: 6),
                   SizedBox(
-                    height: 40,
+                    height: 26,
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: _Plain(text: _runtimeText),
@@ -2992,7 +2988,11 @@ class _Plain extends StatelessWidget {
   );
 }
 
-/// 单个彩色胶囊
+/// 单个彩色胶囊。
+///
+/// [maxLines] 为 null 时不限行数、不省略，用于「系列」这类必须完整显示的长
+/// 文本；[fillWidth] 让胶囊占满父级列宽并用 Expanded 分配文字宽度，避免
+/// `mainAxisSize: min` + Flexible 把长文本挤成很窄的竖条。
 class _Cap extends StatelessWidget {
   const _Cap({
     required this.text,
@@ -3002,6 +3002,7 @@ class _Cap extends StatelessWidget {
     this.onTap,
     this.maxWidth = 190,
     this.maxLines = 1,
+    this.fillWidth = false,
   });
 
   final String text;
@@ -3010,11 +3011,24 @@ class _Cap extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final double maxWidth;
-  final int maxLines;
+  final int? maxLines;
+  final bool fillWidth;
 
   @override
   Widget build(BuildContext context) {
+    final label = Text(
+      text,
+      maxLines: maxLines,
+      overflow: maxLines == null ? TextOverflow.visible : TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 10.5,
+        fontWeight: FontWeight.w700,
+        color: Color.lerp(color, Colors.white, 0.25),
+        letterSpacing: 0.1,
+      ),
+    );
     final body = Container(
+      width: fillWidth ? double.infinity : null,
       constraints: BoxConstraints(maxWidth: maxWidth),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
@@ -3023,22 +3037,10 @@ class _Cap extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.22)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: fillWidth ? MainAxisSize.max : MainAxisSize.min,
         children: [
           if (leading != null) ...[leading!, const SizedBox(width: 4)],
-          Flexible(
-            child: Text(
-              text,
-              maxLines: maxLines,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: Color.lerp(color, Colors.white, 0.25),
-                letterSpacing: 0.1,
-              ),
-            ),
-          ),
+          if (fillWidth) Expanded(child: label) else Flexible(child: label),
           if (trailing != null) ...[const SizedBox(width: 3), trailing!],
         ],
       ),

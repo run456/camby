@@ -62,6 +62,11 @@ extension CambyLayout on BuildContext {
   /// 收藏栅格列数：扩展 6 列 / 中等 5 列 / 手机 3 列。
   /// v2.0.9 实测反馈：一排 4 个浪费空间 → 中等 5、扩展 6。
   int get favoriteGridColumns => isExpanded ? 6 : (isTablet ? 5 : 3);
+
+  /// 演员网格列数（v2.0.59）：头像类内容比海报小，比媒体栅格再密一档。
+  /// 手机 3 列时单个头像会撑到约 118dp，真机反馈过大，改 4 列并给头像
+  /// 设尺寸上限。收藏页「演员收藏」与后续演员总览页共用。
+  int get actorGridColumns => isExpanded ? 8 : (isTablet ? 6 : 4);
 }
 
 /// 播放页控件度量（手机 / 平板两套）

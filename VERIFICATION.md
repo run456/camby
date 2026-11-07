@@ -2135,3 +2135,31 @@ Emby 对 Movie 通常不返回 `SeriesName`，详情页显示的系列名几乎�
 `test/detail_info_regression_test.dart`：把「超长系列名」断言从 `maxLines == 1` 改为 `maxLines == 2`（保留 `TextOverflow.ellipsis`），新增真实 `tester.tap` 点系列胶囊断言出现 `系列 · 濃厚な接吻とSEX`。`test/credit_filter_test.dart`：新增 series 模式宽松匹配，用带全角空格的 `濃厚な 接吻とSEX` 断言同时命中 `seriesName` / `tags` / `name` 三类数据并显示 `3 部`。
 
 验证（v2.0.58）：`flutter analyze` 0 error / 0 warning（384 项全为 info 级既有弃用）；`flutter test` **410 全过**（原 408 + 新增 2 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.58-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='258' versionName='2.0.58'`。
+
+## §84 发布 v2.0.59（系列名完整显示 + 收藏演员头像缩小）
+
+承接真机反馈三条：①「系列文字还是被切了」；②「收藏演员的头像太大了」；③ 要加演员页但底部 Tab 已满，先出设计稿确认。本轮只实现 ①②，③ 交付设计稿待确认。
+
+### ① 系列名被切：上一版没修干净
+
+v2.0.58 把 `maxLines` 从 1 放宽到 2，但仍保留 `TextOverflow.ellipsis`，且三列值区仍是 `SizedBox(height: 40)` 固定盒。真机截图（468×1040）显示第一行「彼女の姉貴とイケナ」、第二行只剩被裁掉的半截字，行尾还有省略号 —— 是**垂直裁切 + 水平省略同时发生**，不是单纯行数不够。上一版交付说明里也预估到「超过两行仍可能省略」，用户实测确认仍被切。
+
+修复：`_Cap.maxLines` 改为 `int?`，为 null 时 `overflow: TextOverflow.visible`、不限行数；新增 `fillWidth`，为 true 时 `Container(width: double.infinity)` + `Row(mainAxisSize: max)` + `Expanded`，让文字占满列宽自然换行，避免 `mainAxisSize: min` + `Flexible` 把长名挤成窄竖条。规格三列去掉 40px 固定盒，系列胶囊直接放进 Column；发行日期 / 时长改 26px 盒 + `Align(centerLeft)`，单行文字中心（13px）与胶囊第一行中心（约 11.5px）基本重合，三列靠标签行与值起始线顶部对齐。
+
+### ② 收藏演员头像
+
+`_actorGrid` 原用 `context.mediaGridColumns`（手机 3 列），`_ActorTile` 用 `Expanded(AspectRatio(1))` 让头像撑满格宽 ≈ 118dp。改为：新增 `CambyLayout.actorGridColumns`（扩展 8 / 中等 6 / 手机 4），网格间距 10 / 14、`childAspectRatio: 0.80`；`_ActorTile` 用 `LayoutBuilder` 取格宽，头像尺寸 `min(格宽 × 0.9, 手机 78 / 平板 104)` 并 `Center` 居中，图片 `memWidth` 300→200。
+
+### ③ 演员页：只出设计稿，不写实现
+
+产物 `/workspace/演员页导航设计稿.html`（同时在对话内给出推荐方案的内联预览）。关键结论：底部 `GlassNavBar._items` 一份定义同时驱动手机 Tab 与 ≥840dp 平板 Rail，中间「收藏」是凸起心形，第 6 个 Tab 会把每格压到约 70px 并迫使重做视觉；已有「演员收藏」分段和 `PersonPage`（作品网格 / 排序筛选 / ♥ 收藏）。因此推荐**方案 A：媒体库页顶部加「影片 / 演员 / 系列」二级分段**，全局导航零改动，点演员直接复用 `PersonPage`。另列 B（换掉数据 Tab）/ C（硬加第 6 Tab）/ D（收藏页加第三段）作对比。
+
+数据边界（需用户拍板）：`CastMember` 只有 `name / role / id / imageTag`，Emby People 不返回性别，`role` 是角色名不能当性别用；`state.items[*].people` 已过滤为 Actor / GuestStar（导演在 `emby_client.dart:535` 单独抽走，每片最多 `take(12)`）。设计稿给出三条规则：A1 不过滤（页面叫「演员」）、A2 仅显示 `imageTag != null` 近似「女演员」（推荐）、A3 本地白名单手动标记。
+
+### 测试
+
+`test/detail_info_regression_test.dart`：「系列名两行显示 + 省略号」改为「不限行、不省略、不裁切」，断言 `maxLines == null`、`overflow != ellipsis`；新增源码守卫锁定 `maxLines: seriesName.isEmpty ? 1 : null`、`fillWidth: true`、两处 `height: 26 + Align`，并禁止 `height: 40 + Align` 回归。`test/favorites_wall_test.dart` 新增源码守卫锁定 `actorGridColumns`、头像 cap 与手机 4 列。
+
+踩坑：源码守卫最初按 `'height: 26,'` 计数断言 2 处，实际文件里有 3 处（另有一处是 26×26 圆形容器），改用正则 `height:\s*26,\s*child:\s*Align\(` 精确匹配三列值盒后通过。
+
+验证（v2.0.59）：`flutter analyze` 0 error / 0 warning（384 项全为 info 级既有弃用）；`flutter test` **412 全过**（原 410 + 新增 2 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.59-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='259' versionName='2.0.59'`。

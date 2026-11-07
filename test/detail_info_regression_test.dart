@@ -78,6 +78,25 @@ void main() {
       expect(src.contains('_anyScrollNotification'), isTrue,
           reason: '剧照 / 标签行横滑时顶栏 BackdropFilter 必须一起降级');
     });
+
+    test('v2.0.59：系列胶囊完整显示，不再回到固定高度盒 + ellipsis', () {
+      final src = File('lib/pages/detail_page.dart').readAsStringSync();
+      expect(src.contains('maxLines: seriesName.isEmpty ? 1 : null'), isTrue,
+          reason: '系列名必须允许任意行数完整显示');
+      expect(src.contains('fillWidth: true'), isTrue,
+          reason: '系列胶囊应占满列宽，长名才不会被挤成窄竖条');
+      expect(
+        RegExp(r'height:\s*26,\s*child:\s*Align\(').allMatches(src).length,
+        2,
+        reason: '发行日期 / 时长用 26px 盒与胶囊第一行基线对齐，'
+            '而不是 40px 固定盒把多行胶囊垂直裁掉',
+      );
+      expect(
+        RegExp(r'height:\s*40,\s*child:\s*Align\(').hasMatch(src),
+        isFalse,
+        reason: '40px 固定盒 + Align 会垂直裁掉多行系列胶囊',
+      );
+    });
   });
 
   // ── ②③ 信息区真实渲染 ──
@@ -241,7 +260,7 @@ void main() {
       await tapTag(tester, '剧情', '#剧情');
     });
 
-    testWidgets('系列名两行显示 + 省略号，不再被单行切成几个字', (tester) async {
+    testWidgets('系列名完整显示：不限行、不省略、不裁切', (tester) async {
       const longName = '濃厚な接吻とSEX 特別完全版 ディレクターズカット ブルーレイ 限定版 長すぎるシリーズ名';
       await pumpDetail(
         tester,
@@ -260,9 +279,11 @@ void main() {
       );
       expect(text, findsOneWidget);
       final w = text.evaluate().single.widget as Text;
-      // v2.0.58：由 1 行放宽到 2 行，长系列名不再只显示「10番中出し…」
-      expect(w.maxLines, 2);
-      expect(w.overflow, TextOverflow.ellipsis);
+      // v2.0.59：真机反馈「文字还是被切了」——固定 40px 盒会垂直裁掉
+      // 第二行，maxLines:2 + ellipsis 又截掉行尾。现在彻底不限行、不省略。
+      expect(w.maxLines, isNull, reason: '系列名必须允许任意行数完整显示');
+      expect(w.overflow, isNot(TextOverflow.ellipsis),
+          reason: '系列名不能再被省略号截断');
       expect(tester.takeException(), isNull, reason: '长系列名不能造成布局溢出');
     });
 

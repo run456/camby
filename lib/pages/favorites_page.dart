@@ -427,10 +427,12 @@ class _FavoritesPageState extends State<FavoritesPage> {
         parent: AlwaysScrollableScrollPhysics(),
       ),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: context.mediaGridColumns,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 18,
-        childAspectRatio: 0.72,
+        // v2.0.59：头像不再撑满格宽，改为有上限的固定尺寸 + 加密列数。
+        // 手机旧值 3 列时单个头像约 118dp，真机反馈「太大了」。
+        crossAxisCount: context.actorGridColumns,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 14,
+        childAspectRatio: 0.80,
       ),
       itemCount: list.length,
       itemBuilder: (c, i) {
@@ -987,32 +989,41 @@ class _ActorTile extends StatelessWidget {
       glow: 0.18,
       child: Column(
         children: [
-          Expanded(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x55000000),
-                      blurRadius: 14,
-                      offset: Offset(0, 6),
+          LayoutBuilder(
+            builder: (c, cons) {
+              // v2.0.59：头像不再撑满整格。手机上限 78dp、平板上限 104dp，
+              // 且不超过格宽的 90%，避免收藏人数少时出现巨型圆头像。
+              final cap = context.isPhone ? 78.0 : 104.0;
+              final size = math.min(cons.maxWidth * 0.9, cap);
+              return Center(
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withOpacity(0.18)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x55000000),
+                          blurRadius: 14,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: ClipOval(
+                      child: url != null
+                          ? CachedImage(
+                              url: url,
+                              memWidth: 200,
+                              errorWidget: _avatarFallback(),
+                            )
+                          : _avatarFallback(),
+                    ),
+                  ),
                 ),
-                child: ClipOval(
-                  child: url != null
-                      ? CachedImage(
-                          url: url,
-                          memWidth: 300,
-                          errorWidget: _avatarFallback(),
-                        )
-                      : _avatarFallback(),
-                ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(height: 8),
           Text(
