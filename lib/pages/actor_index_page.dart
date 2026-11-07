@@ -18,12 +18,13 @@ import 'person_page.dart';
 /// Actor / GuestStar，导演单独抽走），按人物 id（无 id 按大写名字）去重并
 /// 统计参演部数，纯客户端内存聚合，不打额外服务端请求。
 ///
-/// 「女演员」规则：Emby 的 People **不返回性别**，[CastMember] 只有
-/// name / role / id / imageTag。这里按用户确认的 A1 + A2 同时提供：
+/// 「女演员」规则（v2.0.61 / G4）：Emby 的 People 标准字段**不返回性别**，
+/// [CastMember.gender] 绝大多数是 null。按用户确认的 A1 + A2 同时提供：
 ///   · 全部（A1，不过滤）
-///   · 女演员（A2，`imageTag != null` 近似，女优基本有头像、男优常无）
+///   · 女演员（A2：服务端给了 gender 就以它为准，否则按「有头像」近似，
+///     并在 UI 明确标注这是近似，绝不把男优悄悄算成女性）
 ///   · 已收藏
-/// 三档可随时切换，不写死过滤。
+/// 三档可随时切换，不写死过滤。头像裁剪在 v2.0.61 补了 tight 正方形约束。
 class ActorIndexPage extends StatefulWidget {
   const ActorIndexPage({
     super.key,
@@ -115,6 +116,17 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                 ),
                 const SizedBox(height: 9),
                 _scopeSeg(),
+                // v2.0.61：用户确认「女演员」档保留，但必须标注它只是近似。
+                // Emby 的 People 没有性别字段，服务端没给 gender 时这档只能
+                // 按「有无头像」近似，可能混入有头像的男优；切「全部」可兜底。
+                if (_scope == 1)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6, left: 2, right: 2),
+                    child: Text(
+                      '「女演员」按头像近似筛选 · 服务端未提供性别，可能混入有头像的男优',
+                      style: TextStyle(fontSize: 9.5, color: AppColors.muted),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 _searchBox(),
                 const SizedBox(height: 8),
@@ -192,10 +204,18 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
             : 'n:${name.toUpperCase()}';
         final e = map.putIfAbsent(
           key,
-          () => _ActorEntry(name: name, id: p.id, imageTag: p.imageTag),
+          () => _ActorEntry(
+            name: name,
+            id: p.id,
+            imageTag: p.imageTag,
+            gender: p.gender,
+          ),
         );
         e.count++;
         if (t > e.latest) e.latest = t;
+        // 同一演员在不同影片里有的带性别、有的不带：后到的显式值补齐，
+        // 绝不把已有值覆盖成 null。
+        if (e.gender == null && p.gender != null) e.gender = p.gender;
       }
     }
     return map.values.toList();
@@ -204,7 +224,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
   List<_ActorEntry> _apply(List<_ActorEntry> all, AppState state) {
     final q = _query.trim().toUpperCase();
     final out = all.where((e) {
-      if (_scope == 1 && !e.hasImage) return false;
+      if (_scope == 1 && !_isLikelyFemale(e)) return false;
       if (_scope == 2 && !state.isPersonFavorite(e.id)) return false;
       if (q.isNotEmpty && !e.name.toUpperCase().contains(q)) return false;
       return true;
@@ -222,6 +242,14 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
       }
     });
     return out;
+  }
+
+  /// v2.0.61 / G4：「女演员」档优先用服务端明确给的性别；没有 gender 时才
+  /// 回退到「有头像」近似（A2）。这样有 gender='male' 的男优即便有头像也
+  /// 不会再被算进这档，从数据侧修掉「本来是男性却被识别成女性」的一半问题。
+  bool _isLikelyFemale(_ActorEntry e) {
+    if (e.gender != null) return e.gender == kGenderFemale;
+    return e.hasImage;
   }
 
   // ---------------- 头部控件 ----------------
@@ -423,7 +451,14 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
+                  // v2.0.61 ① 头像变形修复：Stack 默认 fit: loose，之前这里
+                  // 的 Container 没有显式尺寸，会跟随 CachedNetworkImage 的
+                  // 固有比例（头像多为 2:3 竖图）变成竖椭圆，ClipOval 再在
+                  // 椭圆里裁 → 脸被拉长。给 Container 固定 size×size、并给
+                  // 图片 SizedBox.expand 拿 tight 正方形约束，ClipOval 恒为正圆。
                   Container(
+                    width: size,
+                    height: size,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
@@ -437,13 +472,15 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                       ],
                     ),
                     child: ClipOval(
-                      child: url != null
-                          ? CachedImage(
-                              url: url,
-                              memWidth: 200,
-                              errorWidget: _fallback(e),
-                            )
-                          : _fallback(e),
+                      child: SizedBox.expand(
+                        child: url != null
+                            ? CachedImage(
+                                url: url,
+                                memWidth: 200,
+                                errorWidget: _fallback(e),
+                              )
+                            : _fallback(e),
+                      ),
                     ),
                   ),
                   if (fav)
@@ -516,6 +553,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
       name: e.name,
       id: e.id,
       imageTag: e.imageTag,
+      gender: e.gender,
     );
     Navigator.push(
       context,
@@ -534,11 +572,13 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
 }
 
 class _ActorEntry {
-  _ActorEntry({required this.name, this.id, this.imageTag});
+  _ActorEntry({required this.name, this.id, this.imageTag, this.gender});
 
   final String name;
   final String? id;
   final String? imageTag;
+  // 可变：同一演员跨影片聚合时，后到的显式 gender 可以补齐（见 _aggregate）
+  String? gender;
   int count = 0;
   int latest = 0;
 

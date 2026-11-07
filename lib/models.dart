@@ -83,6 +83,27 @@ class ServerProfile {
   );
 }
 
+/// 归一后的性别取值（v2.0.61 / G4）。
+const String kGenderFemale = 'female';
+const String kGenderMale = 'male';
+
+/// 性别归一：**只有服务端明确给了才认**，其余一律返回 null，UI 走中性，
+/// 绝不按名字、角色或「有没有头像」去猜性别。
+///
+/// 标准 Emby 的 `People[]` / Person item 没有性别字段；部分刮削器 / 插件会
+/// 写 `Gender` / `Sex`，这里只做保守的字符串归一，识别不了就当「未知」。
+/// 之前详情页把每个演员都写死 ♀，才导致男优被全标成女性（v2.0.61 修）。
+String? normalizeGender(dynamic raw) {
+  if (raw == null) return null;
+  final s = raw.toString().trim().toLowerCase();
+  if (s.isEmpty) return null;
+  const females = {'female', 'f', 'woman', 'girl', '女', '女性', '女优'};
+  const males = {'male', 'm', 'man', 'boy', '男', '男性', '男优'};
+  if (females.contains(s)) return kGenderFemale;
+  if (males.contains(s)) return kGenderMale;
+  return null;
+}
+
 /// 演职人员（含图片信息，头像走 Emby 图片接口）
 class CastMember {
   const CastMember({
@@ -90,17 +111,23 @@ class CastMember {
     this.role = '',
     this.id,
     this.imageTag,
+    this.gender,
   });
   final String name;
   final String role;
   final String? id; // Emby Person ItemId
   final String? imageTag; // PrimaryImageTag
 
+  /// 归一后的性别：[kGenderFemale] / [kGenderMale] / null。
+  /// null = 服务端没给，UI 必须走中性（G4），不得自行推断。
+  final String? gender;
+
   Map<String, dynamic> toJson() => {
     'name': name,
     'role': role,
     'id': id,
     'imageTag': imageTag,
+    'gender': gender,
   };
 
   factory CastMember.fromJson(Map<String, dynamic> j) => CastMember(
@@ -108,6 +135,8 @@ class CastMember {
     role: j['role'] as String? ?? '',
     id: j['id'] as String?,
     imageTag: j['imageTag'] as String?,
+    // 归一一次：兼容旧缓存（无 gender）与任何脏值
+    gender: normalizeGender(j['gender']),
   );
 }
 

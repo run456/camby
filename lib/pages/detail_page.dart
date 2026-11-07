@@ -12,6 +12,7 @@ import '../theme.dart';
 import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
+import '../widgets/gender_badge.dart';
 import '../widgets/media_poster.dart';
 import 'tag_page.dart';
 import '../widgets/glass_toast.dart';
@@ -2707,11 +2708,14 @@ class _RoundBtn extends StatelessWidget {
 /// 演员行 + 标签行。
 ///
 /// 设计来源：参考截图（浅色三列 + 三色胶囊），转为深色液态玻璃配色；
-/// 采用紧凑版——每行单行横滑、全部可滑到，锁图标按需求去掉，
-/// 演员带 ♀ 造型符号。
+/// 采用紧凑版——每行单行横滑、全部可滑到，锁图标按需求去掉。
 ///
 /// v2.0.55：导演 / 制造商从演员行里拆出来**单独成行**，并支持点击按该值
 /// 筛选全库影片。原来三条信息混在「演员」标题下，语义不对且不好点。
+///
+/// v2.0.61 / G4：演员胶囊前缀不再写死 ♀（此前无论男女一律显示 ♀，导致
+/// 男优被全标成女性）。改为按服务端明确给出的 gender 渲染 ♀/♂，读不到就
+/// 用中性人物图标，绝不按名字 / 头像猜。
 class _InfoBlock extends StatelessWidget {
   const _InfoBlock({
     required this.item,
@@ -2898,15 +2902,12 @@ class _InfoBlock extends StatelessWidget {
             count: item.people.length,
             itemBuilder: (i) {
               final p = item.people[i];
-              // Emby 的 Person 没有可靠的性别字段，按名称角色没法判断，
-              // 这里统一用 ♀ 造型符号做视觉标识（不做语义断言）
+              // v2.0.61 / G4：不再写死 ♀。服务端明确给 gender 才渲染 ♀/♂，
+              // 读不到就用中性人物图标，绝不按名字 / 头像猜性别。
               return _Cap(
                 text: p.name,
                 color: _purple,
-                leading: const Text(
-                  '♀',
-                  style: TextStyle(fontSize: 11, color: _purple),
-                ),
+                leading: genderLeading(p.gender),
                 onTap: () => onOpenPerson(p),
               );
             },

@@ -543,6 +543,9 @@ class EmbyServer {
             role: m['Role'] as String? ?? '',
             id: m['Id'] as String?,
             imageTag: m['PrimaryImageTag'] as String?,
+            // G4：标准 Emby 无性别字段，只有服务端明确给了 Gender/Sex 才认，
+            // 归一不了就是 null，UI 走中性，绝不猜。
+            gender: normalizeGender(m['Gender'] ?? m['Sex']),
           ),
         );
       }
@@ -1616,6 +1619,7 @@ class EmbyServer {
               role: m['Role'] as String? ?? '',
               id: m['Id'] as String?,
               imageTag: tags?['Primary'] as String?,
+              gender: normalizeGender(m['Gender'] ?? m['Sex']),
             );
           })
           .where((e) => e.id != null && e.name.isNotEmpty)
@@ -1978,10 +1982,13 @@ class EmbyServer {
     }
   }
 
-  /// 演员头像地址
-  String personImageUrl(String personId, String? tag) {
+  /// 演员头像地址。
+  /// [maxWidth] 按使用场景给：网格 / 小头像沿用默认 200；演员详情资料卡把
+  /// 头像框成 82×102 卡片后需要更清晰的图，传 400（v2.0.61）。此前详情页
+  /// 把 200px 缩略图放大铺成满幅 340dp banner，既发糊又构图被切。
+  String personImageUrl(String personId, String? tag, {int maxWidth = 200}) {
     final t = tag != null ? '&tag=$tag' : '';
-    return '$baseUrl/Items/$personId/Images/Primary?maxWidth=200&api_key=$_token$t';
+    return '$baseUrl/Items/$personId/Images/Primary?maxWidth=$maxWidth&api_key=$_token$t';
   }
 
   /// 是否为可自动重试的网络瞬断。

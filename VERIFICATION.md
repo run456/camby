@@ -2235,3 +2235,91 @@ if (t > e.latest) e.latest = t;   // t = item.dateCreatedMs ?? 0
 首次跑门禁时第 4 步 `perf_audit.py` 命中 2 项（两个 `_sortRow()` 的 `itemBuilder` 内 `setState`），全量测试 421 全过、APK 也已构建，但门禁判定未过。按上文「设计取舍」把两个排序行改为 `Row` 后审计 0 命中，未通过加豁免放行。
 
 验证（v2.0.60）：`flutter analyze` 0 error / 0 warning（425 项全为 info 级既有弃用）；`flutter test` **421 全过**（原 412 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.60-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='260' versionName='2.0.60'`。
+
+## §86 发布 v2.0.61（演员详情页重设计 + 头像变形 / 性别误标修复）
+
+承接 v2.0.60 后的三条真机反馈：① 演员头像变形（被拉成竖椭圆）；② 性别识别错误，本该是男演员的全部显示成女性；③ 演员详情页把小头像铺成海报不合适，希望框起来、多展示信息、保留筛选框、并给出参演总数。
+
+先产出 `/workspace/演员详情页设计稿.html`（方案 A 高保真 mockup + 字段可行性表 + G1–G4 性别方案 + S1–S3 资料来源 + 7 项待确认清单），用户确认 **页面结构 A / 头像框 A / S1 只用 Emby / G4 有则显示·无则中性 / 「女演员」档保留但标注按头像近似 / 总数放资料卡大数字 + 筛选条计数 / ①② 一并修** 后落地，本轮不改全局导航。
+
+### ① 头像变形：`ClipOval` 没拿到正方形约束
+
+`actor_index_page.dart` 的头像 `ClipOval` 位于 `StackFit.loose` 的 `Stack` 内，子级只被要求「不超过父级」，竖版头像因此按自身宽高比布局，`ClipOval` 拿到竖矩形，裁成竖椭圆。`favorites_page.dart` 的 `_ActorTile` 有同类风险，一并处理。
+
+两处统一改为：外层 `Container` 显式 `width: size, height: size`（`size = min(格宽 × 0.9, 手机 78 / 平板 104)`），图片层用 `SizedBox.expand` 撑满，使 `ClipOval` 的 RenderBox 恒为正方形。新测试里有 widget 用例直接取 `ClipOval` 的 `size` 断言 `|width - height| < 0.6`，防回归。
+
+### ② 性别误标：`♀` 被写死成装饰符号
+
+根因两层：
+
+1. `detail_page.dart` 演员行 `itemBuilder` 给每个 `_Cap` 传 `leading: const Text('♀', ...)`，与演员本人无关，男优也一律显示 ♀。
+2. 数据层 `CastMember` 只有 `name / role / id / imageTag`；`role` 是角色名不是性别，标准 Emby `People[]` 与 Person item **不返回性别**，A2「女演员」当初用「有头像」近似而 UI 未说明，看起来就像「系统认定全是女性」。
+
+按 G4（有则显示、无则中性，绝不猜）收敛：
+
+| 层 | 改动 |
+|---|---|
+| `lib/models.dart` | 新增 `kGenderFemale` / `kGenderMale` 与 `normalizeGender(dynamic)`：只接受显式值（female/f/woman/girl/女/女性/女优、male/m/man/boy/男/男性/男优），其余（空串、未知字符串）一律 null |
+| `CastMember` | 增 `gender` 字段，`toJson/fromJson` 都走 `normalizeGender` 归一，持久化不把脏值带回来 |
+| `lib/emby_client.dart` | People 解析与 `favoritePersons()` 读 `m['Gender'] ?? m['Sex']`；`personImageUrl()` 的 `maxWidth` 改为可传参（详情页用 400） |
+| `lib/widgets/gender_badge.dart`（新增） | `genderLeading()`：female → ♀、male → ♂、null → 中性 `Icons.person_outline_rounded`；`genderLabel()`：null 返回 null，让调用方隐藏字段，不摆「未知 / —」 |
+| `lib/pages/detail_page.dart` | 演员胶囊改 `leading: genderLeading(p.gender)`，删掉写死的 ♀ |
+
+「女演员」档按用户选择保留名称，但 `ActorIndexPage` 在 A2 档明确标注「按头像近似筛选 · 服务端未提供性别，可能混入有头像的男优」；`_isLikelyFemale()` 优先用 `e.gender`，仅 gender 为 null 才回退 `e.hasImage`，所以服务端明确标 male 的演员不会再混入。`_aggregate()` 聚合时 `if (e.gender == null && p.gender != null) e.gender = p.gender`，让跨影片后到的显式值能补齐而不覆盖已有值。
+
+### ③ `PersonPage`：方案 A 单页滚动 + 吸顶筛选 + 总数
+
+旧版用 `SizedBox(height: 340)` + `ShaderMask` 把 `maxWidth=200` 的小头像铺成满幅 banner，放大发糊、构图被切，且没有参演总数。按设计稿方案 A 重写：
+
+- **头像框起来**：资料卡里 82×102（窄布局 74×92）圆角渐变描边卡片，图片单独请求 `personImageUrl(..., maxWidth: 400)`、`memWidth: 400`、`Alignment.topCenter`，不再铺满整屏。
+- **S1 只用 Emby 现有字段**：生日 `PremiereDate`、别名 `OriginalTitle`、出生地 `ProductionLocations`、简介 `Overview`、性别 `Gender ?? Sex`，加上参演 / 最近年份 / 收藏三个本地派生值 —— **有值才渲染**，不摆一排「—」。
+- **吸顶筛选条**：`SliverPersistentHeader(pinned: true)` + 自定义 `_FilterHeaderDelegate`（min/maxExtent 均 46），保留原「全部 / 电影 / 剧集」`_Seg` 与 `MediaFilterButton` 漏斗，右侧显示「共 N 部」或筛选后「M / N 部」；资料卡同时给一个大数字「N 部影片」。
+- **平板 ≥840dp**：左 250dp 资料卡 + 右独立 `CustomScrollView` 作品区，列数仍走 `mediaGridColumns`，不写死。
+- **顶栏淡出**：`NotificationListener<ScrollNotification>` 驱动 `_topBarFade` ValueNotifier，不引入整页 rebuild。
+
+### 设计取舍：总数与网格数据源分离
+
+初版把 `_localFilms`（从 `state.items[*].people` 本地聚合）在离线时直接回退进作品网格，结果 `library_index_test.dart` 点开 `PersonPage` 后渲染出 `PosterCard` 网格，在 393×852 测试视口触发**既有**的 `PosterCard` 布局溢出（`Multiple exceptions (3)`），全量测试 420 + 1 fail。
+
+没有改 `PosterCard`、没调网格比例、没加测试豁免，而是把数据源拆开：
+
+```dart
+List<MediaItem> get _gridFilms => _films ?? const <MediaItem>[];
+
+int get _total {
+  final remote = _films?.length ?? 0;
+  return remote > 0 ? remote : _localFilms.length;
+}
+
+String? get _offlineHint => (_films == null && _localFilms.isNotEmpty)
+    ? '作品列表需联网加载 · 本地媒体库共 ${_localFilms.length} 部'
+    : null;
+```
+
+作品网格仍只用服务端 `personItems()` 列表（与改造前一致，零回归），本地聚合只负责离线 / 加载中的总数、最近年份与空态提示。改完全量测试 436 全过。
+
+### 文件清单
+
+| 文件 | 改动 |
+|---|---|
+| `lib/widgets/gender_badge.dart` | 新增，`genderLabel()` / `genderLeading()` 收敛 G4 展示 |
+| `lib/models.dart` | 新增性别常量、`normalizeGender()`、`CastMember.gender` |
+| `lib/emby_client.dart` | People / favoritePersons 解析 `Gender ?? Sex`；`personImageUrl(maxWidth:)` 可配 |
+| `lib/pages/detail_page.dart` | 演员胶囊不再写死 ♀，改 `genderLeading(p.gender)` |
+| `lib/pages/actor_index_page.dart` | 头像 tight 正方形约束；A2 标注；聚合补 gender；`_isLikelyFemale` 优先 gender |
+| `lib/pages/favorites_page.dart` | `_ActorTile` 头像同步 tight 正方形约束 |
+| `lib/pages/person_page.dart` | 方案 A 重写：资料卡 + 头像框 + S1 字段网格 + 吸顶筛选 + 总数 + 平板双栏 |
+| `test/person_page_redesign_test.dart` | 新增 15 条回归 |
+
+### 测试
+
+`test/person_page_redesign_test.dart` 15 条覆盖：源码守卫（详情页禁硬编码 ♀、要求 `genderLeading(p.gender)`；`CastMember.gender` / `normalizeGender` / `personImageUrl(maxWidth)`；`PersonPage` 去掉 `height: 340` / `ShaderMask`、新增 `_avatarFrame` / `SliverPersistentHeader` / `MediaFilterButton` / `maxWidth: 400`；两处头像 `SizedBox.expand` + 显式 `width/height: size`；A2 标注与 `_isLikelyFemale`）；纯逻辑（`normalizeGender` / `genderLabel` / `genderLeading`）；widget（`ClipOval` RenderBox 宽高相等、`PersonPage` 首屏总数 / 字段网格 / 吸顶筛选 / 离线提示 / G4 中性兜底、滚动后筛选条常驻、切「剧集」tab 漏斗仍可点、仅 `kGenderFemale` 时显示 ♀ 与性别字段、平板布局渲染）。
+
+一处编译坑：`Element.size` 返回 `Size?`，直接取 `.width` 报 `Property 'width' cannot be accessed on 'Size?'`，改为 `final s = e.size!;` 后 15 条全过。
+
+### 数据边界（沿用，需向用户说明）
+
+- 标准 Emby 的 `People[]` / Person item 不返回性别。若服务端从未给出，UI 走中性人物图标、性别字段隐藏；「真·按性别正确筛选」需要服务端或外部数据源补字段，本版不做猜测。
+- A2「女演员」仍是近似规则，服务端无 gender 时可能有头像的男优混入，「全部」档可兜底。
+
+验证（v2.0.61）：`flutter analyze` 0 error / 0 warning（437 项全为 info 级既有弃用）；`flutter test` **436 全过**（原 421 + 新增 15 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.61-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='261' versionName='2.0.61'`。

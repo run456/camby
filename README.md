@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.60 (260)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.61 (261)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,20 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.61 (261) 演员详情页重设计 + 头像变形 / 性别误标修复
+
+落地 `演员详情页设计稿.html`，按用户确认实施：**页面结构 A / 头像框 A / 资料字段 S1 只用 Emby / 性别 G4 有则显示·无则中性 / 「女演员」档保留但标注按头像近似 / 总数放资料卡大数字 + 筛选条计数 / ①② 两个 bug 随本轮一并修**。本轮不动全局导航。
+
+- **① 头像变形根治**。演员总览的 `ClipOval` 之前处在 `StackFit.loose` 的 `Stack` 里，没拿到 tight 正方形约束，竖版头像被裁成竖椭圆。现在 `actor_index_page.dart` 与 `favorites_page.dart` 外层 `Container` 显式给 `width: size, height: size`（`size = min(格宽 × 0.9, 手机 78 / 平板 104)`），图片层用 `SizedBox.expand` 撑满，`ClipOval` 的 RenderBox 恒为正方形。
+- **② 性别误标根治**。旧版 `detail_page.dart` 把 `♀` 写死成所有演员胶囊的装饰符号，男优也一律显示女性符号。新增 `lib/widgets/gender_badge.dart` 收敛展示：`genderLeading()` 仅在明确性别时给 ♀/♂，否则用中性人物图标；`genderLabel()` 无性别时返回 null，字段格直接隐藏，不摆「未知 / —」。`CastMember` 增 `gender` 并纳入 `toJson/fromJson`；`normalizeGender()` 只识别显式值（female/f/woman/girl/女/女性/女优、male/m/man/boy/男/男性/男优），其余一律 null；`emby_client.dart` 解析 `People[]` 与 `favoritePersons()` 时读 `Gender ?? Sex`，标准 Emby 没给就是 null。**绝不按名字、角色名或头像猜性别**。
+- **③ `PersonPage` 按方案 A 重做**。旧版用 `SizedBox(height: 340)` + `ShaderMask` 把 `maxWidth=200` 的小头像放大铺成满幅 banner，发糊又切构图，且整页没有参演总数。现在改为：资料卡内 82×102 圆角头像框（图片单独请求 `maxWidth=400`）→ S1 字段网格（生日 / 参演 / 最近 / 收藏 / 别名 / 性别 / 出生地，有值才渲染）→ 简介 → **吸顶筛选条**（`SliverPersistentHeader(pinned: true)`，保留原「全部 / 电影 / 剧集」分段与 `MediaFilterButton` 漏斗）→ 作品网格。资料卡一个大数字「N 部影片」，筛选条右侧显示「共 N 部」或筛选后「M / N 部」；≥840dp 平板为左资料卡 + 右独立作品区，列数仍走 `mediaGridColumns`。
+- **「女演员」档保留并标注**。A2 名称不变，但页面明确写出「按头像近似筛选 · 服务端未提供性别，可能混入有头像的男优」；`_isLikelyFemale()` 优先用服务端 `gender`，仅无 gender 时才回退「有头像」，因此明确标为男性的演员不会再混入。
+- **总数与作品网格数据源分离**。`_gridFilms` 只走服务端 `personItems()` 列表，`_localFilms`（本地按 `people` 聚合）只用于离线 / 加载中的总数、最近年份与空态提示，避免把本地条目塞进 `PosterCard` 在窄视口触发既有布局溢出。
+
+已知边界：标准 Emby 的 `People[]` / Person item 不返回性别，若服务端从未给出，UI 显示中性图标且不显示性别字段，「真·按性别正确筛选」仍需服务端或外部数据源补字段；A2「女演员」仍是近似规则，可切「全部」兜底。
+
+验证：`flutter analyze` 0 error / 0 warning（437 项全为 info 级既有弃用）；`flutter test` **436 全过**（原 421 + 新增 15 条 `person_page_redesign_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.61-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='261' versionName='2.0.61'`。
 
 ### v2.0.60 (260) 媒体库二级分段：演员总览 + 系列总览
 

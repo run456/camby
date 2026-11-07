@@ -999,7 +999,13 @@ class _ActorTile extends StatelessWidget {
                 child: SizedBox(
                   width: size,
                   height: size,
+                  // v2.0.61 ① 体检：这里外层 SizedBox 本来就是 tight 正方形
+                  // 约束（不变形），但照演员总览页的做法把 Container 尺寸与
+                  // 图片的 tight 约束显式写死，避免以后有人把它塞进 loose 的
+                  // Stack 又踩回「竖椭圆」的坑。视觉与之前完全等价。
                   child: Container(
+                    width: size,
+                    height: size,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white.withOpacity(0.18)),
@@ -1012,13 +1018,15 @@ class _ActorTile extends StatelessWidget {
                       ],
                     ),
                     child: ClipOval(
-                      child: url != null
-                          ? CachedImage(
-                              url: url,
-                              memWidth: 200,
-                              errorWidget: _avatarFallback(),
-                            )
-                          : _avatarFallback(),
+                      child: SizedBox.expand(
+                        child: url != null
+                            ? CachedImage(
+                                url: url,
+                                memWidth: 200,
+                                errorWidget: _avatarFallback(),
+                              )
+                            : _avatarFallback(),
+                      ),
                     ),
                   ),
                 ),
