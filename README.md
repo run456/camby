@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.59 (259)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.60 (260)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,19 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.60 (260) 媒体库二级分段：演员总览 + 系列总览
+
+落地 v2.0.59 交付的 `演员页导航设计稿.html`，按用户确认实施：**导航选 A / 女演员选 A1 + A2 / 加系列 / 其余按推荐**。
+
+- **方案 A：媒体库内加二级分段，全局导航零改动**。新增 `LibraryIndexSegment`（影片 / 演员 / 系列）并接入 `LibraryPage` 顶部；底部 `GlassNavBar._items` 仍是 5 项，手机 Tab 与 ≥840dp 平板 Rail 共用的一份定义完全不动。切到演员 / 系列时返回独立索引页，影片分支沿用原有 `CustomScrollView`，布局零漂移。
+- **演员总览（A1 + A2 同时提供）**。新增 `ActorIndexPage`，从 `state.items[*].people` 纯客户端内存聚合，按人物 id（无 id 按大写名字）去重，统计参演部数与最近参演时间，不打额外服务端请求。三档可随时切换：**全部**（A1，不过滤）/ **女演员**（A2，`imageTag != null` 近似）/ **已收藏**；支持按名字搜索，默认「参演最多」排序，另有「名字 A–Z」「最近参演」。点演员直接复用已有 `PersonPage`，不另建详情页。
+- **系列总览**。新增 `SeriesIndexPage`，复用 `MediaFilter.seriesCountsOf` 聚合系列名与部数，取每系列首部影片作小封面；支持搜索、按部数 / 名字排序，系列名不限行完整显示。点击打开 `TagPage(mode: series)` 列出同系列影片。
+- **设计取舍**：设计稿里的右侧 A–Z 字母索引未实现 —— 演员以日文名为主，绝大多数会落进 `#`，索引条几乎没有信息量，改用「搜索 + 三档排序」更实用。头像沿用 v2.0.59 的 `actorGridColumns`（手机 4 列）与 78dp / 104dp 尺寸上限。排序档位只有 2–3 个固定 chip，用 `SingleChildScrollView + Row` 实现，不为几个 chip 建 `ListView.builder` sliver，也避开性能审计对 `itemBuilder` 内 `setState` 的静态红线。
+
+已知边界：Emby 的 People 不返回性别，A2 用「有头像」近似女演员，可能漏掉少数无头像女优，可随时切「全部」兜底；系列名仍依赖 Emby `SeriesName` 或详情页读 NFO 后的回填，列表随浏览过的影片逐步累积。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **421 全过**（原 412 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.60-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='260' versionName='2.0.60'`。
 
 ### v2.0.59 (259) 系列名完整显示 + 收藏演员头像缩小 + 演员页导航设计稿
 

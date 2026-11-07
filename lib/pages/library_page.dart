@@ -6,8 +6,11 @@ import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../layout.dart';
 import '../widgets/glass_toast.dart';
+import '../widgets/library_index_segment.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
+import 'actor_index_page.dart';
+import 'series_index_page.dart';
 
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
 ///  · 顶栏排序按钮：直接显示当前字段 + 方向箭头
@@ -34,6 +37,10 @@ class _LibraryPageState extends State<LibraryPage> {
   /// 每个排序字段的默认方向（true = 降序）
   static const _defaultDesc = [true, true, false, true, true];
   static const _resBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
+
+  // v2.0.60：媒体库二级浏览维度（影片 / 演员 / 系列）。默认影片，
+  // 该分支完全沿用下方原有 CustomScrollView，布局零漂移。
+  LibraryIndexTab _indexTab = LibraryIndexTab.movies;
 
   int _sort = 1; // 默认发行日期
   late List<bool> _desc;
@@ -74,6 +81,11 @@ class _LibraryPageState extends State<LibraryPage> {
     _cacheKey = '';
     _loadView(reset: false);
     setState(() {});
+  }
+
+  void _setIndexTab(LibraryIndexTab t) {
+    if (_indexTab == t) return;
+    setState(() => _indexTab = t);
   }
 
   Future<void> _loadView({required bool reset}) async {
@@ -178,6 +190,23 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
+    // v2.0.60 设计稿方案 A：演员 / 系列收进媒体库二级分段，
+    // 独立索引页自带标题栏、分段与滚动体；底部导航一个像素都不动。
+    if (_indexTab != LibraryIndexTab.movies) {
+      return _indexTab == LibraryIndexTab.actors
+          ? ActorIndexPage(
+              state: state,
+              onOpenDetail: widget.onOpenDetail,
+              tab: _indexTab,
+              onTabChanged: _setIndexTab,
+            )
+          : SeriesIndexPage(
+              state: state,
+              onOpenDetail: widget.onOpenDetail,
+              tab: _indexTab,
+              onTabChanged: _setIndexTab,
+            );
+    }
     final wide = context.isTablet;
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
@@ -339,6 +368,11 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         ],
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    LibraryIndexSegment(
+                      tab: LibraryIndexTab.movies,
+                      onChanged: _setIndexTab,
                     ),
                     const SizedBox(height: 12),
                     // 媒体库分组
