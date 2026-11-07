@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.54 (254)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.55 (255)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,17 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.55 (255) 导演 / 制造商独立成行 + 点击筛选 + 筛选面板分组
+
+承接真机截图反馈：v2.0.54 把导演、制造商塞进了「演员」行，语义不对；要求两者单独一行、点名字能筛影片，并在媒体库、演员页等筛选面板里加上可筛选的导演与制造商标签。
+
+- **① 详情页拆行**：`_InfoBlock` 新增独立的「导演 / 制造商」行（蓝 `导演 xxx` + 青 `制造商 xxx`，各自空值不渲染），演员行只放演员，仍是全量横滑。行顺序：规格三列 → 导演/制造商 → 演员 → 标签。
+- **② 点名字筛影片**：两个胶囊改为可点，新增 `_openCredit(value, mode)`，复用 `TagPage` 的「按某个键列出全库影片」页面。`TagPage` 泛化成三种模式（`tag` / `director` / `studio`），导演模式匹配 `MediaItem.director`、制造商模式匹配 `MediaItem.studio`，标题分别为 `导演 · xxx` / `制造商 · xxx`，排序与海报网格沿用原实现。全库列表在 `emby_client.dart` 里已请求 `People` / `Studios` 字段，所以是**客户端过滤，不额外打服务端请求**；名字比较 trim + 忽略大小写。
+- **③ 筛选面板加两组**：公共 `MediaFilter` 增加 `directors` / `studios` 两个 `Set<String>`，`keeps()` 里组间「且」、组内「或」，与分辨率/标签一致；`MediaFilterResult`、`applyResult`、`clearConditions`、`activeCount` 同步；新增 `directorCountsOf` / `studioCountsOf`（跳过空值）给抽屉 chip 计数。`showMediaFilterSheet` 增加「导演」「制造商」两个分组，可多选、带命中数、随重置/应用一起提交。因为媒体库 / 演员页 / 文件夹页共用这一份抽屉，三处自动同时生效；媒体库还同步了本地筛选状态、`_compute` 缓存 key、摘要条的单条移除 chip。
+- **回归**：新增 `test/credit_filter_test.dart` 10 条（筛选模型、抽屉分组多选提交、`TagPage` 三种模式）；`test/detail_info_regression_test.dart` 把「演员行含导演/制造商」断言改成「两行独立 + 没有 3 项混排行」，并补 2 条真实点击（点导演/制造商胶囊后断言对应筛选页标题出现）。`AppState` 增加 `@visibleForTesting installTestItems` 便于注入全库测试数据。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **395 全过**（原 383 + 新增 12 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.55-release-arm64.apk`。
 
 ### v2.0.54 (254) 剧照横滑性能 + 信息区四项优化（真机反馈）
 

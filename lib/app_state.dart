@@ -178,6 +178,16 @@ class AppState extends ChangeNotifier {
   }
 
   List<MediaItem> get items => _items;
+
+  /// 测试专用：直接替换全库条目（不写缓存、不发通知以外的副作用），
+  /// 便于驱动「按导演 / 制造商聚合」这类依赖全库数据的页面。
+  @visibleForTesting
+  void installTestItems(List<MediaItem> items) {
+    _items = List<MediaItem>.of(items);
+    _invalidateDerived();
+    notifyListeners();
+  }
+
   bool get demoMode => _demoMode;
   bool get loading => _loading;
   String? get error => _error;

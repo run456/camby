@@ -12,7 +12,8 @@ import '../widgets/media_poster.dart';
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
 ///  · 顶栏排序按钮：直接显示当前字段 + 方向箭头
 ///  · 顶栏漏斗按钮：角标 = 激活筛选数
-///  · 抽屉内：排序（5 字段 × 升/降）、分辨率多选、中文字幕开关、标签多选
+///  · 抽屉内：排序（5 字段 × 升/降）、分辨率多选、中文字幕开关、导演/制造商
+///    多选、标签多选（v2.0.55）
 ///  · 应用后在媒体库行下方显示摘要条，单条可移除、一键清空
 ///  · 组内「或」、组间「且」；点「应用」才重算列表（_compute 缓存机制不变）
 class LibraryPage extends StatefulWidget {
@@ -41,6 +42,9 @@ class _LibraryPageState extends State<LibraryPage> {
   final Set<String> _resFilters = {};
   bool _cnOnly = false;
   final Set<String> _tagFilters = {};
+  // v2.0.55：导演 / 制造商与标签同为「组内或、组间且」
+  final Set<String> _directorFilters = {};
+  final Set<String> _studioFilters = {};
 
   bool _viewLoading = false;
   List<MediaItem>? _viewItems;
@@ -112,6 +116,8 @@ class _LibraryPageState extends State<LibraryPage> {
     _resFilters.clear();
     _cnOnly = false;
     _tagFilters.clear();
+    _directorFilters.clear();
+    _studioFilters.clear();
   }
 
   /// 只在筛选/排序/数据变化时重算一次（筛选与排序逻辑统一走 [MediaFilter]）
@@ -131,6 +137,8 @@ class _LibraryPageState extends State<LibraryPage> {
     res: Set<String>.of(_resFilters),
     cnOnly: _cnOnly,
     tags: Set<String>.of(_tagFilters),
+    directors: Set<String>.of(_directorFilters),
+    studios: Set<String>.of(_studioFilters),
   );
 
   Future<void> _openSheet() async {
@@ -150,6 +158,12 @@ class _LibraryPageState extends State<LibraryPage> {
       _tagFilters
         ..clear()
         ..addAll(result.tags);
+      _directorFilters
+        ..clear()
+        ..addAll(result.directors);
+      _studioFilters
+        ..clear()
+        ..addAll(result.studios);
       _cacheKey = '';
     });
   }
@@ -161,6 +175,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
         '|$_cnOnly|${_tagFilters.join()}'
+        '|${_directorFilters.join()}|${_studioFilters.join()}'
         '|${_viewItems?.length ?? -1}|${state.items.length}';
     final list = _compute(key);
     final top = MediaQuery.of(context).padding.top;
@@ -188,6 +203,30 @@ class _LibraryPageState extends State<LibraryPage> {
           '中文字幕',
           () => setState(() {
             _cnOnly = false;
+            _cacheKey = '';
+          }),
+        ),
+      );
+    }
+    for (final d in _directorFilters.toList()..sort()) {
+      summary.add(
+        _FilterChip(
+          '导演',
+          d,
+          () => setState(() {
+            _directorFilters.remove(d);
+            _cacheKey = '';
+          }),
+        ),
+      );
+    }
+    for (final s in _studioFilters.toList()..sort()) {
+      summary.add(
+        _FilterChip(
+          '制造商',
+          s,
+          () => setState(() {
+            _studioFilters.remove(s);
             _cacheKey = '';
           }),
         ),

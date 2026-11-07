@@ -12,10 +12,10 @@ import 'package:camby/pages/detail_page.dart';
 
 const _ppChannel = MethodChannel('plugins.flutter.io/path_provider');
 
-/// v2.0.54 回归：详情页信息区 4 项改动。
+/// v2.0.54 回归：详情页信息区 4 项改动；v2.0.55 追加独立行与点击筛选。
 /// ① 简介/媒体信息卡改半透明纯色框、内层滚动接入模糊降级；
 /// ② 标签行全部渲染、横滑可查看；
-/// ③ 演员行加导演 / 制造商信息标签；
+/// ③ 导演 / 制造商信息标签（v2.0.55 起从演员行拆出独立成行，可点筛选）；
 /// ④ NFO 系列名兜底 + 长名省略号缩略。
 void main() {
   // ── ④ NFO 解析（用用户提供的 IPZZ-077-C.nfo 真实字段） ──
@@ -149,24 +149,66 @@ void main() {
       expect(plusN, findsNothing, reason: '不应再有不可点的 +N 占位卡');
     });
 
-    testWidgets('演员行显示导演与制造商信息标签', (tester) async {
-      await pumpDetail(
-        tester,
-        MediaItem(
-          id: 'm2',
-          name: 'IPZZ-077 测试影片',
-          type: MediaType.movie,
-          overview: '简介',
-          colors: [const Color(0xFF3366CC), const Color(0xFF101010)],
-          director: 'うさぴょん。',
-          studio: 'IDEA POCKET',
-          people: [const CastMember(name: '三上悠亜')],
-        ),
-      );
+    MediaItem creditItem() => MediaItem(
+      id: 'm2',
+      name: 'IPZZ-077 测试影片',
+      type: MediaType.movie,
+      overview: '简介',
+      colors: [const Color(0xFF3366CC), const Color(0xFF101010)],
+      director: 'うさぴょん。',
+      studio: 'IDEA POCKET',
+      people: [const CastMember(name: '三上悠亜')],
+    );
 
+    testWidgets('导演/制造商独立成行，演员行不再混入制作信息', (tester) async {
+      await pumpDetail(tester, creditItem());
+
+      expect(find.text('导演 / 制造商'), findsOneWidget);
+      expect(find.text('演员'), findsOneWidget);
       expect(find.text('导演 うさぴょん。'), findsOneWidget);
       expect(find.text('制造商 IDEA POCKET'), findsOneWidget);
       expect(find.text('三上悠亜'), findsOneWidget);
+
+      // 两个独立横向胶囊行：制作信息行 2 项、演员行 1 项。
+      // 混排时会是一个 3 项的行，这里同时排除它。
+      final counts = <int>[];
+      for (final e in find.byType(ListView).evaluate()) {
+        final lv = e.widget as ListView;
+        final d = lv.childrenDelegate;
+        if (lv.scrollDirection == Axis.horizontal &&
+            d is SliverChildBuilderDelegate &&
+            d.childCount != null) {
+          counts.add(d.childCount!);
+        }
+      }
+      expect(counts, contains(2), reason: '导演 + 制造商必须独占一行');
+      expect(counts, contains(1), reason: '演员必须独占一行');
+      expect(counts.contains(3), isFalse, reason: '不应再出现三者混排');
+    });
+
+    Future<void> tapCredit(
+      WidgetTester tester,
+      String capText,
+      String expectedTitle,
+    ) async {
+      await pumpDetail(tester, creditItem());
+      final finder = find.text(capText);
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.text(expectedTitle), findsOneWidget,
+          reason: '点 $capText 应打开对应的全库筛选页');
+    }
+
+    testWidgets('点导演胶囊 → 按导演筛出全库影片', (tester) async {
+      await tapCredit(tester, '导演 うさぴょん。', '导演 · うさぴょん。');
+    });
+
+    testWidgets('点制造商胶囊 → 按制造商筛出全库影片', (tester) async {
+      await tapCredit(tester, '制造商 IDEA POCKET', '制造商 · IDEA POCKET');
     });
 
     testWidgets('超长系列名用省略号缩略，不撑破三列', (tester) async {

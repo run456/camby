@@ -419,6 +419,26 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
+  /// v2.0.55：点导演 / 制造商胶囊 → 按该值筛出全库影片。
+  ///
+  /// 与点标签胶囊走同一个 [TagPage]，只是把匹配字段从 tags/genres 换成
+  /// `MediaItem.director` / `MediaItem.studio`。全库列表本身已请求
+  /// People / Studios 字段，因此这里不需要额外拉接口。
+  void _openCredit(String value, TagPageMode mode) {
+    final v = value.trim();
+    if (v.isEmpty) return;
+    Navigator.of(context).push(
+      CambyRoutes.fade(
+        builder: (_) => TagPage(
+          tag: v,
+          mode: mode,
+          state: widget.state,
+          onOpenDetail: widget.onOpenDetail,
+        ),
+      ),
+    );
+  }
+
   /// 打开演员页。
   ///
   /// 从 `_castRow()` 内联逻辑抽出（信息区胶囊复用同一入口）。
@@ -1052,6 +1072,8 @@ class _DetailPageState extends State<DetailPage> {
         onOpenSubtitleFilter: _openSubtitleFilter,
         onOpenTag: _openTag,
         onOpenPerson: _openPerson,
+        onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
+        onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -1155,6 +1177,8 @@ class _DetailPageState extends State<DetailPage> {
         onOpenSubtitleFilter: _openSubtitleFilter,
         onOpenTag: _openTag,
         onOpenPerson: _openPerson,
+        onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
+        onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -2607,11 +2631,15 @@ class _RoundBtn extends StatelessWidget {
   }
 }
 
-/// 详情页「信息区」：规格三列（系列 / 发行 / 时长）+ 演员胶囊 + 标签胶囊。
+/// 详情页「信息区」：规格三列（系列 / 发行 / 时长）+ 导演/制造商行 +
+/// 演员行 + 标签行。
 ///
 /// 设计来源：参考截图（浅色三列 + 三色胶囊），转为深色液态玻璃配色；
-/// 采用紧凑版——单行横滑、超出显示 `+N`，锁图标按需求去掉，
-/// 演员带 ♀/♂ 以区分女优/男优。
+/// 采用紧凑版——每行单行横滑、全部可滑到，锁图标按需求去掉，
+/// 演员带 ♀ 造型符号。
+///
+/// v2.0.55：导演 / 制造商从演员行里拆出来**单独成行**，并支持点击按该值
+/// 筛选全库影片。原来三条信息混在「演员」标题下，语义不对且不好点。
 class _InfoBlock extends StatelessWidget {
   const _InfoBlock({
     required this.item,
@@ -2620,6 +2648,8 @@ class _InfoBlock extends StatelessWidget {
     required this.onOpenSubtitleFilter,
     required this.onOpenTag,
     required this.onOpenPerson,
+    required this.onOpenDirector,
+    required this.onOpenStudio,
     this.seriesNameOverride = '',
   });
 
@@ -2629,6 +2659,8 @@ class _InfoBlock extends StatelessWidget {
   final VoidCallback onOpenSubtitleFilter;
   final void Function(String tag) onOpenTag;
   final void Function(CastMember p) onOpenPerson;
+  final void Function(String name) onOpenDirector;
+  final void Function(String name) onOpenStudio;
 
   /// NFO 直读兜底拿到的系列名。Emby 对电影的 `SeriesName` 通常为空，
   /// 即使 NFO 里写了 `<series>` / `<set><name>` 也不会带出来。
@@ -2669,8 +2701,8 @@ class _InfoBlock extends StatelessWidget {
         .trim();
     final director = item.director.trim();
     final studio = item.studio.trim();
-    // 导演 / 制造商胶囊排在演员行最前面，用独立配色区分
-    final extraCount =
+    final hasCredits = director.isNotEmpty || studio.isNotEmpty;
+    final creditCount =
         (director.isNotEmpty ? 1 : 0) + (studio.isNotEmpty ? 1 : 0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2722,14 +2754,14 @@ class _InfoBlock extends StatelessWidget {
             ),
           ],
         ),
-        // ── 演员（v2.0.54：同一行前部加导演 / 制造商信息标签） ──
-        // 即使没有演员，只要 NFO/Emby 给了导演或工作室，这一行也要出现。
-        if (item.people.isNotEmpty || extraCount > 0) ...[
+        // ── 导演 / 制造商（v2.0.55：从演员行拆出，单独一行且可点筛选） ──
+        // 即使没有演员，只要 Emby/NFO 给了导演或工作室，这一行也要出现。
+        if (hasCredits) ...[
           const _HSep(),
-          const _MiniLabel('演员'),
+          const _MiniLabel('导演 / 制造商'),
           const SizedBox(height: 7),
           _CapRow(
-            count: item.people.length + extraCount,
+            count: creditCount,
             itemBuilder: (i) {
               if (director.isNotEmpty && i == 0) {
                 return _Cap(
@@ -2741,22 +2773,28 @@ class _InfoBlock extends StatelessWidget {
                     size: 11,
                     color: _blue,
                   ),
+                  onTap: () => onOpenDirector(director),
                 );
               }
-              final dOff = director.isNotEmpty ? 1 : 0;
-              if (studio.isNotEmpty && i == dOff) {
-                return _Cap(
-                  text: '制造商 $studio',
-                  color: _teal,
-                  maxWidth: 220,
-                  leading: const Icon(
-                    Icons.business,
-                    size: 11,
-                    color: _teal,
-                  ),
-                );
-              }
-              final p = item.people[i - extraCount];
+              return _Cap(
+                text: '制造商 $studio',
+                color: _teal,
+                maxWidth: 220,
+                leading: const Icon(Icons.business, size: 11, color: _teal),
+                onTap: () => onOpenStudio(studio),
+              );
+            },
+          ),
+        ],
+        // ── 演员 ──
+        if (item.people.isNotEmpty) ...[
+          const _HSep(),
+          const _MiniLabel('演员'),
+          const SizedBox(height: 7),
+          _CapRow(
+            count: item.people.length,
+            itemBuilder: (i) {
+              final p = item.people[i];
               // Emby 的 Person 没有可靠的性别字段，按名称角色没法判断，
               // 这里统一用 ♀ 造型符号做视觉标识（不做语义断言）
               return _Cap(

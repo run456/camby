@@ -1995,3 +1995,98 @@ String? nfoUrlFromMediaPath(String path) {
 **版本**：bump 到 **2.0.54+254**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
 
 验证（v2.0.54）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **383 全过**（原 370 + 新增 13 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.54-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='254' versionName='2.0.54'`。
+
+## §80 · v2.0.55 (255) 导演/制造商独立成行 + 点击筛选 + 筛选面板分组（v2.0.54 真机反馈）
+
+**背景**：真机截图显示 v2.0.54 把 `导演 肉尊`、`制造商 エスワン ナンバーワンスタイル` 与演员胶囊一起塞在「演员」标题下。用户要求：① 制造商和导演**单独一行**；② 点导演或制造商名字**可进行影片筛选**；③ 媒体库、演员页等**筛选面板加入可筛选的制造商和导演标签**。
+
+### 架构判断：不需要动服务端
+
+先确认两件事再动手，避免做多余功：
+1. `lib/widgets/media_filter_sheet.dart` 的 `MediaFilter.apply(items)` 是**客户端内存过滤**，页面把已加载列表传进去即可，不存在「筛选条件要下推到 Emby」的问题。
+2. `lib/emby_client.dart` 的 `_kItemFields` 是全局常量，已含 `People` 与 `Studios`；`server.items()` / `libraryItems()` / `libraryPreview()` 都用它，所以 `AppState.items` 里的 `MediaItem.director`（Person 中 `Type == 'Director'`）与 `MediaItem.studio`（`Studios[0].Name`）**在全库列表里就有值**。
+
+因此两组筛选和「点名字筛影片」都可以在客户端完成，无需 `PersonIds` / `StudioIds` 服务端查询，离线/缓存态同样可用。
+
+### ① 详情页拆行
+
+`_InfoBlock` 原来把 `extraCount`（导演 + 制造商）算进演员行的 `count`，`itemBuilder` 里用 `i - extraCount` 取演员，三条信息混在一个横向 `ListView` 里。改为两个独立的 `_CapRow`：
+```dart
+if (hasCredits) ...[
+  const _HSep(),
+  const _MiniLabel('导演 / 制造商'),
+  const SizedBox(height: 7),
+  _CapRow(count: creditCount, itemBuilder: (i) => i == 0 ? 导演胶囊 : 制造商胶囊),
+],
+if (item.people.isNotEmpty) ...[
+  const _HSep(),
+  const _MiniLabel('演员'),
+  const SizedBox(height: 7),
+  _CapRow(count: item.people.length, itemBuilder: (i) => 演员胶囊),
+],
+```
+两枚制作信息胶囊补上 `onTap`（`_Cap` 本身已支持 `LiquidPress` 包裹，和标签胶囊同一套点击链路），并新增 `onOpenDirector` / `onOpenStudio` 两个 `void Function(String)` 回调，手机 / 平板两处 `_InfoBlock` 调用都传入。
+
+### ② 点击筛选：复用并泛化 `TagPage`
+
+`_openTag` 原本 push `TagPage(tag: ...)` 列出全库含该标签的影片；这正是「点名字筛影片」想要的形态，于是给 `TagPage` 加 `TagPageMode { tag, director, studio }`：
+```dart
+final list = widget.state.items.where((e) {
+  switch (widget.mode) {
+    case TagPageMode.director: return hit(e.director);
+    case TagPageMode.studio:   return hit(e.studio);
+    case TagPageMode.tag:
+      if (isRes) { ...分辨率原逻辑... }
+      return e.tags.any(hit) || e.genres.any(hit);
+  }
+}).toList();
+```
+`hit(v) => v.trim().toUpperCase() == key` 与标签模式一致（trim + 忽略大小写，容忍 NFO 里的多余空格/大小写差异）。标题 getter 分别给 `#tag` / `导演 · xxx` / `制造商 · xxx`，`heroTag` 前缀按 mode 区分避免 Hero tag 冲突。`TagPageMode.tag` 是默认值，现有调用与 `test/sort_chip_row_test.dart` 不用改。
+
+详情页新增：
+```dart
+void _openCredit(String value, TagPageMode mode) {
+  final v = value.trim();
+  if (v.isEmpty) return;
+  Navigator.of(context).push(CambyRoutes.fade(
+    builder: (_) => TagPage(tag: v, mode: mode,
+        state: widget.state, onOpenDetail: widget.onOpenDetail),
+  ));
+}
+```
+
+**取舍**：选「独立结果页」而不是「跳媒体库并预置筛选条件」，因为前者与既有的点标签胶囊行为完全一致、实现面小，且结果页带自己的排序胶囊；后者需要跨页传递筛选草稿、处理媒体库当前 view 与全库的差异，语义更绕。筛选面板里的两组条件则负责「在当前列表内叠加筛选」，两者互补。
+
+### ③ 公共筛选模型与抽屉
+
+| 位置 | 改动 |
+|---|---|
+| `MediaFilterResult` | 加 `directors` / `studios`，默认 `const <String>{}` 保持旧调用方兼容 |
+| `MediaFilter` | 加两个 `final Set<String>`；构造可选；`activeCount` / `applyResult` / `clearConditions` 同步 |
+| `keeps` | `creditMatches(directors, e.director)` / `creditMatches(studios, e.studio)`，组间且、组内或，空值条目在有条件时不命中 |
+| 静态计数 | `directorCountsOf` / `studioCountsOf` → `_creditCountsOf`，trim 后计数、跳过空串 |
+| `showMediaFilterSheet` | 计算并传入两张计数表 |
+| 抽屉 | 「字幕」之后加「导演」「制造商」两组 `_fChip`（带命中数、多选、随重置清空、随应用提交） |
+
+`MediaFilterResult` 新字段给默认空集合是刻意的：`MediaFilterResult` 是 `const` 构造且被多处构造，改成 `required` 会破坏现有调用与测试。
+
+`library_page.dart` 是唯一不直接持有 `MediaFilter`、而是每次用 `_asFilter` 重建的页面，额外同步了 4 处：`_directorFilters` / `_studioFilters` 字段、`_clearFilters`、`_asFilter` 与 `_openSheet` 回写、`_compute` 的 `key`（漏了会导致点应用后列表不刷新），以及摘要条两组可单条移除的 chip。演员页 / 文件夹页直接 `filter.applyResult(result)`，无需改动即自动获得能力。
+
+### 测试
+
+新增 `test/credit_filter_test.dart` 10 条：
+- `MediaFilter` 按导演 / 按制造商 / 两者组间且、空值不命中、`activeCount`+`applyResult`+`clearConditions`、计数 trim 与跳过空值；
+- 抽屉 widget 测试：两个分组标题与 chip 都在，点一个导演 chip 后「应用筛选」回传 `directors == {'陈叙'}`；
+- `TagPage` 三模式：director 筛出 2 部、studio 忽略大小写筛出 2 部、tag 模式保持原语义。
+
+`test/detail_info_regression_test.dart` 更新 ③：把「演员行显示导演与制造商」改成「导演/制造商独立成行」——除文案断言外，收集所有**横向** `ListView` 的 `SliverChildBuilderDelegate.childCount`，要求同时存在 2（制作行）和 1（演员行）、且不存在 3（三者混排）；再补 2 条真实 `tester.tap` 点击断言筛选页标题出现。
+
+踩坑两则：
+- `MediaFilter.apply` 会排序，而 Dart `List.sort` 不稳定；测试数据 year 相同，断言改用 `unorderedEquals` 只校验命中集合。
+- 抽屉测试在默认 800×600 测试屏下 `find.text('导演')` 返回 0 —— 抽屉内 `ListView` 懒构建，排序 5 行 + 分辨率 + 字幕已把 0.88×600 的可见区占满，导演分组还没建出来。把测试视口调到 `Size(800, 1600)` 后全部进视口，测试通过。
+
+为让 `TagPage` 能注入自定义全库数据，`AppState` 增加 `@visibleForTesting installTestItems(List<MediaItem>)`（与既有 `installTestServer` 同一风格，不写缓存、只刷新派生缓存并通知）。
+
+**版本**：bump 到 **2.0.55+255**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
+
+验证（v2.0.55）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用，`383 issues found` 全为 info）；`flutter test` **395 全过**（原 383 + 新增 12 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.55-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='255' versionName='2.0.55'`。

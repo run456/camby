@@ -10,19 +10,29 @@ import '../theme.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/sort_chip_row.dart';
 
-/// 标签筛选页：列出包含该标签（或分辨率）的影片
+/// 聚合筛选页：列出全库中符合某个「键」的影片。
 ///
-/// v1.7.72：与「中文字幕」页统一——同款 年份/标题/评分 排序胶囊，
-/// 点选倒序、再点同字段切正序。
+/// [TagPageMode.tag] 沿用原有标签 / 分辨率语义；v2.0.55 增加
+/// [TagPageMode.director] / [TagPageMode.studio]，供详情页点导演、
+/// 制造商胶囊时按该条目筛出同导演 / 同制造商的全部影片。
+///
+/// 三种模式共用同一套 年份/标题/评分 排序胶囊与海报网格。
+/// 数据源是 [AppState.items]（全库，已带 People / Studios 字段），
+/// 因此是客户端过滤，不额外打服务端请求。
+enum TagPageMode { tag, director, studio }
+
 class TagPage extends StatefulWidget {
   const TagPage({
     super.key,
     required this.tag,
+    this.mode = TagPageMode.tag,
     required this.state,
     required this.onOpenDetail,
   });
 
+  /// 要匹配的值：标签名 / 分辨率 / 导演名 / 制造商名
   final String tag;
+  final TagPageMode mode;
   final AppState state;
   final OpenDetail onOpenDetail;
 
@@ -40,19 +50,38 @@ class _TagPageState extends State<TagPage> {
     final tag = widget.tag;
     final key = tag.trim().toUpperCase();
     final isRes = _res.hasMatch(tag.trim());
+    bool hit(String v) => v.trim().toUpperCase() == key;
     final list = widget.state.items.where((e) {
-      if (isRes) {
-        if (!e.resolutionKnown) return false;
-        final r = e.isTrue4K ? '2160P' : '${e.videoHeight}P';
-        return r == key;
+      switch (widget.mode) {
+        case TagPageMode.director:
+          return hit(e.director);
+        case TagPageMode.studio:
+          return hit(e.studio);
+        case TagPageMode.tag:
+          if (isRes) {
+            if (!e.resolutionKnown) return false;
+            final r = e.isTrue4K ? '2160P' : '${e.videoHeight}P';
+            return r == key;
+          }
+          // 标签/类型比较统一去空格 + 忽略大小写，避免 NFO 里多余空格查不到
+          return e.tags.any(hit) || e.genres.any(hit);
       }
-      // 标签/类型比较统一去空格 + 忽略大小写，避免 NFO 里多余空格导致查不到
-      bool hit(String v) => v.trim().toUpperCase() == key;
-      return e.tags.any(hit) || e.genres.any(hit);
     }).toList();
     sortItemsBy(list, _field, _asc);
     return list;
   }
+
+  String get _title => switch (widget.mode) {
+    TagPageMode.tag => '#${widget.tag}',
+    TagPageMode.director => '导演 · ${widget.tag}',
+    TagPageMode.studio => '制造商 · ${widget.tag}',
+  };
+
+  String get _heroPrefix => switch (widget.mode) {
+    TagPageMode.tag => 'tag',
+    TagPageMode.director => 'director',
+    TagPageMode.studio => 'studio',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -103,7 +132,7 @@ class _TagPageState extends State<TagPage> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    '#${widget.tag}',
+                    _title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -148,12 +177,12 @@ class _TagPageState extends State<TagPage> {
                     itemBuilder: (c, i) => PosterCard(
                       item: items[i],
                       width: double.infinity,
-                      heroTag: 'tag-${widget.tag}-${items[i].id}',
+                      heroTag: '${_heroPrefix}-${widget.tag}-${items[i].id}',
                       onTap: () {
                         Navigator.of(context).pop();
                         widget.onOpenDetail(
                           items[i],
-                          heroTag: 'tag-${widget.tag}-${items[i].id}',
+                          heroTag: '${_heroPrefix}-${widget.tag}-${items[i].id}',
                         );
                       },
                     ),

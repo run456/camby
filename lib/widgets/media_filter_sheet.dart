@@ -6,15 +6,19 @@ import '../models.dart';
 import '../theme.dart';
 import 'liquid_press.dart';
 
-/// 「排序与筛选」的**唯一实现**：媒体库 / 演员页 / 收藏夹共用。
+/// 「排序与筛选」的**唯一实现**：媒体库 / 演员页 / 文件夹页共用。
 ///
 /// 之前媒体库有一套（`LibraryFilterSheet`），演员页与收藏夹各有简化版
 /// （只有年代档，没有分辨率 / 字幕 / 标签），三处版式与能力都对不上。
 /// 现在统一到这里：
 /// - [MediaFilter]：筛选与排序状态（排序 5 字段 × 各自升降 + 分辨率 +
-///   中文字幕 + 标签），页面直接 `filter.apply(items)` 拿结果
+///   中文字幕 + 标签 + 导演 + 制造商），页面直接 `filter.apply(items)` 拿结果
 /// - [MediaFilterButton]：顶栏入口胶囊（↓ 发行日期 + 条件数角标）
 /// - [showMediaFilterSheet]：底部抽屉，版式与媒体库完全一致
+///
+/// v2.0.55：新增「导演」「制造商」两组。字段来自 Emby 的 `People`(Director)
+/// 与 `Studios`，已在 `_kItemFields` 里，故全库列表可直接客户端过滤，
+/// 无需额外服务端请求。
 const List<String> mediaSortNames = ['创建日期', '发行日期', '标题', '播放时长', '评分'];
 
 /// 分辨率分组（十进制口径，来自视频流真实高度）
@@ -28,6 +32,8 @@ class MediaFilterResult {
     required this.res,
     required this.cnOnly,
     required this.tags,
+    this.directors = const <String>{},
+    this.studios = const <String>{},
   });
 
   final int sort;
@@ -35,6 +41,10 @@ class MediaFilterResult {
   final Set<String> res;
   final bool cnOnly;
   final Set<String> tags;
+
+  /// v2.0.55：导演 / 制造商多选（默认空，兼容旧调用方）
+  final Set<String> directors;
+  final Set<String> studios;
 }
 
 /// 筛选与排序状态。页面持有，抽屉里编辑草稿，点「应用筛选」才回写。
@@ -45,9 +55,13 @@ class MediaFilter {
     Set<String>? res,
     this.cnOnly = false,
     Set<String>? tags,
+    Set<String>? directors,
+    Set<String>? studios,
   }) : desc = desc ?? List<bool>.filled(mediaSortNames.length, true),
        res = res ?? <String>{},
-       tags = tags ?? <String>{};
+       tags = tags ?? <String>{},
+       directors = directors ?? <String>{},
+       studios = studios ?? <String>{};
 
   /// 当前排序字段下标（见 [mediaSortNames]）
   int sort;
@@ -59,7 +73,16 @@ class MediaFilter {
   bool cnOnly;
   final Set<String> tags;
 
-  int get activeCount => res.length + (cnOnly ? 1 : 0) + tags.length;
+  /// v2.0.55：导演 / 制造商（值为 trim 后的显示名，比较时忽略大小写）
+  final Set<String> directors;
+  final Set<String> studios;
+
+  int get activeCount =>
+      res.length +
+      (cnOnly ? 1 : 0) +
+      tags.length +
+      directors.length +
+      studios.length;
 
   /// 顶栏胶囊上的文案：方向箭头 + 当前字段名
   String get summary => mediaSortNames[sort];
@@ -75,6 +98,12 @@ class MediaFilter {
     tags
       ..clear()
       ..addAll(r.tags);
+    directors
+      ..clear()
+      ..addAll(r.directors);
+    studios
+      ..clear()
+      ..addAll(r.studios);
   }
 
   /// 只清条件，不动排序
@@ -82,12 +111,24 @@ class MediaFilter {
     res.clear();
     cnOnly = false;
     tags.clear();
+    directors.clear();
+    studios.clear();
+  }
+
+  /// 导演 / 制造商名字比较：trim + 忽略大小写，避免 NFO 里多余空格漏匹配
+  static bool creditMatches(Set<String> selected, String value) {
+    if (selected.isEmpty) return true;
+    final v = value.trim().toUpperCase();
+    if (v.isEmpty) return false;
+    return selected.any((s) => s.trim().toUpperCase() == v);
   }
 
   bool keeps(MediaItem e) {
     if (res.isNotEmpty && !res.contains(resolutionBucket(e))) return false;
     if (cnOnly && !itemHasChineseSubtitle(e)) return false;
     if (tags.isNotEmpty && !e.tags.any(tags.contains)) return false;
+    if (!creditMatches(directors, e.director)) return false;
+    if (!creditMatches(studios, e.studio)) return false;
     return true;
   }
 
@@ -128,6 +169,26 @@ class MediaFilter {
       for (final t in e.tags) {
         m[t] = (m[t] ?? 0) + 1;
       }
+    }
+    return m;
+  }
+
+  /// v2.0.55：只统计非空值，空名字不出现在抽屉里（选了也筛不出东西）
+  static Map<String, int> directorCountsOf(Iterable<MediaItem> items) =>
+      _creditCountsOf(items, (e) => e.director);
+
+  static Map<String, int> studioCountsOf(Iterable<MediaItem> items) =>
+      _creditCountsOf(items, (e) => e.studio);
+
+  static Map<String, int> _creditCountsOf(
+    Iterable<MediaItem> items,
+    String Function(MediaItem e) pick,
+  ) {
+    final m = <String, int>{};
+    for (final e in items) {
+      final v = pick(e).trim();
+      if (v.isEmpty) continue;
+      m[v] = (m[v] ?? 0) + 1;
     }
     return m;
   }
@@ -247,6 +308,8 @@ Future<MediaFilterResult?> showMediaFilterSheet(
       filter: filter,
       resCounts: MediaFilter.resCountsOf(items),
       tagCounts: MediaFilter.tagCountsOf(items),
+      directorCounts: MediaFilter.directorCountsOf(items),
+      studioCounts: MediaFilter.studioCountsOf(items),
       total: items.length,
     ),
   );
@@ -258,12 +321,16 @@ class _MediaFilterSheet extends StatefulWidget {
     required this.filter,
     required this.resCounts,
     required this.tagCounts,
+    required this.directorCounts,
+    required this.studioCounts,
     required this.total,
   });
 
   final MediaFilter filter;
   final Map<String, int> resCounts;
   final Map<String, int> tagCounts;
+  final Map<String, int> directorCounts;
+  final Map<String, int> studioCounts;
   final int total;
 
   @override
@@ -276,6 +343,8 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
   late Set<String> _res;
   late bool _cn;
   late Set<String> _tags;
+  late Set<String> _directors;
+  late Set<String> _studios;
 
   @override
   void initState() {
@@ -285,13 +354,22 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
     _res = Set<String>.of(widget.filter.res);
     _cn = widget.filter.cnOnly;
     _tags = Set<String>.of(widget.filter.tags);
+    _directors = Set<String>.of(widget.filter.directors);
+    _studios = Set<String>.of(widget.filter.studios);
   }
 
-  int get _activeCount => _res.length + (_cn ? 1 : 0) + _tags.length;
+  int get _activeCount =>
+      _res.length +
+      (_cn ? 1 : 0) +
+      _tags.length +
+      _directors.length +
+      _studios.length;
 
   @override
   Widget build(BuildContext context) {
     final tags = widget.tagCounts.keys.toList()..sort();
+    final directors = widget.directorCounts.keys.toList()..sort();
+    final studios = widget.studioCounts.keys.toList()..sort();
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.88,
@@ -374,6 +452,40 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                     on: _cn,
                     onChanged: (v) => setState(() => _cn = v),
                   ),
+                  if (directors.isNotEmpty) ...[
+                    _sectionTitle('导演', '多选 · 来自 People (Director)'),
+                    _chipWrap(
+                      directors.map(
+                        (d) => _fChip(
+                          d,
+                          count: widget.directorCounts[d] ?? 0,
+                          on: _directors.contains(d),
+                          onTap: () => setState(() {
+                            _directors.contains(d)
+                                ? _directors.remove(d)
+                                : _directors.add(d);
+                          }),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (studios.isNotEmpty) ...[
+                    _sectionTitle('制造商', '多选 · 来自 Studios'),
+                    _chipWrap(
+                      studios.map(
+                        (s) => _fChip(
+                          s,
+                          count: widget.studioCounts[s] ?? 0,
+                          on: _studios.contains(s),
+                          onTap: () => setState(() {
+                            _studios.contains(s)
+                                ? _studios.remove(s)
+                                : _studios.add(s);
+                          }),
+                        ),
+                      ),
+                    ),
+                  ],
                   _sectionTitle('标签', '多选 · 可滚动'),
                   _chipWrap(
                     tags.map(
@@ -401,6 +513,8 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                       _res.clear();
                       _cn = false;
                       _tags.clear();
+                      _directors.clear();
+                      _studios.clear();
                     }),
                     radius: 14,
                     child: Container(
@@ -435,6 +549,8 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                           res: _res,
                           cnOnly: _cn,
                           tags: _tags,
+                          directors: _directors,
+                          studios: _studios,
                         ),
                       ),
                       radius: 14,
