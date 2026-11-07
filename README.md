@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.56 (256)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.57 (257)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,17 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.57 (257) 标签可点筛选 + 规格三列对齐 + 系列筛选类别
+
+承接真机反馈：
+
+- **标签可点击筛选同类型影片**：详情页「标签」胶囊本就接了 `_openTag` → `TagPage`（与导演/制造商同款交互），本轮补了真实点击回归确认可用；点任意标签即列出全库同标签影片。
+- **规格三列水平对齐**：「系列 / 发行日期 / 时长」三列的值统一收进等高盒、左对齐，修正「系列」彩色胶囊与右侧纯文本基线不齐的问题。
+- **媒体库筛选新增「系列」类别**：公共 `MediaFilter` 增加 `series` 条件（来自 `seriesName`，组间且、组内或、trim + 忽略大小写）；媒体库 / 演员页 / 文件夹页共用抽屉自动生效，媒体库同步状态、缓存 key、摘要条。
+- **屏蔽低频筛选项**：标签 / 系列这种自由文本、取值很多的分组，命中数 `< 8` 的选项直接不渲染（`kMinFilterCount = 8`），避免几十个低频标签把抽屉撑爆。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **408 全过**（原 404 + 新增 13 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.57-release-arm64.apk`。
 
 ### v2.0.56 (256) 系列仍显示「无」的二次修复（NFO 兜底加固）
 

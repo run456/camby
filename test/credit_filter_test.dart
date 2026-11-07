@@ -16,6 +16,7 @@ void main() {
     String director = '',
     String studio = '',
     List<String> tags = const [],
+    String seriesName = '',
   }) =>
       MediaItem(
         id: id,
@@ -26,12 +27,13 @@ void main() {
         director: director,
         studio: studio,
         tags: tags,
+        seriesName: seriesName,
       );
 
   final items = [
-    mk('a', director: '陈叙', studio: 'IDEA POCKET', tags: ['科幻']),
-    mk('b', director: ' 陈叙 ', studio: 'MOODYZ', tags: ['剧情']),
-    mk('c', director: '林越', studio: 'idea pocket', tags: ['科幻']),
+    mk('a', director: '陈叙', studio: 'IDEA POCKET', tags: ['科幻'], seriesName: '甜蜜风暴'),
+    mk('b', director: ' 陈叙 ', studio: 'MOODYZ', tags: ['剧情'], seriesName: '甜蜜风暴'),
+    mk('c', director: '林越', studio: 'idea pocket', tags: ['科幻'], seriesName: '深海'),
     mk('d'), // 两个字段都空，任何一组筛选都不应命中
   ];
 
@@ -55,6 +57,22 @@ void main() {
       expect(f.apply(items).map((e) => e.id), unorderedEquals(['a', 'c']));
     });
 
+    test('按系列筛选，trim + 忽略大小写', () {
+      expect(MediaFilter(series: {'甜蜜风暴'}).apply(items).map((e) => e.id),
+          unorderedEquals(['a', 'b']));
+      expect(MediaFilter(series: {' 深海 '}).apply(items).map((e) => e.id),
+          unorderedEquals(['c']));
+      // 组内多选是「或」，组间与导演是「且」
+      expect(
+        MediaFilter(series: {'甜蜜风暴', '深海'}).apply(items).map((e) => e.id),
+        unorderedEquals(['a', 'b', 'c']),
+      );
+    });
+
+    test('空 seriesName 条目在任何系列筛选下都不命中', () {
+      expect(MediaFilter(series: {'甜蜜风暴'}).keeps(items[3]), isFalse);
+    });
+
     test('空值条目在任何一组筛选下都不命中', () {
       expect(MediaFilter(directors: {'陈叙'}).keeps(items[3]), isFalse);
       expect(MediaFilter(studios: {'IDEA POCKET'}).keeps(items[3]), isFalse);
@@ -66,9 +84,10 @@ void main() {
         tags: {'科幻'},
         directors: {'陈叙'},
         studios: {'IDEA POCKET'},
+        series: {'甜蜜风暴'},
         cnOnly: true,
       );
-      expect(f.activeCount, 4);
+      expect(f.activeCount, 5);
 
       f.applyResult(
         const MediaFilterResult(
@@ -79,11 +98,13 @@ void main() {
           tags: {},
           directors: {'林越'},
           studios: {'MOODYZ'},
+          series: {'深海'},
         ),
       );
       expect(f.directors, {'林越'});
       expect(f.studios, {'MOODYZ'});
-      expect(f.activeCount, 2);
+      expect(f.series, {'深海'});
+      expect(f.activeCount, 3);
 
       f.clearConditions();
       expect(f.activeCount, 0);
@@ -93,11 +114,15 @@ void main() {
     test('计数只统计非空名字', () {
       final d = MediaFilter.directorCountsOf(items);
       final s = MediaFilter.studioCountsOf(items);
+      final se = MediaFilter.seriesCountsOf(items);
       expect(d.containsKey(''), isFalse);
       expect(s.containsKey(''), isFalse);
+      expect(se.containsKey(''), isFalse);
       expect(d['陈叙'], 2); // ' 陈叙 ' 已 trim 成同一个 key
       expect(d['林越'], 1);
       expect(s['IDEA POCKET'], 1);
+      expect(se['甜蜜风暴'], 2);
+      expect(se['深海'], 1);
     });
   });
 
@@ -148,6 +173,47 @@ void main() {
       expect(result, isNotNull);
       expect(result!.directors, {'陈叙'});
       expect(result!.studios, isEmpty);
+    });
+
+    testWidgets('抽屉出现「系列」分组，且命中数<8 的标签/系列选项不显示', (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      // 8 部带「常见」标签 +「大系」系列（命中 8，应显示）；
+      // 1 部带「冷门」标签 +「小系」系列（命中 1，应隐藏）。
+      final big = <MediaItem>[
+        for (var i = 0; i < 8; i++)
+          mk('x$i', tags: ['常见'], seriesName: '大系'),
+        mk('y1', tags: ['冷门'], seriesName: '小系'),
+      ];
+
+      late BuildContext sheetContext;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                sheetContext = context;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+      // 抽屉内部 chip 较多，pumpAndSettle 在该配置下不收敛，改用显式帧推进
+      showMediaFilterSheet(sheetContext, filter: MediaFilter(), source: big);
+      for (var i = 0; i < 25; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      // 分组标题 + 高频选项都出现
+      expect(find.text('系列'), findsOneWidget);
+      expect(find.text('大系'), findsOneWidget); // 命中 8 -> 显示
+      expect(find.text('常见'), findsOneWidget); // 命中 8 -> 显示
+      // 低频选项被阈值过滤掉
+      expect(find.text('冷门'), findsNothing); // 命中 1 -> 隐藏
+      expect(find.text('小系'), findsNothing); // 命中 1 -> 隐藏
     });
   });
 

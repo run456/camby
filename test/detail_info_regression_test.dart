@@ -211,6 +211,36 @@ void main() {
       await tapCredit(tester, '制造商 IDEA POCKET', '制造商 · IDEA POCKET');
     });
 
+    MediaItem tagItem() => MediaItem(
+      id: 'm4',
+      name: 'IPZZ-077 测试影片',
+      type: MediaType.movie,
+      overview: '简介',
+      colors: [const Color(0xFF3366CC), const Color(0xFF101010)],
+      tags: ['剧情'],
+    );
+
+    Future<void> tapTag(
+      WidgetTester tester,
+      String capText,
+      String expectedTitle,
+    ) async {
+      await pumpDetail(tester, tagItem());
+      final finder = find.text(capText);
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.text(expectedTitle), findsOneWidget,
+          reason: '点 $capText 应打开同类型影片筛选页');
+    }
+
+    testWidgets('点标签胶囊 → 按标签筛出同类型影片', (tester) async {
+      await tapTag(tester, '剧情', '#剧情');
+    });
+
     testWidgets('超长系列名用省略号缩略，不撑破三列', (tester) async {
       const longName = '濃厚な接吻とSEX 特別完全版 ディレクターズカット ブルーレイ 限定版 長すぎるシリーズ名';
       await pumpDetail(

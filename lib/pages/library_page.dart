@@ -45,6 +45,8 @@ class _LibraryPageState extends State<LibraryPage> {
   // v2.0.55：导演 / 制造商与标签同为「组内或、组间且」
   final Set<String> _directorFilters = {};
   final Set<String> _studioFilters = {};
+  // v2.0.57：系列（来自 SeriesName）
+  final Set<String> _seriesFilters = {};
 
   bool _viewLoading = false;
   List<MediaItem>? _viewItems;
@@ -118,6 +120,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _tagFilters.clear();
     _directorFilters.clear();
     _studioFilters.clear();
+    _seriesFilters.clear();
   }
 
   /// 只在筛选/排序/数据变化时重算一次（筛选与排序逻辑统一走 [MediaFilter]）
@@ -139,6 +142,7 @@ class _LibraryPageState extends State<LibraryPage> {
     tags: Set<String>.of(_tagFilters),
     directors: Set<String>.of(_directorFilters),
     studios: Set<String>.of(_studioFilters),
+    series: Set<String>.of(_seriesFilters),
   );
 
   Future<void> _openSheet() async {
@@ -164,6 +168,9 @@ class _LibraryPageState extends State<LibraryPage> {
       _studioFilters
         ..clear()
         ..addAll(result.studios);
+      _seriesFilters
+        ..clear()
+        ..addAll(result.series);
       _cacheKey = '';
     });
   }
@@ -175,7 +182,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
         '|$_cnOnly|${_tagFilters.join()}'
-        '|${_directorFilters.join()}|${_studioFilters.join()}'
+        '|${_directorFilters.join()}|${_studioFilters.join()}|${_seriesFilters.join()}'
         '|${_viewItems?.length ?? -1}|${state.items.length}';
     final list = _compute(key);
     final top = MediaQuery.of(context).padding.top;
@@ -239,6 +246,18 @@ class _LibraryPageState extends State<LibraryPage> {
           t,
           () => setState(() {
             _tagFilters.remove(t);
+            _cacheKey = '';
+          }),
+        ),
+      );
+    }
+    for (final s in _seriesFilters.toList()..sort()) {
+      summary.add(
+        _FilterChip(
+          '系列',
+          s,
+          () => setState(() {
+            _seriesFilters.remove(s);
             _cacheKey = '';
           }),
         ),

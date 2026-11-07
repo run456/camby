@@ -2736,6 +2736,8 @@ class _InfoBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── 规格三列 ──
+        // 三列值统一放进等高（24）盒、左对齐，保证「系列」彩色胶囊与
+        // 「发行日期 / 时长」纯文本的基线水平对齐（v2.0.57 反馈不对齐）。
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2748,10 +2750,16 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('系列'),
                   const SizedBox(height: 6),
-                  _Cap(
-                    text: seriesName.isEmpty ? '无' : seriesName,
-                    color: seriesName.isEmpty ? _dim : _orange,
-                    maxWidth: double.infinity,
+                  SizedBox(
+                    height: 24,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _Cap(
+                        text: seriesName.isEmpty ? '无' : seriesName,
+                        color: seriesName.isEmpty ? _dim : _orange,
+                        maxWidth: double.infinity,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -2764,7 +2772,7 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('发行日期'),
                   const SizedBox(height: 6),
-                  _Plain(text: _releaseText),
+                  SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: _Plain(text: _releaseText))),
                 ],
               ),
             ),
@@ -2776,7 +2784,7 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('时长'),
                   const SizedBox(height: 6),
-                  _Plain(text: _runtimeText),
+                  SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: _Plain(text: _runtimeText))),
                 ],
               ),
             ),

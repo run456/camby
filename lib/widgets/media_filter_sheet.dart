@@ -24,6 +24,10 @@ const List<String> mediaSortNames = ['创建日期', '发行日期', '标题', '
 /// 分辨率分组（十进制口径，来自视频流真实高度）
 const List<String> mediaResBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
 
+/// 抽屉里「标签 / 系列」这类自由文本、取值很多的分组，命中数低于该阈值的
+/// 选项直接不渲染，避免几十上百个低频标签把抽屉撑爆（v2.0.57 反馈）。
+const int kMinFilterCount = 8;
+
 /// 抽屉返回结果（草稿态提交）
 class MediaFilterResult {
   const MediaFilterResult({
@@ -34,6 +38,7 @@ class MediaFilterResult {
     required this.tags,
     this.directors = const <String>{},
     this.studios = const <String>{},
+    this.series = const <String>{},
   });
 
   final int sort;
@@ -45,6 +50,9 @@ class MediaFilterResult {
   /// v2.0.55：导演 / 制造商多选（默认空，兼容旧调用方）
   final Set<String> directors;
   final Set<String> studios;
+
+  /// v2.0.57：系列多选（来自 `MediaItem.seriesName`）
+  final Set<String> series;
 }
 
 /// 筛选与排序状态。页面持有，抽屉里编辑草稿，点「应用筛选」才回写。
@@ -57,11 +65,13 @@ class MediaFilter {
     Set<String>? tags,
     Set<String>? directors,
     Set<String>? studios,
+    Set<String>? series,
   }) : desc = desc ?? List<bool>.filled(mediaSortNames.length, true),
        res = res ?? <String>{},
        tags = tags ?? <String>{},
        directors = directors ?? <String>{},
-       studios = studios ?? <String>{};
+       studios = studios ?? <String>{},
+       series = series ?? <String>{};
 
   /// 当前排序字段下标（见 [mediaSortNames]）
   int sort;
@@ -77,12 +87,16 @@ class MediaFilter {
   final Set<String> directors;
   final Set<String> studios;
 
+  /// v2.0.57：系列（来自 `MediaItem.seriesName`，值比较忽略大小写）
+  final Set<String> series;
+
   int get activeCount =>
       res.length +
       (cnOnly ? 1 : 0) +
       tags.length +
       directors.length +
-      studios.length;
+      studios.length +
+      series.length;
 
   /// 顶栏胶囊上的文案：方向箭头 + 当前字段名
   String get summary => mediaSortNames[sort];
@@ -104,6 +118,9 @@ class MediaFilter {
     studios
       ..clear()
       ..addAll(r.studios);
+    series
+      ..clear()
+      ..addAll(r.series);
   }
 
   /// 只清条件，不动排序
@@ -113,6 +130,7 @@ class MediaFilter {
     tags.clear();
     directors.clear();
     studios.clear();
+    series.clear();
   }
 
   /// 导演 / 制造商名字比较：trim + 忽略大小写，避免 NFO 里多余空格漏匹配
@@ -129,6 +147,7 @@ class MediaFilter {
     if (tags.isNotEmpty && !e.tags.any(tags.contains)) return false;
     if (!creditMatches(directors, e.director)) return false;
     if (!creditMatches(studios, e.studio)) return false;
+    if (!creditMatches(series, e.seriesName)) return false;
     return true;
   }
 
@@ -179,6 +198,17 @@ class MediaFilter {
 
   static Map<String, int> studioCountsOf(Iterable<MediaItem> items) =>
       _creditCountsOf(items, (e) => e.studio);
+
+  /// v2.0.57：系列名计数（来自 `seriesName`，只统计非空值）
+  static Map<String, int> seriesCountsOf(Iterable<MediaItem> items) {
+    final m = <String, int>{};
+    for (final e in items) {
+      final v = e.seriesName.trim();
+      if (v.isEmpty) continue;
+      m[v] = (m[v] ?? 0) + 1;
+    }
+    return m;
+  }
 
   static Map<String, int> _creditCountsOf(
     Iterable<MediaItem> items,
@@ -310,6 +340,7 @@ Future<MediaFilterResult?> showMediaFilterSheet(
       tagCounts: MediaFilter.tagCountsOf(items),
       directorCounts: MediaFilter.directorCountsOf(items),
       studioCounts: MediaFilter.studioCountsOf(items),
+      seriesCounts: MediaFilter.seriesCountsOf(items),
       total: items.length,
     ),
   );
@@ -323,6 +354,7 @@ class _MediaFilterSheet extends StatefulWidget {
     required this.tagCounts,
     required this.directorCounts,
     required this.studioCounts,
+    required this.seriesCounts,
     required this.total,
   });
 
@@ -331,6 +363,7 @@ class _MediaFilterSheet extends StatefulWidget {
   final Map<String, int> tagCounts;
   final Map<String, int> directorCounts;
   final Map<String, int> studioCounts;
+  final Map<String, int> seriesCounts;
   final int total;
 
   @override
@@ -345,6 +378,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
   late Set<String> _tags;
   late Set<String> _directors;
   late Set<String> _studios;
+  late Set<String> _series;
 
   @override
   void initState() {
@@ -356,6 +390,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
     _tags = Set<String>.of(widget.filter.tags);
     _directors = Set<String>.of(widget.filter.directors);
     _studios = Set<String>.of(widget.filter.studios);
+    _series = Set<String>.of(widget.filter.series);
   }
 
   int get _activeCount =>
@@ -363,11 +398,23 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
       (_cn ? 1 : 0) +
       _tags.length +
       _directors.length +
-      _studios.length;
+      _studios.length +
+      _series.length;
 
   @override
   Widget build(BuildContext context) {
-    final tags = widget.tagCounts.keys.toList()..sort();
+    // 标签 / 系列是自由文本、取值很多，命中数低于阈值的选项直接不渲染，
+    // 避免低频标签把抽屉撑爆（v2.0.57 反馈：筛选项过多）。
+    final tags = widget.tagCounts.entries
+        .where((e) => e.value >= kMinFilterCount)
+        .map((e) => e.key)
+        .toList()
+      ..sort();
+    final series = widget.seriesCounts.entries
+        .where((e) => e.value >= kMinFilterCount)
+        .map((e) => e.key)
+        .toList()
+      ..sort();
     final directors = widget.directorCounts.keys.toList()..sort();
     final studios = widget.studioCounts.keys.toList()..sort();
     return Container(
@@ -486,7 +533,24 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                       ),
                     ),
                   ],
-                  _sectionTitle('标签', '多选 · 可滚动'),
+                  if (series.isNotEmpty) ...[
+                    _sectionTitle('系列', '多选 · 来自 SeriesName'),
+                    _chipWrap(
+                      series.map(
+                        (s) => _fChip(
+                          s,
+                          count: widget.seriesCounts[s] ?? 0,
+                          on: _series.contains(s),
+                          onTap: () => setState(() {
+                            _series.contains(s)
+                                ? _series.remove(s)
+                                : _series.add(s);
+                          }),
+                        ),
+                      ),
+                    ),
+                  ],
+                  _sectionTitle('标签', '多选 · 命中<$kMinFilterCount 不显示'),
                   _chipWrap(
                     tags.map(
                       (t) => _fChip(
@@ -515,6 +579,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                       _tags.clear();
                       _directors.clear();
                       _studios.clear();
+                      _series.clear();
                     }),
                     radius: 14,
                     child: Container(
@@ -551,6 +616,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                           tags: _tags,
                           directors: _directors,
                           studios: _studios,
+                          series: _series,
                         ),
                       ),
                       radius: 14,
