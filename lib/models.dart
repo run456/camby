@@ -728,6 +728,7 @@ class MediaItem {
     int? lastPlayedAt,
     int? userPlayCount,
     List<MediaExtraPart>? extraParts,
+    String? seriesName,
   }) {
     return MediaItem(
       id: id,
@@ -774,7 +775,7 @@ class MediaItem {
       fileSizeBytes: fileSizeBytes,
       dateCreatedMs: dateCreatedMs,
       premiereDate: premiereDate,
-      seriesName: seriesName,
+      seriesName: seriesName ?? this.seriesName,
     );
   }
 

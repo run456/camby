@@ -190,10 +190,31 @@ class _DetailPageState extends State<DetailPage> {
       final name = await loadNfoSeries(url);
       if (name != null && name.trim().isNotEmpty) {
         if (!mounted) return;
-        setState(() => _nfoSeries = name.trim());
+        final v = name.trim();
+        setState(() => _nfoSeries = v);
+        // v2.0.58：把 NFO 读到的系列名回填到全库列表对应条目。
+        // Emby 对 Movie 不返回 SeriesName，若不回填，点「系列」胶囊打开的
+        // 聚合页会几乎全空；回填后当前影片（以及之后浏览过的同系列影片）
+        // 才能被 series 模式命中，媒体库「系列」筛选也随之逐步累积数据。
+        _backfillSeries(v);
         return;
       }
     }
+  }
+
+  /// 回填系列名到全库条目：仅在目标条目 seriesName 为空时写一次，
+  /// 避免覆盖服务端已有值或重复触发 notifyListeners。
+  void _backfillSeries(String v) {
+    final state = widget.state;
+    MediaItem? target;
+    for (final e in state.items) {
+      if (e.id == _item.id) {
+        target = e;
+        break;
+      }
+    }
+    if (target == null || target.seriesName.trim().isNotEmpty) return;
+    state.replaceItem(target.copyWith(seriesName: v));
   }
 
   /// 预读本机缓存的 Lara 译文（title / overview），供翻译按钮「已译」标记与
@@ -459,6 +480,27 @@ class _DetailPageState extends State<DetailPage> {
         builder: (_) => TagPage(
           tag: v,
           mode: mode,
+          state: widget.state,
+          onOpenDetail: widget.onOpenDetail,
+        ),
+      ),
+    );
+  }
+
+  /// v2.0.58：点「系列」胶囊 → 列出全库同系列影片。
+  ///
+  /// 注意数据边界：Emby 对 Movie 通常不返回 SeriesName，详情页显示的系列名
+  /// 多半来自 NFO 兜底（`_nfoSeries`），而全库列表里其它影片的 `seriesName`
+  /// 往往为空。因此 [TagPage] 的 series 模式用「系列名 / 标签 / 类型 / 标题」
+  /// 去空白后的包含匹配，尽量把同系列影片捞出来，而不是只做精确相等。
+  void _openSeries(String name) {
+    final v = name.trim();
+    if (v.isEmpty) return;
+    Navigator.of(context).push(
+      CambyRoutes.fade(
+        builder: (_) => TagPage(
+          tag: v,
+          mode: TagPageMode.series,
           state: widget.state,
           onOpenDetail: widget.onOpenDetail,
         ),
@@ -1102,6 +1144,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenPerson: _openPerson,
         onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
         onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
+        onOpenSeries: _openSeries,
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -1207,6 +1250,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenPerson: _openPerson,
         onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
         onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
+        onOpenSeries: _openSeries,
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -2678,6 +2722,7 @@ class _InfoBlock extends StatelessWidget {
     required this.onOpenPerson,
     required this.onOpenDirector,
     required this.onOpenStudio,
+    required this.onOpenSeries,
     this.seriesNameOverride = '',
   });
 
@@ -2689,6 +2734,7 @@ class _InfoBlock extends StatelessWidget {
   final void Function(CastMember p) onOpenPerson;
   final void Function(String name) onOpenDirector;
   final void Function(String name) onOpenStudio;
+  final void Function(String name) onOpenSeries;
 
   /// NFO 直读兜底拿到的系列名。Emby 对电影的 `SeriesName` 通常为空，
   /// 即使 NFO 里写了 `<series>` / `<set><name>` 也不会带出来。
@@ -2736,13 +2782,15 @@ class _InfoBlock extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── 规格三列 ──
-        // 三列值统一放进等高（24）盒、左对齐，保证「系列」彩色胶囊与
-        // 「发行日期 / 时长」纯文本的基线水平对齐（v2.0.57 反馈不对齐）。
+        // v2.0.58：系列胶囊改为可点（打开同系列影片聚合页），并允许两行显示，
+        // 长系列名不再被截成「10番中出し…」几个字（用户反馈「文字被切了」）。
+        // 三列值区统一放进等高（40）盒、左对齐垂直居中，保证「系列」两行胶囊
+        // 与「发行日期 / 时长」纯文本水平对齐（沿用 v2.0.57 的对齐方案）。
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 系列：**始终显示**，没有就标「无」——空着会让三列看着少一格，
-            // 反而让人以为信息没加载出来（v2.0.43 按反馈调整）。
+            // 反而让人以为信息没加载出来（v2.0.43 按反馈调整）。有值时可点。
             Expanded(
               flex: 5,
               child: Column(
@@ -2751,13 +2799,24 @@ class _InfoBlock extends StatelessWidget {
                   const _MiniLabel('系列'),
                   const SizedBox(height: 6),
                   SizedBox(
-                    height: 24,
+                    height: 40,
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: _Cap(
                         text: seriesName.isEmpty ? '无' : seriesName,
                         color: seriesName.isEmpty ? _dim : _orange,
                         maxWidth: double.infinity,
+                        maxLines: 2,
+                        onTap: seriesName.isEmpty
+                            ? null
+                            : () => onOpenSeries(seriesName),
+                        trailing: seriesName.isEmpty
+                            ? null
+                            : const Icon(
+                                Icons.chevron_right,
+                                size: 12,
+                                color: _orange,
+                              ),
                       ),
                     ),
                   ),
@@ -2772,7 +2831,13 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('发行日期'),
                   const SizedBox(height: 6),
-                  SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: _Plain(text: _releaseText))),
+                  SizedBox(
+                    height: 40,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _Plain(text: _releaseText),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2784,7 +2849,13 @@ class _InfoBlock extends StatelessWidget {
                 children: [
                   const _MiniLabel('时长'),
                   const SizedBox(height: 6),
-                  SizedBox(height: 24, child: Align(alignment: Alignment.centerLeft, child: _Plain(text: _runtimeText))),
+                  SizedBox(
+                    height: 40,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _Plain(text: _runtimeText),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -2927,15 +2998,19 @@ class _Cap extends StatelessWidget {
     required this.text,
     required this.color,
     this.leading,
+    this.trailing,
     this.onTap,
     this.maxWidth = 190,
+    this.maxLines = 1,
   });
 
   final String text;
   final Color color;
   final Widget? leading;
+  final Widget? trailing;
   final VoidCallback? onTap;
   final double maxWidth;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -2954,7 +3029,7 @@ class _Cap extends StatelessWidget {
           Flexible(
             child: Text(
               text,
-              maxLines: 1,
+              maxLines: maxLines,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 10.5,
@@ -2964,6 +3039,7 @@ class _Cap extends StatelessWidget {
               ),
             ),
           ),
+          if (trailing != null) ...[const SizedBox(width: 3), trailing!],
         ],
       ),
     );

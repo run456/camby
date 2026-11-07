@@ -14,12 +14,13 @@ import '../widgets/sort_chip_row.dart';
 ///
 /// [TagPageMode.tag] 沿用原有标签 / 分辨率语义；v2.0.55 增加
 /// [TagPageMode.director] / [TagPageMode.studio]，供详情页点导演、
-/// 制造商胶囊时按该条目筛出同导演 / 同制造商的全部影片。
+/// 制造商胶囊时按该条目筛出同导演 / 同制造商的全部影片；
+/// v2.0.58 增加 [TagPageMode.series]，供详情页点「系列」胶囊筛同系列影片。
 ///
-/// 三种模式共用同一套 年份/标题/评分 排序胶囊与海报网格。
+/// 四种模式共用同一套 年份/标题/评分 排序胶囊与海报网格。
 /// 数据源是 [AppState.items]（全库，已带 People / Studios 字段），
 /// 因此是客户端过滤，不额外打服务端请求。
-enum TagPageMode { tag, director, studio }
+enum TagPageMode { tag, director, studio, series }
 
 class TagPage extends StatefulWidget {
   const TagPage({
@@ -51,12 +52,28 @@ class _TagPageState extends State<TagPage> {
     final key = tag.trim().toUpperCase();
     final isRes = _res.hasMatch(tag.trim());
     bool hit(String v) => v.trim().toUpperCase() == key;
+    // v2.0.58 系列模式：系列名去掉所有空白（含全角空格 / 不换行空格）后转
+    // 大写，做「包含」而不是精确相等。因为 NFO 里的系列名常带全角空格 / 换行，
+    // 与其它影片标题或标签里的写法未必逐字一致；包含匹配能把
+    // 「10番中出し、するまで…」这类同系列片捞全。
+    final _ws = RegExp(r'[\s\u3000\u00A0]+');
+    final seriesKey = key.replaceAll(_ws, '');
+    bool seriesHit(String v) =>
+        v.toUpperCase().replaceAll(_ws, '').contains(seriesKey);
     final list = widget.state.items.where((e) {
       switch (widget.mode) {
         case TagPageMode.director:
           return hit(e.director);
         case TagPageMode.studio:
           return hit(e.studio);
+        case TagPageMode.series:
+          if (seriesKey.isEmpty) return false;
+          // 优先 seriesName，再退到标签 / 类型 / 标题（Emby 对 Movie 常不给
+          // SeriesName，全库列表里该字段多为空，只靠它会筛出空白页）
+          return seriesHit(e.seriesName) ||
+              e.tags.any(seriesHit) ||
+              e.genres.any(seriesHit) ||
+              seriesHit(e.name);
         case TagPageMode.tag:
           if (isRes) {
             if (!e.resolutionKnown) return false;
@@ -75,12 +92,14 @@ class _TagPageState extends State<TagPage> {
     TagPageMode.tag => '#${widget.tag}',
     TagPageMode.director => '导演 · ${widget.tag}',
     TagPageMode.studio => '制造商 · ${widget.tag}',
+    TagPageMode.series => '系列 · ${widget.tag}',
   };
 
   String get _heroPrefix => switch (widget.mode) {
     TagPageMode.tag => 'tag',
     TagPageMode.director => 'director',
     TagPageMode.studio => 'studio',
+    TagPageMode.series => 'series',
   };
 
   @override

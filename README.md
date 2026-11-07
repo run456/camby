@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.57 (257)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.58 (258)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,17 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.58 (258) 系列胶囊可点筛选 + 长系列名完整显示
+
+承接真机反馈「系列标签还是无法点击筛选，另外文字被切了」：v2.0.57 只给普通「标签」行补了点击回归，橙色「系列」胶囊本身仍无点击入口；同时上一轮为做三列对齐用的 24px 等高盒 + 单行 `maxLines: 1` 把长系列名裁掉了。
+
+- **系列胶囊可点筛选**：系列名非空时给胶囊挂 `onTap`，点击打开 `TagPage(mode: series)` 聚合页列出全库同系列影片，尾部加 `chevron_right` 箭头提示可点；「无」保持不可点。
+- **新增 `TagPageMode.series`**：系列名 / 标签 / 类型 / 标题四路「去空白（含全角空格、不换行空格）后包含匹配」，规避 Emby 对 Movie 不返回 `SeriesName`、全库该字段多为空导致筛出空白页。
+- **NFO 系列名回填全库**：`_loadNfoSeries` 成功后把读到的系列名写回 `AppState` 对应条目（`MediaItem.copyWith` 新增 `seriesName` 参数），当前影片与后续浏览过的同系列影片才能被筛选命中，媒体库「系列」分组数据也随之累积。
+- **文字不再被切**：规格三列值盒由 24px 改为等高 40px，系列胶囊改 `maxLines: 2` 两行显示，长系列名完整可见，三列仍水平对齐。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **410 全过**（原 408 + 新增 2 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.58-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='258' versionName='2.0.58'`。
 
 ### v2.0.57 (257) 标签可点筛选 + 规格三列对齐 + 系列筛选类别
 

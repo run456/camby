@@ -2099,4 +2099,39 @@ void _openCredit(String value, TagPageMode mode) {
 
 验证（v2.0.56）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **404 全过**（原 395 + 新增 9 条 `test/nfo_reader_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.56-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='256' versionName='2.0.56'`。
 
+## §82 发布 v2.0.57（标签可点筛选 + 规格三列对齐 + 系列筛选类别）
+
+补记：v2.0.57 改动要点见 README 更新日志 —— 普通标签胶囊点击链路回归、`MediaFilter` 增加 `series` 条件与抽屉分组、`kMinFilterCount = 8` 屏蔽低频选项。其验证记录此前直接附在 §81 末尾，此处补上独立章节编号，便于章节与版本一一对应。
+
 验证（v2.0.57）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **408 全过**（原 404 + 新增 13 条：credit_filter_test 加系列筛选 4 条 + 抽屉阈值 1 条、detail_info_regression_test 加标签点击 1 条等）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.57-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='257' versionName='2.0.57'`。
+
+## §83 发布 v2.0.58（系列胶囊可点筛选 + 长系列名完整显示）
+
+承接真机反馈：「系列标签还是无法点击筛选，另外文字被切了」。
+
+### 根因
+
+上一轮把「标签不能点」理解成普通标签行，只补了普通标签的点击回归；用户指的其实是**橙色「系列」胶囊**。两个独立问题：
+
+1. **点击**：`_InfoBlock` 规格三列里的系列 `_Cap` 从未传 `onTap`（导演 / 制造商 / 演员 / 标签都传了，唯独系列漏了），所以点了没反应。
+2. **文字被切**：v2.0.57 为三列对齐引入 `SizedBox(height: 24)`，而 `_Cap` 文本固定 `maxLines: 1` + `TextOverflow.ellipsis`；24px 盒放不下带 5px 上下 padding 的胶囊，长系列名被截成几个字甚至从底部裁掉。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `lib/pages/detail_page.dart` | `_Cap` 增 `trailing` / `maxLines`；系列胶囊挂 `onTap: onOpenSeries` + `chevron_right` 箭头、改 `maxLines: 2`；三列值盒 24→40px 仍等高对齐；新增 `_openSeries`（推 `TagPageMode.series`）与 `_backfillSeries`（NFO 成功后回写全库条目） |
+| `lib/pages/tag_page.dart` | `TagPageMode` 增 `series`；`_items` 用去空白（含 `\u3000` / `\u00A0`）后的包含匹配，覆盖 `seriesName` / `tags` / `genres` / `name`；`_title` / `_heroPrefix` 补 series 分支 |
+| `lib/models.dart` | `MediaItem.copyWith` 增 `String? seriesName`，回填时不丢失原值 |
+
+`_Cap.onTap != null` 时由 `LiquidPress` 承载，与普通标签胶囊同一套点击实现，无需新增手势层。`_Cap` 容器本身无固定高度，两行文字（约 35px）在 40px 盒内由 `Align(centerLeft)` 垂直居中。
+
+### 数据边界
+
+Emby 对 Movie 通常不返回 `SeriesName`，详情页显示的系列名几乎都来自 NFO 兜底（`_nfoSeries`），而全库 `AppState.items` 里其它影片的 `seriesName` 多为空。只做精确相等会筛出空白页，因此 series 模式退到「标签 / 类型 / 标题」包含匹配；同时 `_backfillSeries` 把当前影片的 NFO 系列名写回全库条目，使当前片必定命中，媒体库「系列」分组也随浏览逐步累积。若要一次性筛全仍需批量预读 NFO 或服务端支持 —— 这是已知边界，非本轮回归项。
+
+### 测试
+
+`test/detail_info_regression_test.dart`：把「超长系列名」断言从 `maxLines == 1` 改为 `maxLines == 2`（保留 `TextOverflow.ellipsis`），新增真实 `tester.tap` 点系列胶囊断言出现 `系列 · 濃厚な接吻とSEX`。`test/credit_filter_test.dart`：新增 series 模式宽松匹配，用带全角空格的 `濃厚な 接吻とSEX` 断言同时命中 `seriesName` / `tags` / `name` 三类数据并显示 `3 部`。
+
+验证（v2.0.58）：`flutter analyze` 0 error / 0 warning（384 项全为 info 级既有弃用）；`flutter test` **410 全过**（原 408 + 新增 2 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.58-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='258' versionName='2.0.58'`。

@@ -266,5 +266,49 @@ void main() {
       expect(find.text('影片 c'), findsOneWidget);
       expect(find.text('影片 b'), findsNothing);
     });
+
+    testWidgets('series 模式：多字段包含匹配，全库 seriesName 空也能捞出同系列', (tester) async {
+      // 模拟真实数据：Emby 对 Movie 不返回 SeriesName，系列名散落在
+      // seriesName / tags / genres / 标题里，且常带全角空格 / 换行。
+      final list = [
+        mk('p1', seriesName: '濃厚な接吻とSEX'), // seriesName 命中
+        mk('p2', tags: ['濃厚な接吻とSEX']), // 标签命中
+        mk('p3'), // 名字里带系列名
+        mk('p4'), // 完全无关
+      ];
+      list[2] = MediaItem(
+        id: 'p3',
+        name: '【濃厚な接吻とSEX】第 3 話',
+        type: MediaType.movie,
+        overview: '简介',
+        colors: const [Color(0xFF3366CC), Color(0xFF101010)],
+      );
+      list[3] = MediaItem(
+        id: 'p4',
+        name: '完全无关的片子',
+        type: MediaType.movie,
+        overview: '简介',
+        colors: const [Color(0xFF3366CC), Color(0xFF101010)],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TagPage(
+            tag: '濃厚な 接吻とSEX', // 带全角空格，去空白后应仍能匹配
+            mode: TagPageMode.series,
+            state: stateWith(list),
+            onOpenDetail: (_, {heroTag}) {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('系列 · 濃厚な 接吻とSEX'), findsOneWidget);
+      expect(find.text('影片 p1'), findsOneWidget);
+      expect(find.text('影片 p2'), findsOneWidget);
+      expect(find.text('【濃厚な接吻とSEX】第 3 話'), findsOneWidget);
+      expect(find.text('完全无关的片子'), findsNothing);
+      expect(find.text('3 部'), findsOneWidget);
+    });
   });
 }

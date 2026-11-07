@@ -241,7 +241,7 @@ void main() {
       await tapTag(tester, '剧情', '#剧情');
     });
 
-    testWidgets('超长系列名用省略号缩略，不撑破三列', (tester) async {
+    testWidgets('系列名两行显示 + 省略号，不再被单行切成几个字', (tester) async {
       const longName = '濃厚な接吻とSEX 特別完全版 ディレクターズカット ブルーレイ 限定版 長すぎるシリーズ名';
       await pumpDetail(
         tester,
@@ -260,9 +260,36 @@ void main() {
       );
       expect(text, findsOneWidget);
       final w = text.evaluate().single.widget as Text;
-      expect(w.maxLines, 1);
+      // v2.0.58：由 1 行放宽到 2 行，长系列名不再只显示「10番中出し…」
+      expect(w.maxLines, 2);
       expect(w.overflow, TextOverflow.ellipsis);
       expect(tester.takeException(), isNull, reason: '长系列名不能造成布局溢出');
+    });
+
+    testWidgets('点系列胶囊 → 打开同系列影片聚合页', (tester) async {
+      const seriesName = '濃厚な接吻とSEX';
+      await pumpDetail(
+        tester,
+        MediaItem(
+          id: 'm5',
+          name: 'IPZZ-077 测试影片',
+          type: MediaType.movie,
+          overview: '简介',
+          colors: [const Color(0xFF3366CC), const Color(0xFF101010)],
+          seriesName: seriesName,
+        ),
+      );
+
+      final finder = find.text(seriesName);
+      expect(finder, findsOneWidget);
+      await tester.ensureVisible(finder);
+      await tester.pump();
+      await tester.tap(finder);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+      }
+      expect(find.text('系列 · $seriesName'), findsOneWidget,
+          reason: '点系列胶囊应打开 series 模式聚合页');
     });
   });
 }
