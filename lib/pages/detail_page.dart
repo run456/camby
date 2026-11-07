@@ -18,6 +18,7 @@ import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
 import '../lara/translate_cache.dart';
 import '../lara/translate_sheet.dart';
+import '../metadata/nfo_reader.dart';
 import '../widgets/status_bar_blur.dart';
 import 'person_page.dart';
 import 'subtitle_filter_page.dart';
@@ -83,6 +84,10 @@ class _DetailPageState extends State<DetailPage> {
   /// 用于翻译按钮的「已译」高亮与「下次点开直接查看」。
   Map<String, CachedTranslation>? _cachedTrans;
 
+  /// v2.0.54：从同目录 NFO 兜底读到的系列名。Emby 对 Movie 不给
+  /// `SeriesName`，但刮削器写的 `<series>` / `<set><name>` 是有效系列信息。
+  String _nfoSeries = '';
+
   /// 滚动降级：滚动期间关掉实时模糊（换成纯渐变），停下 180ms 后恢复。
   ///
   /// 详情页上下两条渐进模糊带都是 `BackdropFilter`，每帧要把整块滚动内容
@@ -101,6 +106,16 @@ class _DetailPageState extends State<DetailPage> {
   /// 墙钟和 Timer 的时钟不是同一个，系统时间被 NTP 校正时会误判，
   /// 表现就是「滚动停下后模糊再也回不来」。
   int _scrollSeq = 0;
+
+  /// 接住**所有**后代滚动通知（含剧照 / 胶囊行这类内层横向 ListView）。
+  /// 主 `_scroll` 的 listener 只知道自己那一条列表，内层滚动不会触发降级，
+  /// 顶栏 BackdropFilter 便会一直实时重采样。返回 false 让通知继续冒泡。
+  bool _anyScrollNotification(ScrollNotification n) {
+    if (n is ScrollStartNotification || n is ScrollUpdateNotification) {
+      _onScrollActivity();
+    }
+    return false;
+  }
 
   /// 滚动开始 → 立即降级；停止 180ms 后 → 复原（静止态保留完整液态玻璃）
   void _onScrollActivity() {
@@ -133,12 +148,25 @@ class _DetailPageState extends State<DetailPage> {
       _offsetVN.value = o;
       final on = o > 24;
       if (_blurOn.value != on) _blurOn.value = on;
-      _onScrollActivity();
+      // 滚动降级统一交给外层 NotificationListener（_anyScrollNotification），
+      // 它同时覆盖内层横向列表；这里不再重复调 _onScrollActivity。
     });
     // 播放页退出后会回写进度 / 收藏到全局状态，这里跟着刷新按钮文案
     widget.state.addListener(_onStateChanged);
     _loadExtras();
     _loadTranslationCache();
+    _loadNfoSeries();
+  }
+
+  /// Emby 对电影不给 SeriesName，尝试从同目录 NFO 兜底读系列名。
+  /// 仅 http(s) 直链可派生 NFO 地址；异步、超时、失败静默，不阻塞首帧。
+  Future<void> _loadNfoSeries() async {
+    if (_item.seriesName.trim().isNotEmpty) return;
+    final url = nfoUrlFromMediaPath(_item.filePath);
+    if (url == null) return;
+    final name = await loadNfoSeries(url);
+    if (!mounted || name == null || name.trim().isEmpty) return;
+    setState(() => _nfoSeries = name.trim());
   }
 
   /// 预读本机缓存的 Lara 译文（title / overview），供翻译按钮「已译」标记与
@@ -899,21 +927,13 @@ class _DetailPageState extends State<DetailPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      // v2.0.54：改为与标签胶囊同款的「半透明纯色框」。原来是渐变 +
+      // 18px 外阴影模拟玻璃，每次滚动重绘都要重新光栅化渐变与模糊阴影；
+      // 纯色 + 1px 边框可直接走图层缓存，减少剧照横滑时的合成开销。
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0x1FFFFFFF), Color(0x0AFFFFFF)],
-        ),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1032,6 +1052,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenSubtitleFilter: _openSubtitleFilter,
         onOpenTag: _openTag,
         onOpenPerson: _openPerson,
+        seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
       if ((_trailers?.isNotEmpty == true) ||
@@ -1061,7 +1082,8 @@ class _DetailPageState extends State<DetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(
                     width: 214,
-                    child: CachedImage(url: item.backdrops[i], memWidth: 480),
+                    // v2.0.54：卡片显示宽 214，480 采样过大会拖慢解码 / 占内存
+                    child: CachedImage(url: item.backdrops[i], memWidth: 320),
                   ),
                 ),
               ),
@@ -1133,6 +1155,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenSubtitleFilter: _openSubtitleFilter,
         onOpenTag: _openTag,
         onOpenPerson: _openPerson,
+        seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
       if ((_trailers?.isNotEmpty == true) ||
@@ -1162,7 +1185,8 @@ class _DetailPageState extends State<DetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   child: SizedBox(
                     width: 214,
-                    child: CachedImage(url: item.backdrops[i], memWidth: 480),
+                    // v2.0.54：卡片显示宽 214，480 采样过大会拖慢解码 / 占内存
+                    child: CachedImage(url: item.backdrops[i], memWidth: 320),
                   ),
                 ),
               ),
@@ -1582,8 +1606,14 @@ class _DetailPageState extends State<DetailPage> {
           ),
           Positioned.fill(
             // 独立图层：滚动只重绘列表，背后全屏模糊不再每帧重算
-            child: RepaintBoundary(
-              child: wide
+            child: NotificationListener<ScrollNotification>(
+              // v2.0.54：内层横向列表（剧照 / 标签胶囊行）的滚动通知不会经过
+              // 主 _scroll，导致顶栏 BackdropFilter 在横滑时仍逐帧重采样 ——
+              // 这正是「剧照滑动还是有点掉帧」的主因之一。统一在这里接住
+              // 所有后代滚动通知，复用既有 _degradedVN 降级机制。
+              onNotification: _anyScrollNotification,
+              child: RepaintBoundary(
+                child: wide
                   // 平板（≥840）：设计稿横幅 + 双栏 / 居中单列
                   ? ListView(
                       controller: _scroll,
@@ -1806,6 +1836,7 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                       ],
                     ),
+              ),
             ),
           ),
           // 状态栏渐进模糊：上滑后才出现（放在顶栏之前，保证按钮不被糊）
@@ -2015,21 +2046,13 @@ class _DetailPageState extends State<DetailPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      // v2.0.54：改为与标签胶囊同款的「半透明纯色框」。原来是渐变 +
+      // 18px 外阴影模拟玻璃，每次滚动重绘都要重新光栅化渐变与模糊阴影；
+      // 纯色 + 1px 边框可直接走图层缓存，减少剧照横滑时的合成开销。
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0x1FFFFFFF), Color(0x0AFFFFFF)],
-        ),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2597,6 +2620,7 @@ class _InfoBlock extends StatelessWidget {
     required this.onOpenSubtitleFilter,
     required this.onOpenTag,
     required this.onOpenPerson,
+    this.seriesNameOverride = '',
   });
 
   final MediaItem item;
@@ -2606,9 +2630,16 @@ class _InfoBlock extends StatelessWidget {
   final void Function(String tag) onOpenTag;
   final void Function(CastMember p) onOpenPerson;
 
+  /// NFO 直读兜底拿到的系列名。Emby 对电影的 `SeriesName` 通常为空，
+  /// 即使 NFO 里写了 `<series>` / `<set><name>` 也不会带出来。
+  final String seriesNameOverride;
+
   static const _orange = Color(0xFFF5A052);
   static const _purple = Color(0xFFB98CFF);
   static const _green = Color(0xFF4ECF9A);
+  // v2.0.54：演员行的导演 / 制造商信息标签独立配色
+  static const _blue = Color(0xFF6FA8FF);
+  static const _teal = Color(0xFF5FCFC0);
 
   /// 「无」用的中性灰（与胶囊行末尾 `+N` 同色，语义都是「占位/弱信息」）
   static const _dim = Color(0xFF7E8DA6);
@@ -2632,7 +2663,15 @@ class _InfoBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final seriesName = item.seriesName.trim();
+    final seriesName = (seriesNameOverride.trim().isNotEmpty
+            ? seriesNameOverride
+            : item.seriesName)
+        .trim();
+    final director = item.director.trim();
+    final studio = item.studio.trim();
+    // 导演 / 制造商胶囊排在演员行最前面，用独立配色区分
+    final extraCount =
+        (director.isNotEmpty ? 1 : 0) + (studio.isNotEmpty ? 1 : 0);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2683,15 +2722,41 @@ class _InfoBlock extends StatelessWidget {
             ),
           ],
         ),
-        // ── 演员 ──
-        if (item.people.isNotEmpty) ...[
+        // ── 演员（v2.0.54：同一行前部加导演 / 制造商信息标签） ──
+        // 即使没有演员，只要 NFO/Emby 给了导演或工作室，这一行也要出现。
+        if (item.people.isNotEmpty || extraCount > 0) ...[
           const _HSep(),
           const _MiniLabel('演员'),
           const SizedBox(height: 7),
           _CapRow(
-            count: item.people.length,
+            count: item.people.length + extraCount,
             itemBuilder: (i) {
-              final p = item.people[i];
+              if (director.isNotEmpty && i == 0) {
+                return _Cap(
+                  text: '导演 $director',
+                  color: _blue,
+                  maxWidth: 220,
+                  leading: const Icon(
+                    Icons.movie_creation_outlined,
+                    size: 11,
+                    color: _blue,
+                  ),
+                );
+              }
+              final dOff = director.isNotEmpty ? 1 : 0;
+              if (studio.isNotEmpty && i == dOff) {
+                return _Cap(
+                  text: '制造商 $studio',
+                  color: _teal,
+                  maxWidth: 220,
+                  leading: const Icon(
+                    Icons.business,
+                    size: 11,
+                    color: _teal,
+                  ),
+                );
+              }
+              final p = item.people[i - extraCount];
               // Emby 的 Person 没有可靠的性别字段，按名称角色没法判断，
               // 这里统一用 ♀ 造型符号做视觉标识（不做语义断言）
               return _Cap(
@@ -2839,10 +2904,15 @@ class _Cap extends StatelessWidget {
   }
 }
 
-/// 单行横滑的胶囊行：末尾自动补 `+N`
+/// 单行横滑的胶囊行：**全部渲染**，横向滑动查看。
 ///
 /// 用横向 ListView 而不是 Wrap：紧凑版的核心就是「永远只占一行」，
-/// 标签再多也不撑高板块。`+N` 卡片放在最后，提示还有多少未展开。
+/// 标签再多也不撑高板块。
+///
+/// v2.0.54 之前按屏宽估算只渲染前 `visible` 个、末尾补一个不可点的 `+N`，
+/// 结果标签一多根本滑不到后面那些（用户反馈「标签过多时，可滑动查看」）。
+/// 改为 `itemCount = count` 全部渲染；ListView.builder 本身懒构建，屏外
+/// 卡片不会一次性铺开，标签再多也不会拖慢首帧。
 class _CapRow extends StatelessWidget {
   const _CapRow({required this.count, required this.itemBuilder});
 
@@ -2852,37 +2922,17 @@ class _CapRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (count <= 0) return const SizedBox.shrink();
-    // 可见卡片数：估算每张约 78px，多出来的折成 +N；至少保留 1 张
-    return LayoutBuilder(
-      builder: (c, box) {
-        final per = 80.0;
-        final visible = (box.maxWidth / per).floor().clamp(1, count);
-        final more = count - visible;
-        return SizedBox(
-          height: 28,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: more > 0 ? visible + 1 : count,
-            itemBuilder: (c, i) {
-              if (more > 0 && i == visible) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: _Cap(
-                    text: '+$more',
-                    color: const Color(0xFF7E8DA6),
-                    maxWidth: 60,
-                  ),
-                );
-              }
-              return Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: itemBuilder(i),
-              );
-            },
-          ),
-        );
-      },
+    return SizedBox(
+      height: 28,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: count,
+        itemBuilder: (_, i) => Padding(
+          padding: const EdgeInsets.only(right: 6),
+          child: itemBuilder(i),
+        ),
+      ),
     );
   }
 }

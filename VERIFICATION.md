@@ -1889,3 +1889,109 @@ child: SizedBox(height: panelH, child: Material(child: Column(children: [Header,
 **版本**：v2.0.52 已打 tag / 出包，本次为缺陷修复，bump 到 **2.0.53+253**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
 
 验证（v2.0.53）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **370 全过**（原 367 + 新增 3 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.53-release-arm64.apk`。
+
+## §79 · v2.0.54 (254) 剧照横滑性能 + 信息区四项优化（真机反馈 4 项）
+
+**背景**：真机反馈 4 项 —— ①「剧照的滑动还是有点掉帧，如果这里的简介和媒体信息不用液态玻璃，而是跟标签一样的半透明框，是不是可以优化性能？」；②「标签过多时，可滑动查看」；③「在演员行上放加入导演信息标签、制造商信息标签」；④ 附件 `IPZZ-077-C.zip` 解压后的 NFO 实际含系列 `濃厚な接吻とSEX`，但详情页影片系列仍显示「无」，要求长系列名用 `...` 缩略。
+
+### ① 横滑掉帧：三个独立开销点，逐个拆
+
+**(a) 卡片装饰**。原 `_overviewCard` / `_mediaInfoCard`：
+```dart
+decoration: BoxDecoration(
+  borderRadius: BorderRadius.circular(20),
+  gradient: const LinearGradient(colors: [Color(0x1FFFFFFF), Color(0x0AFFFFFF)]),
+  border: Border.all(color: Colors.white.withOpacity(0.14)),
+  boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 18, offset: Offset(0, 8))],
+),
+```
+渐变需逐帧生成着色器，`blurRadius: 18` 的阴影要走一次模糊光栅化再合成。改成与标签胶囊同款纯色框：
+```dart
+decoration: BoxDecoration(
+  color: Colors.white.withValues(alpha: 0.06),
+  borderRadius: BorderRadius.circular(14),
+  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+),
+```
+纯色 + 1px 描边可直接进图层缓存，且视觉与同屏胶囊统一（初版 `0.045/0.10` 在深色背景上偏淡，微调到 `0.06/0.12`）。注意这里**没有** `BackdropFilter`——原本就不是真玻璃，所以「不用液态玻璃」的实质是去掉渐变与模糊阴影，而非移除高斯模糊。
+
+**(b) 内层滚动绕过降级机制**。这是最隐蔽的一处：详情页早有 `_degradedVN` 滚动降级（滚动期把顶栏圆钮的 `BackdropFilter` 换成静态渐变，停 180ms 复原），但它挂在**主 `_scroll` 的 listener** 上。剧照 / 标签胶囊行是**内层横向 `ListView`**，滚动通知不会经过主 controller，于是横滑期间顶栏磨砂持续逐帧重采样。修复是在主列表外包一层接住所有后代通知：
+```dart
+Positioned.fill(
+  child: NotificationListener<ScrollNotification>(
+    onNotification: _anyScrollNotification,
+    child: RepaintBoundary(child: wide ? ListView(...) : ListView(...)),
+  ),
+),
+```
+```dart
+bool _anyScrollNotification(ScrollNotification n) {
+  if (n is ScrollStartNotification || n is ScrollUpdateNotification) {
+    _onScrollActivity();
+  }
+  return false; // 继续冒泡，不影响既有交互
+}
+```
+主 listener 里同步删掉重复的 `_onScrollActivity()`，避免一次滚动两次计数（会不断顺延 180ms 恢复定时器）。
+
+**(c) 缩略图过采样**。剧照卡片显示宽 214，却按 `memWidth: 480` 解码。手机 / 平板两处 `item.backdrops[i]` 降到 `320`（banner 那个 132 宽的缩略图原本就是 320，未动）。解码像素数降到约 44%，内存与首帧解码时间同步下降。
+
+### ② 标签行去掉 `+N` 折叠
+
+旧 `_CapRow` 渲染 `visible` 个胶囊 + 一个**纯展示、不可点**的 `+N`，后续标签在数据里但永远进不了树。改为全量懒构建：
+```dart
+SizedBox(
+  height: 28,
+  child: ListView.builder(
+    scrollDirection: Axis.horizontal,
+    physics: const BouncingScrollPhysics(),
+    itemCount: count,
+    itemBuilder: (_, i) => Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: itemBuilder(i),
+    ),
+  ),
+)
+```
+`ListView.builder` 只建屏内项，标签再多也不会一次性铺开；`height: 28` 固定行高，不撑破信息区三列。
+
+### ③ 演员行前插导演 / 制造商
+
+`_InfoBlock` 里按 `item.director` / `item.studio` 非空计算 `extraCount`，行计数改为 `item.people.length + extraCount`，前部插两枚独立配色胶囊（蓝 `Icons.movie_creation_outlined` / 青 `Icons.business`，`maxWidth: 220` 配合省略号），演员按 `item.people[i - extraCount]` 取值；显示条件放宽为 `item.people.isNotEmpty || extraCount > 0`，只有导演/制造商没有演员时该行仍会显示。颜色提为 `_InfoBlock` 的 `static const _blue / _teal`，否则 `const Icon(... color: blue)` 会因引用局部变量而编译失败（`Arguments of a constant creation must be constant expressions`）。
+
+### ④ NFO 系列名兜底
+
+**根因**：Emby REST 对 `Movie` 不把电影 NFO 的 `<series>` / `<set><name>` 映射到 `SeriesName` 字段。`lib/emby_client.dart` 的字段列表里已请求 `SeriesName`，解析 `seriesName: (j['SeriesName'] as String?) ?? ''` 也正确，服务端就是不给值，因此客户端只能自己读侧车文件。
+
+新增 `lib/metadata/nfo_reader.dart`，4 个公开 API：`nfoUrlFromMediaPath` / `parseNfoSeries` / `loadNfoSeries` / `clearNfoSeriesCache`。
+```dart
+String? nfoUrlFromMediaPath(String path) {
+  final uri = Uri.tryParse(path.trim());
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) return null;
+  final p = uri.path;
+  if (p.isEmpty || p.endsWith('/')) return null;
+  final ext = RegExp(r'\.[A-Za-z0-9]{1,5}$').firstMatch(p);
+  final nfoPath = ext != null
+      ? p.replaceRange(ext.start, p.length, '.nfo')
+      : '$p.nfo';
+  return uri.replace(path: nfoPath).toString(); // query 原样保留（AList 签名参数）
+}
+```
+设计取舍：只接受 http(s)（本地文件路径客户端拿不到）；`Uri.replace` 保留 query；`.strm` / `.mp4` / 无扩展名都能换；目录路径直接放弃。解析用**正则而非 XML 解析器**——NFO 常见未闭合标签、非法字符，严格解析会整份失败：优先 `<series>`，回退 `<set>` 内 `<name>`，`_clean` 处理 CDATA、HTML 实体、剥嵌套标签、折叠空白。网络侧 3s 超时、失败静默、进程内 `_seriesCache` 去重。
+
+详情页接线：`initState` 调 `_loadNfoSeries()` → `_nfoSeries`，两处 `_InfoBlock(... seriesNameOverride: _nfoSeries)`，`_InfoBlock` 里 `seriesName = (override 非空 ? override : item.seriesName).trim()`。长名沿用 `_Cap` 的 `maxLines: 1` + `TextOverflow.ellipsis` + `maxWidth`。实测附件 NFO 的 `濃厚な接吻とSEX` 可正常回填。
+
+**边界**：只在 `item.seriesName` 为空时才发起请求；Emby 若返回了系列名就不读 NFO，避免多余网络请求。需要 NFO 与视频同目录同名——这是 Kodi/Emby 侧车文件的通用约定，若媒体走 STRM 指向另一个域名、NFO 不在该路径下，仍会显示「无」。
+
+**测试**：新增 `test/detail_info_regression_test.dart` 13 条。
+| 组 | 覆盖 |
+|---|---|
+| NFO 解析（8） | 真实 `<series>`、`<set><name>` 回退、CDATA/实体/换行、无字段返回 null、URL 派生保留 query、中文路径百分号编码、`.strm`/无扩展名、本地路径/目录拒绝 |
+| 性能源码守卫（2） | `detail_page.dart` 中 `Colors.white.withValues(alpha: 0.06)` 恰好 2 处；`NotificationListener<ScrollNotification>` 存在 |
+| 信息区渲染（3） | 标签全量渲染且无 `+N`、导演/制造商胶囊文案、长系列名 `maxLines:1` + `TextOverflow.ellipsis` 不撑破三列 |
+
+踩坑两则：中文路径测试期望 `/片库/IPZZ-077-C.nfo`，但 `Uri.parse` 会百分号编码为 `/%E7%89%87%E5%BA%93/...`，断言改为 `Uri.decodeFull(Uri.parse(u!).path)`；性能守卫最初断言「`blurRadius: 18` 全局不存在」失败，因为文件里其它合法位置（按钮阴影）仍在用，改为统计纯色框出现次数更精确。
+
+**版本**：bump 到 **2.0.54+254**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
+
+验证（v2.0.54）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **383 全过**（原 370 + 新增 13 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.54-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='254' versionName='2.0.54'`。

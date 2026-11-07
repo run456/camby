@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.53 (253)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.54 (254)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,21 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.54 (254) 剧照横滑性能 + 信息区四项优化（真机反馈）
+
+承接真机反馈的 4 项：剧照滑动仍掉帧、标签过多看不到后面的、演员行缺导演/制造商、NFO 里明明有系列却显示「无」。
+
+- **① 剧照横滑掉帧——三处一起治**：
+  - 详情页 `_overviewCard` / `_mediaInfoCard` 原本用「线性渐变 + `BoxShadow(blurRadius: 18)`」模拟玻璃，滚动时每帧都要重新光栅化渐变与模糊阴影。改为**与标签胶囊同款的半透明纯色框**（`Colors.white.withValues(alpha: 0.06)` + 1px `0.12` 边框、圆角 14），可直接走图层缓存，合成开销显著降低；外观与同一屏的标签胶囊统一。
+  - 主 `_scroll` 的 listener 只知道主列表，**内层横向 ListView（剧照 / 标签胶囊行）的滚动不会触发 `_degradedVN` 降级**，于是横滑时顶栏 `BackdropFilter` 一直逐帧重采样。在主列表外层加 `NotificationListener<ScrollNotification>` 接住所有后代滚动通知，复用既有「滚动期换静态渐变、停 180ms 恢复」机制，主 listener 里去掉重复调用。
+  - 剧照缩略图显示宽 214，却按 `memWidth: 480` 解码，白白多花解码时间与内存；手机 / 平板两处一并降到 `320`。
+- **② 标签过多可横滑查看**：旧 `_CapRow` 只渲染前 N 个、末尾补一个不可点的 `+N` 折叠，后面的标签永远看不到。改为 `ListView.builder(scrollDirection: Axis.horizontal, itemCount: count)` 全量懒构建 + `BouncingScrollPhysics`，屏外项不建、但全部可滑到。
+- **③ 演员行加入导演 / 制造商标签**：在演员胶囊行最前面插 `导演 xxx`（蓝色 `Icons.movie_creation_outlined`）与 `制造商 xxx`（青色 `Icons.business`），各自空值不渲染；`item.people.length + extraCount` 统一计数，演员按 `i - extraCount` 取值。行高 28、可横滑，不挤压三列信息区。
+- **④ NFO 系列名兜底 + 长名缩略**：Emby 对 Movie 不把电影 NFO 的 `<series>` / `<set><name>` 映射到 `SeriesName`，所以详情页系列恒为「无」。新增 `lib/metadata/nfo_reader.dart`：从 `MediaItem.filePath` 派生同目录 `.nfo` URL（仅 http/https 直链、保留 query、兼容 `.strm` / 无扩展名），GET 后 3s 超时静默失败，正则容错解析 `<series>` → 回退 `<set><name>`（支持 CDATA / 实体 / 嵌套标签 / 空白折叠），进程内缓存避免重复请求。详情页 `initState` 里 `_loadNfoSeries()` 异步回填 `_nfoSeries`，`_InfoBlock` 通过 `seriesNameOverride` 优先取它；长系列名沿用 `_Cap` 的 `maxLines: 1` + `TextOverflow.ellipsis` + `maxWidth` 缩略成 `...`。实测附件 `IPZZ-077-C.nfo` 的 `濃厚な接吻とSEX` 能正常显示。
+- **回归**：新增 `test/detail_info_regression_test.dart` 13 条，覆盖 NFO 解析 / URL 派生（含中文路径百分号编码）、纯色框与滚动监听源码守卫、标签全量渲染无 `+N`、导演/制造商胶囊、长系列名省略号；v2.0.51–53 的 banner 几何、标题翻译按钮真实点击、翻译弹层高度、字幕弹窗 `blur` 回归一并复跑通过。
+
+验证：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.54-release-arm64.apk`。
 
 ### v2.0.53 (253) 翻译弹层改为按内容自适应高度（下方留空过多）
 
