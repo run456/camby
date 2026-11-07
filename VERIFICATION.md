@@ -2090,3 +2090,11 @@ void _openCredit(String value, TagPageMode mode) {
 **版本**：bump 到 **2.0.55+255**（pubspec / README 顶部版本行 / `test/online_subtitle_test.dart` 硬编码版本断言 / `android/local.properties` / changelog / 本记录同步）。
 
 验证（v2.0.55）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用，`383 issues found` 全为 info）；`flutter test` **395 全过**（原 383 + 新增 12 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.55-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='255' versionName='2.0.55'`。
+
+## §81 发布 v2.0.56（NFO 系列名兜底二次修复）
+
+承接真机反馈：v2.0.54 的 NFO 系列名兜底在 AList 直链库下仍显示「无」。根因有二：① 只试了「直链同目录 .nfo 的 GET」，AList `/d/` 直链未必暴露 .nfo；② 列表精简 item 不带 `MediaSources`，`initState` 时 `filePath` 为空，`_loadNfoSeries` 只跑一次直接跳过，item 补全后不再重试。
+
+修复：`lib/metadata/nfo_reader.dart` 新增 `buildNfoUrls` 双策略（Emby 服务端代理 `/Items/{id}/File?Path=...` 优先 + 直链 GET 兜底）、`nfoPathFromMediaPath`（不限 scheme，供代理 Path 参数）；`loadNfoSeries` 不再永久缓存 null（网络恢复可重试）、超时 3s→5s、仅解析前 256KB。`DetailPage._loadNfoSeries` 在 `filePath` 缺失且已连 server 时先用 `server.itemDetail` 补全 item 再读 NFO，下拉刷新后也补一次重试。新增 `test/nfo_reader_test.dart` 9 条。
+
+验证（v2.0.56）：`flutter analyze` 0 error / 0 warning（仅 info 级既有弃用）；`flutter test` **404 全过**（原 395 + 新增 9 条 `test/nfo_reader_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.56-release-arm64.apk`（39M），`aapt dump badging` 确认 `versionCode='256' versionName='2.0.56'`。

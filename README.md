@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.55 (255)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.56 (256)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,23 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.56 (256) 系列仍显示「无」的二次修复（NFO 兜底加固）
+
+承接真机反馈：v2.0.54 加的 NFO 系列名兜底在 AList 直链库（路径形如 `http://192.168.5.29:5445/d/...`）下仍不生效。两处根因：
+
+- **① 只有一种取 NFO 方式**：v2.0.54 只试了「直链同目录 `.nfo` 的 GET」。AList `/d/` 直链不一定暴露 `.nfo`（或需登录返回 HTML），GET 静默失败。
+- **② filePath 时序问题**：列表精简 item 通常不带回 `MediaSources`，进入详情页时 `filePath` 为空，`_loadNfoSeries` 只在 `initState` 跑一次（用空路径直接跳过），之后 item 被补全也不再重试。
+
+修复：
+
+- **双策略取 NFO**（`lib/metadata/nfo_reader.dart` 的 `buildNfoUrls`）：优先走 **Emby 服务端代理** `GET /Items/{id}/File?Path=...`——复用播放时 Emby 已能访问的同一 Path 取文件，不受直链是否暴露 `.nfo` 的限制；失败再回退直链 `GET`。新增 `nfoPathFromMediaPath`（不限 scheme，本地路径也能生成代理 Path）。
+- **自动补全 + 重试**：`_loadNfoSeries` 在 `filePath` 缺失且已连 server 时，先用单条详情 `server.itemDetail` 补全 item（顺带也可能补全 `seriesName`），再派生 NFO URL；下拉刷新成功后也补一次重试。
+- **不再永久缓存 null**：`loadNfoSeries` 只缓存命中值，网络抖动或 NFO 尚未补齐后恢复能重试；超时 3s → 5s（AList 首响偏慢），并限制只解析前 256KB，避免把登录页/HTML 当 NFO 整页塞进正则。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **404 全过**（原 395 + 新增 9 条 NFO 单测）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.56-release-arm64.apk`。
+
+注意：NFO 须与视频**同目录同名**（Kodi/Emby 侧车约定，如 `IPZ-314-C.nfo`）。若媒体库关闭了 NFO 刮削、或 `strm` 指向另一域名而 NFO 不在该路径下，仍会显示「无」——这是服务端/刮削配置问题，客户端改不了。
 
 ### v2.0.55 (255) 导演 / 制造商独立成行 + 点击筛选 + 筛选面板分组
 

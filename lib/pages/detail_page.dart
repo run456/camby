@@ -158,15 +158,42 @@ class _DetailPageState extends State<DetailPage> {
     _loadNfoSeries();
   }
 
-  /// Emby 对电影不给 SeriesName，尝试从同目录 NFO 兜底读系列名。
-  /// 仅 http(s) 直链可派生 NFO 地址；异步、超时、失败静默，不阻塞首帧。
+  /// Emby 对电影不给 SeriesName，尝试从 NFO 兜底读系列名。
+  ///
+  /// 列表精简 item 通常不带回 filePath，进入详情页时派生不到 NFO 地址，所以这里在
+  /// filePath 缺失且已连 server 时，先用单条详情补全 item（顺带也可能补全
+  /// seriesName），再按 [buildNfoUrls] 双策略（Emby 代理优先 + 直链兜底）逐个尝试。
+  /// 全程异步、失败静默、不阻塞首帧。
   Future<void> _loadNfoSeries() async {
     if (_item.seriesName.trim().isNotEmpty) return;
-    final url = nfoUrlFromMediaPath(_item.filePath);
-    if (url == null) return;
-    final name = await loadNfoSeries(url);
-    if (!mounted || name == null || name.trim().isEmpty) return;
-    setState(() => _nfoSeries = name.trim());
+    var path = _item.filePath;
+    if (path.trim().isEmpty) {
+      final server = widget.state.server;
+      if (server != null && !_item.id.startsWith('demo-')) {
+        final fresh = await server.itemDetail(_item.id);
+        if (!mounted) return;
+        if (fresh != null) {
+          setState(() => _item = fresh);
+          path = fresh.filePath;
+          if (fresh.seriesName.trim().isNotEmpty) return;
+        }
+      }
+    }
+    final server = widget.state.server;
+    final urls = buildNfoUrls(
+      path,
+      embyBase: server?.baseUrl,
+      embyToken: server?.token,
+      itemId: _item.id,
+    );
+    for (final url in urls) {
+      final name = await loadNfoSeries(url);
+      if (name != null && name.trim().isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _nfoSeries = name.trim());
+        return;
+      }
+    }
   }
 
   /// 预读本机缓存的 Lara 译文（title / overview），供翻译按钮「已译」标记与
@@ -889,6 +916,7 @@ class _DetailPageState extends State<DetailPage> {
     if (fresh != null) {
       widget.state.replaceItem(fresh);
       _loadExtras();
+      _loadNfoSeries();
       _toast('已刷新影片信息');
     } else {
       _toast('刷新失败，请检查网络');

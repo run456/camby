@@ -43,6 +43,9 @@ class EmbyServer {
 
   bool get isConnected => _token != null;
 
+  /// 当前会话令牌；NFO / 字幕等走服务端代理端点时要用。
+  String? get token => _token;
+
   String get baseUrl =>
       '${secure ? 'https' : 'http'}://$host:$port${kind == ServerKind.jellyfin ? '' : '/emby'}';
 
