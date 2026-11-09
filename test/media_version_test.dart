@@ -9,7 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// 覆盖三件事：
 ///  1. `MediaSources` → 含主版本的全量版本列表（排序 / isPrimary）；
 ///  2. 每个版本的视频 / 音频 / 字幕 / 体积展示文案（切换时联动的依据）；
-///  3. 源码守卫：一次请求、播放链路带 MediaSourceId、两块大卡片无描边。
+///  3. 源码守卫：一次请求、播放链路带 MediaSourceId、两块大卡片的胶囊描边；
+///  4. v2.0.66：版本规格覆盖到播放页（4K 不再显示 1080p）+ 信息弹窗紧凑化。
 String src(String rel) => File(rel).readAsStringSync();
 
 void main() {
@@ -139,7 +140,7 @@ void main() {
   });
 
   group('源码守卫', () {
-    test('简介 / 媒体信息两块大卡片统一无描边半透面', () {
+    test('简介 / 媒体信息两块大卡片恢复胶囊同款描边', () {
       final detail = src('lib/pages/detail_page.dart');
       expect(
         RegExp(r'AppSurface\.soft\(\)').allMatches(detail).length,
@@ -152,8 +153,10 @@ void main() {
       final seg = theme.substring(start, end);
       expect(seg.contains('BoxShadow'), isFalse);
       expect(seg.contains('boxShadow'), isFalse);
-      expect(seg.contains('border:'), isFalse);
       expect(seg.contains('gradient:'), isFalse);
+      expect(seg.contains('border:'), isTrue);
+      expect(seg.contains('alpha: 0.16'), isTrue,
+          reason: '描边与 ChipLabel 的 bd 一致');
     });
 
     test('版本数据与播放链路接线完整', () {
@@ -200,6 +203,79 @@ void main() {
       ]) {
         expect(models.contains(k), isTrue, reason: '缺 $k');
       }
+    });
+  });
+
+  group('v2.0.66 播放页规格联动', () {
+    const base = MediaItem(
+      id: 'm',
+      name: '影片',
+      type: MediaType.movie,
+      overview: '',
+      colors: [],
+      videoHeight: 1080,
+      videoCodec: 'H264',
+      audioCodec: 'AAC',
+      audioChannels: 6,
+      container: 'MKV',
+      fileSizeBytes: 3221225472,
+    );
+    final uhd = MediaExtraPart.fromJson({
+      'Id': 'src-4k',
+      'Name': '4K',
+      'Path': '/media/2160p.mkv',
+      'Container': 'mkv',
+      'Size': 20 * 1073741824,
+      'MediaStreams': [
+        {'Type': 'Video', 'Codec': 'hevc', 'Width': 3840, 'Height': 2160},
+        {'Type': 'Audio', 'Codec': 'eac3', 'Channels': 6, 'IsDefault': true},
+      ],
+    })!;
+
+    test('withMediaSource 把 4K 规格覆盖到展示用 item', () {
+      final out = base.withMediaSource(uhd);
+      expect(out.videoHeight, 2160, reason: '播放页顶栏不能再写 1080p');
+      expect(out.videoCodec.toUpperCase(), 'HEVC');
+      expect(out.audioCodec.toUpperCase(), 'EAC3');
+      expect(out.audioChannels, 6);
+      expect(out.container, 'MKV');
+      expect(out.fileSizeBytes, 20 * 1073741824);
+      expect(out.filePath, '/media/2160p.mkv');
+      expect(out.resolutionKnown, isTrue);
+      // Item 级字段不受影响
+      expect(out.id, 'm');
+      expect(out.name, '影片');
+      expect(out.resumeSeconds, base.resumeSeconds);
+    });
+
+    test('服务端缺字段时逐项保留 item 原值，不出现 0p / 空编码', () {
+      const empty = MediaExtraPart(id: 'y', name: 'Y');
+      final out = base.withMediaSource(empty);
+      expect(out.videoHeight, 1080);
+      expect(out.videoCodec, 'H264');
+      expect(out.audioCodec, 'AAC');
+      expect(out.audioChannels, 6);
+      expect(out.container, 'MKV');
+      expect(out.fileSizeBytes, 3221225472);
+    });
+
+    test('源码守卫：版本规格进播放页 + 信息面板紧凑化', () {
+      final models = src('lib/models.dart');
+      expect(models.contains('MediaItem withMediaSource('), isTrue);
+      final main = src('lib/main.dart');
+      expect(main.contains('item.withMediaSource(version)'), isTrue);
+      expect(main.contains('item.withMediaSource(part)'), isTrue,
+          reason: '额外部分也要带对该分段的规格');
+      expect(main.contains('required MediaExtraPart version'), isTrue);
+      final player = src('lib/pages/player_page.dart');
+      expect(player.contains('compact: true'), isTrue);
+      expect(player.contains('maxWidth: 400'), isTrue);
+      expect(player.contains('if (compact)'), isTrue,
+          reason: '紧凑面板按内容收拢，不再被 Flexible 拉成近满屏');
+      final glass = src('lib/widgets/glass_sheet.dart');
+      expect(glass.contains('maxHeightFactor'), isTrue);
+      expect(glass.contains('maxWidth ?? PlayerUi.of(context).panelMaxW'),
+          isTrue);
     });
   });
 }

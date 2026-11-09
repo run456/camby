@@ -63,13 +63,13 @@ void main() {
 
   // ── ① 性能改动的源码守卫 ──
   group('性能改动守卫', () {
-    test('v2.0.65：简介/媒体信息卡统一为无描边半透面', () {
+    test('v2.0.66：简介/媒体信息卡恢复与胶囊同款的 1px 描边', () {
       final src = File('lib/pages/detail_page.dart').readAsStringSync();
       expect(
         RegExp(r'AppSurface\.soft\(\)').allMatches(src).length,
         2,
-        reason: '两张大卡片统一走 AppSurface.soft：去掉 1px 亮描边，'
-            '不再用大面积半透明 + 描边模拟玻璃而产生浮起感',
+        reason: '两张大卡片统一走 AppSurface.soft：真机确认描边才是'
+            '「同一套质感」的关键，无描边反而与页面小胶囊不像一家人',
       );
       final theme = File('lib/theme.dart').readAsStringSync();
       final seg = theme.substring(
@@ -78,7 +78,10 @@ void main() {
       );
       expect(seg.contains('boxShadow'), isFalse);
       expect(seg.contains('BoxShadow'), isFalse);
-      expect(seg.contains('border:'), isFalse);
+      expect(seg.contains('gradient:'), isFalse);
+      expect(seg.contains('border:'), isTrue);
+      expect(seg.contains('alpha: 0.16'), isTrue,
+          reason: '描边色必须对齐 ChipLabel 的 bd（白 16%）');
     });
 
     test('内层横向滚动统一接入 _degradedVN 降级', () {

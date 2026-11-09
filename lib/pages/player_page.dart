@@ -1886,8 +1886,12 @@ class PlayerPageState extends State<PlayerPage>
         builder: (ctx) => _Sheet(
           title: '播放信息',
           blur: true,
+          // v2.0.66：真机反馈这块面板太大，收成按内容高度的紧凑信息卡
+          compact: true,
+          maxWidth: 400,
+          maxHeightFactor: 0.9,
           children: [
-            _InfoRow(k: '片名', v: item.name),
+            _InfoRow(k: '片名', v: item.name, maxLines: 2),
             const _InfoSection('媒体信息'),
             _InfoRow(
               k: '分辨率',
@@ -2887,9 +2891,20 @@ class _Sheet extends StatelessWidget {
     required this.title,
     required this.children,
     this.blur = false,
+    this.maxWidth,
+    this.maxHeightFactor,
+    this.compact = false,
   });
   final String title;
   final List<Widget> children;
+  final double? maxWidth;
+  final double? maxHeightFactor;
+
+  /// v2.0.66「播放信息」专用：字段数量固定且都已压缩，直接按内容高度
+  /// 收拢，不再用 Flexible + SingleChildScrollView —— 后者在 Column(min)
+  /// 里会把 viewport 拉到接近 maxHeight，横屏下变成一整块近满屏黑板。
+  /// 字幕列表 / 在线字幕等长列表仍走原滚动分支。
+  final bool compact;
 
   /// 是否开启真正的液态玻璃磨砂（与详情页翻译弹层同款）。
   /// 播放页弹层默认 false（高不透明底色，避免模糊每帧重采样压停视频）；
@@ -2900,6 +2915,8 @@ class _Sheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassPanel(
       blur: blur,
+      maxWidth: maxWidth,
+      maxHeightFactor: maxHeightFactor,
       child: Material(
         type: MaterialType.transparency,
         child: Column(
@@ -2908,14 +2925,16 @@ class _Sheet extends StatelessWidget {
             // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
             // 标题会压在正文上，截图里就是这个观感）
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 14, 10),
+              padding: compact
+                  ? const EdgeInsets.fromLTRB(16, 10, 12, 6)
+                  : const EdgeInsets.fromLTRB(20, 14, 14, 10),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       title,
-                      style: const TextStyle(
-                        fontSize: 15,
+                      style: TextStyle(
+                        fontSize: compact ? 14 : 15,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
                       ),
@@ -2945,17 +2964,26 @@ class _Sheet extends StatelessWidget {
                 ],
               ),
             ),
-            // 只有内容区滚动：Flexible + shrinkWrap 让短内容不撑高、
-            // 长内容自己滚，标题始终可见
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.only(top: 2, bottom: 14),
+            // compact：按内容收拢，短面板不会被拉成近满屏。
+            // 非 compact：长列表自己滚，标题始终可见。
+            if (compact)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 10),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: children,
                 ),
+              )
+            else
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 2, bottom: 14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: children,
+                  ),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -2974,7 +3002,7 @@ class _InfoSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
       child: Row(
         children: [
           Container(
@@ -3001,14 +3029,17 @@ class _InfoSection extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.k, required this.v});
+  const _InfoRow({required this.k, required this.v, this.maxLines = 2});
   final String k;
   final String v;
+
+  /// v2.0.66：片名这类长值最多两行，避免把紧凑面板重新撑高。
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3022,6 +3053,8 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               v,
+              maxLines: maxLines,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,

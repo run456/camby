@@ -56,11 +56,19 @@ class AppRadii {
 class AppSurface {
   const AppSurface._();
 
-  /// 大面积内容块：无 border、无 shadow、无渐变。
-  static BoxDecoration soft({double radius = 14, double opacity = 0.045}) =>
+  /// 大面积内容块：与胶囊 [ChipLabel] 同款 1px 描边，无 shadow、无渐变。
+  ///
+  /// v2.0.66：真机确认去掉描边后，两块大卡片反而与页面里的小胶囊「不像一套」。
+  /// 描边色直接对齐 ChipLabel 的 `bd`（白 16%）；填充比胶囊的 13% 略低，
+  /// 避免整块面积过大而发白。投影自 v2.0.54 起不再使用。
+  static BoxDecoration soft({double radius = 14, double opacity = 0.06}) =>
       BoxDecoration(
         color: Colors.white.withValues(alpha: opacity),
         borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.16),
+          width: 1,
+        ),
       );
 }
 

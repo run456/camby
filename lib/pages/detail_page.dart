@@ -53,13 +53,16 @@ class DetailPage extends StatefulWidget {
   /// v2.0.65：版本下拉选中**非主版本**时走这里，带 `MediaSourceId` 起播，
   /// 保证播的是选中的文件而不是服务端默认的主版本。
   ///
+  /// v2.0.66：改成把整个 [MediaExtraPart] 传出去，而不只是 id 字符串 ——
+  /// 播放页顶栏与「播放信息」面板需要该源的分辨率 / 编码 / 声道 / 体积，
+  /// 否则选了 4K 版本仍显示主版本的 1080p。
+  ///
   /// 刻意做成可选回调而不是给 [onPlay] 加参数：那样会让全部 widget 测试的
   /// mock 签名失配。不传时（测试、老调用方）退化成原来的主版本播放，
   /// 不会崩也不会静默播错；真实 App 在 [main.dart] 里注入。
   final void Function(
     MediaItem item, {
-    required String mediaSourceId,
-    String? sourceLabel,
+    required MediaExtraPart version,
     bool resume,
   })? onPlayVersion;
 
@@ -113,12 +116,7 @@ class _DetailPageState extends State<DetailPage> {
     final v = _selectedVersion;
     final cb = widget.onPlayVersion;
     if (v != null && !v.isPrimary && cb != null) {
-      cb(
-        item,
-        mediaSourceId: v.id,
-        sourceLabel: v.name,
-        resume: resume,
-      );
+      cb(item, version: v, resume: resume);
       return;
     }
     widget.onPlay(item, _selectedSubtitle, resume: resume);
@@ -1264,10 +1262,9 @@ class _DetailPageState extends State<DetailPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      // v2.0.65：去掉 1px 亮描边。v2.0.54 已经删掉 18px 外阴影，但整块
-      // 半透明 + 亮边压在全屏模糊背景上仍会「浮起来」，与页面里平贴的小胶囊
-      // 不是同一种质感。统一走 AppSurface.soft：无描边、无阴影、无渐变，
-      // 只靠留白和内容分区（也顺带少一次边框光栅化）。
+      // v2.0.66：真机确认描边才是「同一套质感」的关键，去掉后两块大卡片
+      // 与页面里的小胶囊反而不像一家人。统一走 AppSurface.soft：
+      // 与 ChipLabel 同款 1px 白 16% 描边 + 低填充，无阴影、无渐变。
       decoration: AppSurface.soft(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2406,10 +2403,9 @@ class _DetailPageState extends State<DetailPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      // v2.0.65：去掉 1px 亮描边。v2.0.54 已经删掉 18px 外阴影，但整块
-      // 半透明 + 亮边压在全屏模糊背景上仍会「浮起来」，与页面里平贴的小胶囊
-      // 不是同一种质感。统一走 AppSurface.soft：无描边、无阴影、无渐变，
-      // 只靠留白和内容分区（也顺带少一次边框光栅化）。
+      // v2.0.66：真机确认描边才是「同一套质感」的关键，去掉后两块大卡片
+      // 与页面里的小胶囊反而不像一家人。统一走 AppSurface.soft：
+      // 与 ChipLabel 同款 1px 白 16% 描边 + 低填充，无阴影、无渐变。
       decoration: AppSurface.soft(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

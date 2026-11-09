@@ -19,24 +19,44 @@ import '../theme.dart';
 /// - `true`（详情页的翻译弹层等）：对面板背后的内容做 [BackdropFilter] 高斯模糊，
 ///   叠半透明深色玻璃质感 + 顶部高光，是真正的 frosted / liquid glass。
 class GlassPanel extends StatelessWidget {
-  const GlassPanel({super.key, required this.child, this.blur = false});
+  const GlassPanel({
+    super.key,
+    required this.child,
+    this.blur = false,
+    this.maxWidth,
+    this.maxHeightFactor,
+  });
 
   final Widget child;
 
   /// 是否开启真正的背景磨砂（液态玻璃）。详见类注释。
   final bool blur;
 
+  /// v2.0.66：覆盖默认面板宽度（PlayerUi.panelMaxW：手机 470 / 平板 620）。
+  /// 「播放信息」字段短，收窄到 400 更像一张信息卡，不再是一大块黑板。
+  final double? maxWidth;
+
+  /// 相对可用高度的比例硬上限。不传时沿用 avail - 24（尽量吃满）。
+  /// 只对需要兜底的短面板传，字幕列表 / 在线字幕等长列表保持原行为。
+  final double? maxHeightFactor;
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final avail = media.size.height - media.padding.vertical;
+    final fullH = avail - 24;
+    final wanted = avail * (maxHeightFactor ?? 1);
+    final floor = fullH < 200 ? fullH : 200.0;
+    final maxH = maxHeightFactor == null
+        ? fullH
+        : wanted.clamp(floor, fullH).toDouble();
     return RepaintBoundary(
       child: Center(
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: PlayerUi.of(context).panelMaxW,
+            maxWidth: maxWidth ?? PlayerUi.of(context).panelMaxW,
             // 上下各留 12px，尽量吃满可用高度（横屏 ~500px 也能显示完整）
-            maxHeight: avail - 24,
+            maxHeight: maxH,
           ),
           child: Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),

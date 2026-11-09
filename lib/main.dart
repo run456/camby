@@ -199,16 +199,16 @@ class _AppShellState extends State<AppShell>
           // 属于主版本，硬套到另一文件可能对不上）。
           onPlayVersion: (
             it, {
-            required mediaSourceId,
-            sourceLabel,
+            required MediaExtraPart version,
             resume = true,
           }) =>
               _openPlayer(
                 it,
                 null,
                 resume: resume,
-                mediaSourceId: mediaSourceId,
-                sourceLabel: sourceLabel,
+                mediaSourceId: version.id,
+                sourceLabel: version.name,
+                version: version,
               ),
           onPlayPart: _openExtraPart,
           state: _state,
@@ -281,7 +281,9 @@ class _AppShellState extends State<AppShell>
           listenable: _state,
           builder: (_, __) => PlayerPage(
             key: _playerKey,
-            item: item,
+            // v2.0.66：分段/额外部分同样把该 MediaSource 的规格带给播放页，
+            // 顶栏与播放信息面板才不会显示主版本的分辨率。
+            item: item.withMediaSource(part),
             state: _state,
             startSeconds: 0,
             mediaSourceId: part.id,
@@ -300,8 +302,12 @@ class _AppShellState extends State<AppShell>
     // 不传时行为与以前完全一致（服务端默认主版本）。
     String? mediaSourceId,
     String? sourceLabel,
+    // v2.0.66：非主版本的完整规格。播放页顶栏 / 播放信息面板读的是 item，
+    // 起播前覆盖一次，选 4K 就不会再显示主版本的 1080p。
+    MediaExtraPart? version,
   }) {
-    final double startAt = resume ? (item.resumeSeconds ?? 0) : 0;
+    final playItem = version != null ? item.withMediaSource(version) : item;
+    final double startAt = resume ? (playItem.resumeSeconds ?? 0) : 0;
 
     // STRM 片源：**先弹加载弹窗**，再进播放页（v1.7.49）
     //
@@ -323,7 +329,7 @@ class _AppShellState extends State<AppShell>
           listenable: _state,
           builder: (_, __) => PlayerPage(
             key: _playerKey,
-            item: item,
+            item: playItem,
             state: _state,
             subtitle: subtitle,
             startSeconds: startAt,

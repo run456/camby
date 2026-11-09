@@ -877,6 +877,15 @@ class MediaItem {
     int? userPlayCount,
     List<MediaExtraPart>? extraParts,
     String? seriesName,
+    // v2.0.66：媒体源规格，供 [withMediaSource] 覆盖播放页展示信息
+    int? videoHeight,
+    String? videoCodec,
+    String? audioCodec,
+    int? audioChannels,
+    String? container,
+    int? fileSizeBytes,
+    String? filePath,
+    bool? resolutionKnown,
   }) {
     return MediaItem(
       id: id,
@@ -893,11 +902,11 @@ class MediaItem {
       subtitles: subtitles,
       director: director,
       studio: studio,
-      videoHeight: videoHeight,
-      videoCodec: videoCodec,
-      audioCodec: audioCodec,
-      audioChannels: audioChannels,
-      container: container,
+      videoHeight: videoHeight ?? this.videoHeight,
+      videoCodec: videoCodec ?? this.videoCodec,
+      audioCodec: audioCodec ?? this.audioCodec,
+      audioChannels: audioChannels ?? this.audioChannels,
+      container: container ?? this.container,
       isHdr: isHdr,
       hasDolbyVision: hasDolbyVision,
       resumeProgress: resumeProgress ?? this.resumeProgress,
@@ -912,20 +921,40 @@ class MediaItem {
       backdropUrl: backdropUrl,
       backdrops: backdrops,
       extraParts: extraParts ?? this.extraParts,
-      resolutionKnown: resolutionKnown,
+      resolutionKnown: resolutionKnown ?? this.resolutionKnown,
       reason: reason,
       addedDaysAgo: addedDaysAgo,
       userPlayCount: userPlayCount ?? this.userPlayCount,
       userPlayed: userPlayed ?? this.userPlayed,
       userFavorite: userFavorite ?? this.userFavorite,
       lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
-      filePath: filePath,
-      fileSizeBytes: fileSizeBytes,
+      filePath: filePath ?? this.filePath,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       dateCreatedMs: dateCreatedMs,
       premiereDate: premiereDate,
       seriesName: seriesName ?? this.seriesName,
     );
   }
+
+  /// v2.0.66：把某个 MediaSource 的规格覆盖到「展示用」item 上。
+  ///
+  /// 播放页顶栏副行（`内核 · 分辨率 · 编码 · 声道`）与「播放信息」面板读的
+  /// 都是 item 级字段。以前切到非主版本只透传 `MediaSourceId`，item 仍是
+  /// 主版本，于是选了 4K 却依旧显示 1080p。起播前覆盖一次即可全联动。
+  ///
+  /// 服务端缺字段时保留 item 原值，避免出现 `0p` / 空编码 / 0 B。
+  /// 动态范围（Dolby Vision / HDR）是 Item 级元数据，MediaSources 未给，
+  /// 这里不动。
+  MediaItem withMediaSource(MediaExtraPart p) => copyWith(
+    videoHeight: p.height > 0 ? p.height : null,
+    videoCodec: p.videoCodec.isNotEmpty ? p.videoCodec : null,
+    audioCodec: p.audioCodec.isNotEmpty ? p.audioCodec : null,
+    audioChannels: p.audioChannels > 0 ? p.audioChannels : null,
+    container: p.container.isNotEmpty ? p.container.toUpperCase() : null,
+    fileSizeBytes: p.sizeBytes > 0 ? p.sizeBytes : null,
+    filePath: p.path.isNotEmpty ? p.path : null,
+    resolutionKnown: p.height > 0 ? true : null,
+  );
 
   Map<String, dynamic> toJson() => {
     'id': id,
