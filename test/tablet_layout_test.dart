@@ -16,7 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 1194×834 = 11 寸平板横屏，命中 medium 档（840–1199）。
-/// 外壳会注入「内容区宽 = 1194 - 96(Rail)」，测试直接给 1194 模拟整屏。
+/// v2.0.67：平板改底部居中悬浮导航，不再有左侧 Rail，内容区即整屏宽，
+/// 因此测试直接给 1194 就是真实可视宽度。
 const _tabletSize = Size(1194, 834);
 
 /// 1600×1000 = 大平板横屏，命中 expanded 档（≥1200，主从分栏生效）

@@ -51,7 +51,8 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('收藏'));
+    // v2.0.67 方案 A：未选中项只剩图标（无文字），用图标定位
+    await tester.tap(find.byIcon(Icons.favorite_rounded));
     await tester.pump();
 
     expect(onChange, 1);

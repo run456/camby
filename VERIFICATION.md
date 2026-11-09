@@ -2554,3 +2554,51 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 **真机重点验收**：找一部 4K + 1080p 双版本影片 → 详情页选 4K → 立即播放 → 顶栏副行应写 `2160p` 与 4K 源编码，点右上 info 的「播放信息」应同步显示 2160p / HEVC / 该源体积；播放信息弹窗应收成约 400 宽的紧凑卡片，不再近满屏，且「字幕」行完整可见。单版本影片播放信息不得出现 `0p` 或空编码。顺带确认剧情简介与媒体信息两块已恢复细描边、与标签胶囊一眼同套。
 
 验证（v2.0.66）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **493 全过**；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.66-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='266' versionName='2.0.66'`。
+
+---
+
+## §92 发布 v2.0.67（导航改造：手机方案 A + 平板方案 B）
+
+### 用户反馈与定性
+
+用户在看过两份设计稿后给出三条明确选择：
+
+1. 「圆形玻璃按钮图标不是我想要的效果，不更改」—— 《圆形玻璃按钮设计稿》整体否决，`Glass` / `GlassIconButton` / `LiquidPress` / `PrimaryButton` / `ChipLabel` 等按钮视觉零改动。本版只新增 `AppNav`，不碰任何按钮组件。
+2. 「导航条手机端选方案 A」—— 选中项为青蓝渐变横向胶囊（图标 + 文字）、未选中项只剩线性图标，整条底栏保留液态玻璃。
+3. 「平台的导航条方案 A 显得被压缩了，选择方案 B」—— 「平台」按上下文为「平板」；放弃设计稿初稿推荐的左侧可折叠 Rail，改为底部居中悬浮条，与手机共用同一套组件。
+
+### 实现
+
+**token**：`theme.dart` 新增 `AppNav`（私有构造 + 静态常量），集中 `capsuleGradient`（约 105deg `2FD8B6 → 33B6E8 → 4F8CFF`）、`barHeight 62` / `barRadius 31`、`itemHeight 48`（按触控 ≥48 取，设计稿写 46）、`idleWidth 48` / `selectedWidth 108`、`tabletBarWidth 320`、`barInset 7`、`duration 260ms` + `curve easeOutCubic`、`badgeColor`。手机与平板读同一份，避免再次分裂。
+
+**GlassNavBar（方案 A）**：`Row` 由 5 个 `Expanded` 改为 `mainAxisSize.min` 的定宽项，整体 `Center` 居中。单项外层 `LiquidPress(scale .94, glow .30, semanticLabel: 名称)`，内层 `AnimatedContainer` 在 48 ↔ 108 之间动画，选中时挂 `AppNav.capsuleGradient` + 1px 白 22% 内描边 + 青色外发光 / 黑色投影。图标 21dp，未选中白 55%、选中白 96%。文字用 `AnimatedSize(alignment: centerLeft, clipBehavior: hardEdge)` 从 `SizedBox.shrink()` 展开为「7dp 间距 + 12px w800 白字」。两段动画同 duration / curve，任意时刻内容宽 ≤ 容器宽，故不会出现 RenderFlex 溢出；`ClipRRect` 再兜一层裁剪。
+
+**外壳（方案 B）**：删除 `if (context.useRail) { ... }` 整段（左侧 Rail、`VerticalDivider`、`LayoutBuilder + MediaQuery` 宽度注入）、`_buildRail()` 与 `_RailButton` 类。统一走 `Scaffold + Stack`：`Positioned` 在平板 `left/right: 0`、手机 `16`；`bottom` 平板 `padding.bottom + 14`、手机 `+10`；child 为 `Center(SizedBox(width: 平板 320 / 手机 infinity, child: GlassNavBar))`。`onChanged` 回调、双击搜索、`_visited`、`_tabAnim`、`_blur` 全部原样保留。
+
+**layout.dart**：`useRail` 恒 false 并注明废弃原因（保留 getter 供旧调用与回归测试得到明确答案）；`isTablet` 不变，页面分栏 / 列数继续按 840 分档；`kRailWidth` 标为历史常量，导航不再读取；文件头三档描述更新为「共用底部悬浮导航」。
+
+**性能**：整条 bar 仍只挂 1 个 `BackdropFilter(sigma 30)`（main.dart 中 `BackdropFilter(` 出现次数 = 1，由新测试锁定）；胶囊内不嵌滤镜，用渐变 + 内高光 + 外发光表达厚度。滚动降级与 `StatusBarBlur` 逻辑不动。
+
+### 回归与修法
+
+| 现象 | 原因 | 修法 |
+|---|---|---|
+| `phone_regression_test` 平板断言「不得出现 GlassNavBar」 | 平板已改方案 B | 断言改为 `findsOneWidget`，并新增 5 图标齐全、宽 320、水平居中 |
+| `layout_breakpoint_test` 断言 `isTablet && useRail` 在 840 为真 | Rail 废弃 | 拆成两条：`useRail` 恒 false、`isTablet` 仍按 840 分档；新增 main.dart 不含 `_buildRail(` / `context.useRail` 的源码守卫 |
+| `global_search_test` 用 `find.text('收藏')` 定位 | 方案 A 未选中项无文字 | 改用 `find.byIcon(Icons.favorite_rounded)`；选中项仍保留文字，首页双击用例不变 |
+| 未选中项无文字影响读屏 / 自动化定位 | 视觉要求 | `LiquidPress.semanticLabel` 提供名称 |
+| 未选中项切到选中时可能 RenderFlex 溢出 | 文字瞬间出现、容器尚未展开 | `AnimatedSize` 同曲线展开 + `ClipRRect` 裁剪；新增逐帧 pump 的动画测试 |
+| 平板外壳报 `RenderFlex overflowed by 2.0 pixels` | 定宽 Row 合计 300dp，但 `SizedBox(314)` 扣掉 1px 描边 ×2 与 7dp 内距 ×2 后只剩 298dp（旧版用 `Expanded` 弹性子项，不会暴露） | 平板条宽改 `320`（留 4dp 余量），`theme.dart` / 两个测试 / README / VERIFICATION / 设计稿的数值同步；用临时诊断测试打印完整 `FlutterErrorDetails` 定位到 `main.dart` 的 5 项 Row，确认 `DIAG COUNT 0` 后删除该临时文件 |
+
+### 设计稿状态
+
+- `/workspace/底部导航设计稿.html`：待确认清单改为已确认结论 —— 手机 A、平板 B、渐变青→蓝、红点默认关、圆钮方案否决；推荐标签同步更新。
+- `/workspace/圆形玻璃按钮设计稿.html`：**已否决**，仅留档，不实施。
+
+### 文件清单与测试
+
+修改：`lib/theme.dart`、`lib/main.dart`、`lib/layout.dart`、`test/layout_breakpoint_test.dart`、`test/phone_regression_test.dart`、`test/global_search_test.dart`、`test/tablet_layout_test.dart`、`test/online_subtitle_test.dart`、`test/quality_pack_test.dart`、版本号 5 处、`README.md`、`VERIFICATION.md`、设计稿状态。新增 `test/nav_redesign_test.dart`（5 条源码守卫 + 2 条 widget + 1 条 token 断言）。
+
+**真机重点验收**：手机底栏选中项是横向青蓝胶囊且带文字、其余 4 项只有图标；点不同 Tab 时胶囊平滑滑过去、文字渐显，全程无黄色溢出条；平板（840dp 以上）不再有左侧竖条，底部出现居中的短悬浮导航，内容区比旧版宽约 96dp；双击当前 Tab 仍能唤起全局搜索；所有圆形玻璃按钮外观与 v2.0.66 完全一致。
+
+验证（v2.0.67）：`flutter analyze` 0 error / 0 warning（425 项全为 info 级既有弃用，比 v2.0.66 少 14 项是因为删掉 `_RailButton` 里的 `withOpacity`）；`flutter test` **502 全过**（原 493 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.67-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='267' versionName='2.0.67'`。

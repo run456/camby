@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.66 (266)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.67 (267)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,18 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.67 (267) 导航改造：手机方案 A + 平板方案 B
+
+用户确认三条选择后的落地版：**圆钮保持现状不更改**（《圆形玻璃按钮设计稿》标记为已否决，本版不动 `Glass` / `GlassIconButton` / `LiquidPress` 任何按钮视觉）；**手机端采用设计稿方案 A**；**平板从方案 A（左侧可折叠 Rail）改为方案 B（底部居中悬浮条）**，理由是 Rail 在真机上显得被压缩。
+
+- **手机方案 A**：`GlassNavBar` 从「5 等宽格 + 38dp 圆形玻璃高亮 + 每项常驻 9px 文字」改为「选中项 108×48 青蓝渐变胶囊（图标 + 12px 文字）、未选中项 48×48 纯线性图标」。切 Tab 时 `AnimatedContainer` 以 260ms `easeOutCubic` 改宽度，文字用 `AnimatedSize` 同曲线展开，全程内容比容器窄、不会溢出。未选中项没有文字，改由 `LiquidPress.semanticLabel` 提供读屏与自动化测试定位。
+- **平板方案 B**：外壳删掉 `context.useRail` 分支、`_buildRail()` 与 `_RailButton`，平板与手机共用同一个 `GlassNavBar`，只在外层限宽 320dp 并居中、离底 14dp；手机仍左右留 16dp、离底 10dp。内容区不再被 96dp 轨道挤占，原先「减去轨道宽」的 `MediaQuery` 宽度注入一并取消，页面拿到整屏宽即真实可视宽。三档 breakpoint 保留，只用于页面内部分栏 / 列数与悬浮条宽度。
+- **统一视觉 token**：`theme.dart` 新增 `AppNav`（胶囊渐变 `2FD8B6 → 33B6E8 → 4F8CFF`、轨道 62、胶囊 48 / 108×48、平板条宽 320、260ms 曲线、红点色），手机平板共用一份定义，不再有两套导航语言。
+- **性能与兼容**：整条导航**只挂 1 个 `BackdropFilter(sigma 30)`**，选中胶囊用渐变 + 内高光 + 外发光表达厚度，不再给 5 个格子各嵌滤镜；双击当前 Tab 唤起搜索、`_visited` 懒加载、`_tabAnim` 转场、`AppHaptics.light()`、5 个 Tab 及顺序全部不变；红点按设计稿推荐默认关，本版未接更新源故不显示。
+- **回归**：`layout.dart` 的 `useRail` 改为恒 false（保留 getter 给旧调用一个明确的「已关闭」答案），`kRailWidth` 留作历史常量；四个既有测试同步断言，新增 `test/nav_redesign_test.dart`（源码守卫 + 组件行为，含切 Tab 动画逐帧无溢出）。`底部导航设计稿.html` 的推荐状态更新为「手机 A / 平板 B 已确认」。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **502 全过**（原 493 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.67-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='267' versionName='2.0.67'`。
 
 ### v2.0.66 (266) 描边回归 / 4K 版本播放信息联动 / 播放信息弹窗收紧
 

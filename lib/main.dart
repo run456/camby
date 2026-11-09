@@ -382,64 +382,40 @@ class _AppShellState extends State<AppShell>
           ),
         ];
 
-        // 内容体（页面保活 + 状态栏模糊）。底部导航条 / 左侧 Rail 由外壳按
-        // breakpoint 分支决定，手机路径零改动。
+        // 内容体（页面保活 + 状态栏模糊）。
+        // v2.0.67：手机方案 A / 平板方案 B 共用同一条底部悬浮玻璃导航 ——
+        // 手机左右撑满留 16dp，平板限宽居中；左侧 Rail 分支整体移除。
+        // 内容区不再被轨道挤占，页面读到整屏宽度即为真实可视宽度，
+        // 因此原先「减去轨道宽」的 MediaQuery 注入也一并取消。
         final body = _buildBody(context, pages);
+        final wide = context.isTablet;
 
-        if (context.useRail) {
-          // 平板：左侧 Rail + 内容区。内容区宽度经 MediaQuery 注入，
-          // 否则 home_page 用 MediaQuery.of(context).size.width（仍是全设备宽）
-          // 算「继续观看」大卡宽高会宽出 Rail 宽度导致溢出。
-          return Scaffold(
-            backgroundColor: AppColors.bg,
-            body: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildRail(context),
-                const VerticalDivider(
-                  width: 1,
-                  thickness: 1,
-                  color: Color(0x1AFFFFFF),
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (ctx, constraints) {
-                      final mq = MediaQuery.of(context);
-                      return MediaQuery(
-                        data: mq.copyWith(
-                          size: Size(constraints.maxWidth, mq.size.height),
-                        ),
-                        child: body,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        // 手机：保持现有底部悬浮玻璃栏，零改动
         return Scaffold(
           backgroundColor: AppColors.bg,
           body: Stack(
             children: [
               body,
               Positioned(
-                left: 16,
-                right: 16,
-                bottom: MediaQuery.of(context).padding.bottom + 10,
-                child: GlassNavBar(
-                  index: _tab,
-                  onChanged: (i) {
-                    setState(() {
-                      _tab = i;
-                      _visited.add(i);
-                    });
-                    _tabAnim.forward(from: 0);
-                    _blur.value = false;
-                  },
-                  onSearch: _openSearch,
+                left: wide ? 0 : 16,
+                right: wide ? 0 : 16,
+                bottom:
+                    MediaQuery.of(context).padding.bottom + (wide ? 14 : 10),
+                child: Center(
+                  child: SizedBox(
+                    width: wide ? AppNav.tabletBarWidth : double.infinity,
+                    child: GlassNavBar(
+                      index: _tab,
+                      onChanged: (i) {
+                        setState(() {
+                          _tab = i;
+                          _visited.add(i);
+                        });
+                        _tabAnim.forward(from: 0);
+                        _blur.value = false;
+                      },
+                      onSearch: _openSearch,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -512,124 +488,11 @@ class _AppShellState extends State<AppShell>
     );
   }
 
-  /// 平板左侧导航栏（≥840 启用），复用底部 Tab 的同套图标/文案。
-  /// 中等档（840–1199）为纯图标条，扩展档（≥1200）显示标签。
-  Widget _buildRail(BuildContext context) {
-    final expanded = context.isExpanded;
-    return Container(
-      width: kRailWidth,
-      decoration: BoxDecoration(
-        color: AppColors.bg,
-        border: const Border(
-          right: BorderSide(color: Color(0x14FFFFFF), width: 1),
-        ),
-      ),
-      child: Column(
-        children: [
-          // v2.0.11 实测反馈：Rail 顶到屏幕最上面与状态栏重叠 → 避让系统状态栏
-          SizedBox(height: MediaQuery.of(context).padding.top + 10),
-          // v2.0.12 实测反馈：搜索与 Tab 组的间距仍偏宽 ——
-          // _RailButton 自带上下 4dp 内距（相邻 Tab 之间 = 4+4 = 8），
-          // 这里不再额外加 SizedBox(8)，否则实际视觉间距是 16。
-          // v2.0.10：搜索放最上面（首页上方）
-          _RailButton(
-            icon: Icons.search_rounded,
-            label: '搜索',
-            selected: false,
-            expanded: expanded,
-            onTap: _openSearch,
-          ),
-          // v2.0.9：弃用 NavigationRail（按钮 21dp 太小），
-          // 改为液态玻璃按钮（选中项玻璃胶囊高亮 + 实时模糊）
-          for (final (i, it) in GlassNavBar._items.indexed)
-            _RailButton(
-              icon: it.$1,
-              label: it.$2,
-              selected: _tab == i,
-              expanded: expanded,
-              onTap: () {
-                setState(() {
-                  _tab = i;
-                  _visited.add(i);
-                });
-                _tabAnim.forward(from: 0);
-                _blur.value = false;
-              },
-            ),
-          const Spacer(),
-        ],
-      ),
-    );
-  }
+  // v2.0.67：平板改方案 B（底部居中悬浮条），左侧 Rail 与 _RailButton
+  // 一并移除；手机 / 平板两端共用同一个 GlassNavBar。
 }
 
-/// Rail 上的单个玻璃按钮：选中项玻璃胶囊高亮（实时模糊），未选中半透明。
-/// 触控目标 ≥ 56dp 高（v2.0.9：旧 NavigationRail 图标 21dp 太小）。
-class _RailButton extends StatelessWidget {
-  const _RailButton({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    required this.expanded,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool selected;
-  final bool expanded;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 14),
-      child: Glass(
-        onTap: onTap,
-        radius: 16,
-        blur: 20,
-        // 仅选中项开实时模糊：Rail 常驻屏幕，未选中项省一次逐帧重采样
-        blurEnabled: selected,
-        tint: selected ? 0.16 : 0.05,
-        padding: EdgeInsets.symmetric(
-          vertical: expanded ? 10 : 8,
-          horizontal: 0,
-        ),
-        child: SizedBox(
-          width: 66,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: expanded ? 24 : 23,
-                color: selected ? Colors.white : Colors.white.withOpacity(0.62),
-              ),
-              if (expanded) ...[
-                const SizedBox(height: 3),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    height: 1.1,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    color: selected
-                        ? Colors.white
-                        : Colors.white.withOpacity(0.62),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 全局液态玻璃 Tab 栏：悬浮胶囊 + 选中项玻璃高亮胶囊
+/// 全局液态玻璃 Tab 栏（v2.0.67 · 手机方案 A / 平板方案 B 共用）
 class GlassNavBar extends StatefulWidget {
   const GlassNavBar({
     required this.index,
@@ -679,24 +542,29 @@ class GlassNavBarState extends State<GlassNavBar> {
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(33),
+      borderRadius: BorderRadius.circular(AppNav.barRadius),
       child: BackdropFilter(
+        // 整条 bar 只模糊一次：胶囊内一律用渐变 + 内高光表达厚度，
+        // 不再给 5 个格子各挂一层滤镜（滚动时避免 5 次背景重采样）。
         filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
-          height: 66,
+          height: AppNav.barHeight,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(33),
+            borderRadius: BorderRadius.circular(AppNav.barRadius),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(0.16),
-                Colors.white.withOpacity(0.05),
-                Colors.white.withOpacity(0.10),
+                Colors.white.withValues(alpha: 0.17),
+                Colors.white.withValues(alpha: 0.05),
+                Colors.white.withValues(alpha: 0.11),
               ],
               stops: const [0.0, 0.45, 1.0],
             ),
-            border: Border.all(color: Colors.white.withOpacity(0.16), width: 1),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.17),
+              width: 1,
+            ),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x66000000),
@@ -709,8 +577,8 @@ class GlassNavBarState extends State<GlassNavBar> {
             children: [
               // 顶部镜面高光线（玻璃上缘反光）
               Positioned(
-                left: 40,
-                right: 40,
+                left: 34,
+                right: 34,
                 top: 0,
                 child: IgnorePointer(
                   child: Container(
@@ -718,98 +586,114 @@ class GlassNavBarState extends State<GlassNavBar> {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          Colors.white.withOpacity(0.0),
-                          Colors.white.withOpacity(0.5),
-                          Colors.white.withOpacity(0.0),
+                          Colors.white.withValues(alpha: 0.0),
+                          Colors.white.withValues(alpha: 0.55),
+                          Colors.white.withValues(alpha: 0.0),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              Row(
-                children: List.generate(GlassNavBar._items.length, (i) {
-                  final item = GlassNavBar._items[i];
-                  final sel = i == widget.index;
-                  return Expanded(
-                    child: LiquidPress(
-                      onTap: () => _onTap(i),
-                      radius: 22,
-                      scale: 0.92,
-                      glow: 0.36,
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // 图标坐在一颗圆形玻璃片上：选中常亮，
-                            // 按下时 LiquidPress 的光晕叠加在圆片上
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 260),
-                              curve: Curves.easeOutCubic,
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: sel
-                                    ? LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          Colors.white.withOpacity(0.28),
-                                          Colors.white.withOpacity(0.10),
-                                        ],
-                                      )
-                                    : null,
-                                border: sel
-                                    ? Border.all(
-                                        color: Colors.white.withOpacity(0.32),
-                                        width: 1,
-                                      )
-                                    : null,
-                                boxShadow: sel
-                                    ? const [
-                                        BoxShadow(
-                                          color: Color(0x40000000),
-                                          blurRadius: 14,
-                                          offset: Offset(0, 5),
-                                        ),
-                                        BoxShadow(
-                                          color: Color(0x2E4F8CFF),
-                                          blurRadius: 18,
-                                          offset: Offset(0, 4),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Icon(
-                                item.$1,
-                                size: 18,
-                                color: Colors.white.withOpacity(
-                                  sel ? 0.96 : 0.78,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              item.$2,
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: sel
-                                    ? FontWeight.w800
-                                    : FontWeight.w500,
-                                color: Colors.white.withOpacity(
-                                  sel ? 0.95 : 0.75,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+              // 5 项整体居中：手机 bar 撑满时留白分在两端，平板 bar 限宽时
+              // 正好落在设计稿的 300dp 内容宽里。
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppNav.barInset,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(
+                      GlassNavBar._items.length,
+                      _navItem,
                     ),
-                  );
-                }),
+                  ),
+                ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 单项：选中 = 108dp 青蓝渐变胶囊（图标 + 文字），未选中 = 48dp 纯图标。
+  Widget _navItem(int i) {
+    final item = GlassNavBar._items[i];
+    final sel = i == widget.index;
+    return LiquidPress(
+      onTap: () => _onTap(i),
+      radius: AppNav.itemRadius,
+      scale: 0.94,
+      glow: 0.30,
+      // 未选中项没有文字，语义标签保证读屏与自动化测试仍能定位每个 Tab
+      semanticLabel: item.$2,
+      child: AnimatedContainer(
+        duration: AppNav.duration,
+        curve: AppNav.curve,
+        width: sel ? AppNav.selectedWidth : AppNav.idleWidth,
+        height: AppNav.itemHeight,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(AppNav.itemRadius),
+          gradient: sel ? AppNav.capsuleGradient : null,
+          border: sel
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  width: 1,
+                )
+              : null,
+          boxShadow: sel
+              ? const [
+                  BoxShadow(
+                    color: Color(0x472FD8B6),
+                    blurRadius: 18,
+                    offset: Offset(0, 6),
+                  ),
+                  BoxShadow(
+                    color: Color(0x4D000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppNav.itemRadius),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  item.$1,
+                  size: 21,
+                  color: Colors.white.withValues(alpha: sel ? 0.96 : 0.55),
+                ),
+                // 文字宽度从 0 展开，与胶囊 48 → 108 共用同一条曲线：
+                // 任意时刻内容都比容器窄，不会触发 RenderFlex 溢出。
+                AnimatedSize(
+                  duration: AppNav.duration,
+                  curve: AppNav.curve,
+                  alignment: Alignment.centerLeft,
+                  clipBehavior: Clip.hardEdge,
+                  child: sel
+                      ? Padding(
+                          padding: const EdgeInsets.only(left: 7),
+                          child: Text(
+                            item.$2,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                              color: Colors.white,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ),
           ),
         ),
       ),

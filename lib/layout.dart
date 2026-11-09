@@ -1,17 +1,21 @@
 // 平板/手机统一断点（M1 地基）
 //
-// 对齐设计稿 camby_tablet_redesign.html §响应式与断点：
-//   ≥ 1200dp  扩展（expanded）：左侧导航栏 + 6 列栅格 + 主从分栏
-//   840–1199  中等（medium）  ：图标条导航 + 4 列栅格 + 详情侧栏折叠
-//   < 840dp   手机（phone）    ：底部 Tab + 3 列，保持手机手势一致
+// 三档形态（对齐设计稿 §响应式与断点）：
+//   ≥ 1200dp  扩展（expanded）：主从分栏 + 更密栅格
+//   840–1199  中等（medium）  ：竖屏平板 / 折叠屏展开
+//   < 840dp   手机（phone）    ：底部 Tab，保持手机手势一致
+//
+// v2.0.67：手机方案 A / 平板方案 B 确认后，三档**共用同一条底部悬浮导航**
+// （手机左右撑满留 16dp、平板限宽居中），左侧 Rail 全面废弃。
+// breakpoint 现在只决定「页面内部的分栏 / 列数」与悬浮条的宽度、离底距离。
 //
 // 注意：之前方案 MD §3 写成 Material 3 的 600/840 二值，与设计稿三档不符，
 // 此处以设计稿为准。MagicPad3 横屏≈1660 / 竖屏≈1110 均命中 ≥840（平板形态）。
 //
 // 约定：
 // - 业务层（emby_client / app_state / 播控）**一律不**判断设备类型；
-// - 只有「导航外壳」(main.dart) 会读取 breakpoint 决定 Rail vs 底部 Tab；
-// - 页面内部如需分栏/列数，读 context.breakpoint 自行响应（后续 M2/M3）。
+// - 只有「导航外壳」(main.dart) 读取 breakpoint 决定悬浮条宽度与位置；
+// - 页面内部如需分栏/列数，读 context.breakpoint 自行响应。
 
 import 'package:flutter/material.dart';
 
@@ -30,7 +34,8 @@ enum Breakpoint {
 /// 设计稿三档断点阈值。
 const double kTabletBreakpoint = 840; // 平板形态起点（替代旧散落的 `>= 840`）
 const double kExpandedBreakpoint = 1200; // 进入「扩展」主从分栏
-const double kRailWidth = 96; // 设计稿 .rail{width:96px}
+// v2.0.67 起左侧 Rail 已废弃，此常量仅留作历史断点资料，导航不再读取。
+const double kRailWidth = 96;
 
 extension CambyLayout on BuildContext {
   double get screenWidth => MediaQuery.of(this).size.width;
@@ -48,11 +53,15 @@ extension CambyLayout on BuildContext {
   bool get isMedium => breakpoint == Breakpoint.medium;
   bool get isExpanded => breakpoint == Breakpoint.expanded;
 
-  /// ≥840：平板形态（中等或扩展），统一启用左侧 Rail 替代底部 Tab。
+  /// ≥840：平板形态（中等或扩展）。仍用于页面内部的分栏 / 列数判断。
   bool get isTablet => !isPhone;
 
-  /// 是否启用左侧导航栏（替代底部 Tab）。
-  bool get useRail => isTablet;
+  /// 是否启用左侧导航栏。
+  ///
+  /// v2.0.67：平板改设计稿方案 B（底部居中悬浮条），左侧 Rail 全面废弃。
+  /// 保留此 getter 是给旧调用与回归测试一个明确的「已关闭」答案，恒为 false；
+  /// main.dart 外壳一律走底部悬浮导航，不再按它分支。
+  bool get useRail => false;
 
   /// 媒体栅格列数：扩展 7 列 / 中等 7 列 / 手机 3 列。
   /// v2.0.9：平板 6/4 列封面偏大，加密到 7/5；
