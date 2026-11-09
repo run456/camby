@@ -2602,3 +2602,52 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 **真机重点验收**：手机底栏选中项是横向青蓝胶囊且带文字、其余 4 项只有图标；点不同 Tab 时胶囊平滑滑过去、文字渐显，全程无黄色溢出条；平板（840dp 以上）不再有左侧竖条，底部出现居中的短悬浮导航，内容区比旧版宽约 96dp；双击当前 Tab 仍能唤起全局搜索；所有圆形玻璃按钮外观与 v2.0.66 完全一致。
 
 验证（v2.0.67）：`flutter analyze` 0 error / 0 warning（425 项全为 info 级既有弃用，比 v2.0.66 少 14 项是因为删掉 `_RailButton` 里的 `withOpacity`）；`flutter test` **502 全过**（原 493 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.67-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='267' versionName='2.0.67'`。
+
+---
+
+## §93 发布 v2.0.68（低干扰导航 + 媒体库 4 类 + 搜索页升为一级 Tab + 空心图标）
+
+### 用户确认
+
+> tab 的按钮切换动画不错，保留。但是现在导航栏有些抢镜了，也有些宽，用媒体库切换 tab 的背景和样式如何？同时收藏跟媒体库合并，即媒体库上面的 tab 有 4 类，原收藏页换成搜索页，同时双击 tab 按钮唤出搜索页的功能取消。现给出设计图
+
+设计稿 `/workspace/低干扰导航设计稿.html` 交付后，用户回复「**按你推荐的修改**，同时我加一条 **tab 的图标要用设计稿里空心的图标，现在版本是实心的，没设计稿的好看**」。四项待确认全部按推荐落地，追加第 5 条空心图标要求。
+
+### 实现
+
+**theme.dart / AppNav**：`capsuleGradient` 由青蓝三色渐变换成 `0x38FFFFFF → 0x14FFFFFF` 白雾面（与 `LibraryIndexSegment` 同源）；`barHeight 62→50`、`barRadius 31→999`、`itemHeight 48→42`、`itemRadius 24→999`、`idleWidth 48→44`、`selectedWidth 108→96`、`tabletBarWidth 320→280`、`barInset 7→3`；`duration 260ms` / `easeOutCubic` 不动。
+
+**main.dart / GlassNavBar**：容器去掉三段渐变、镜面高光线、青色发光与深投影，改白 6% 纯色 + 白 10% 1px 描边 + 黑 28% blur20 y8；`ImageFilter.blur(30)→(20)`，仍只挂 1 个 `BackdropFilter`；`padding: EdgeInsets.all(3)` 取代原来的水平 7dp；子项由 `Stack + Center + Padding` 简化为一条 `Row(mainAxisSize.min)`。选中项只保留白雾面渐变与白 26% 1px 内描边，图标 21→20px、文字左边距 7→6。`_items` 换 5 个空心图标与「搜索」标签。
+
+**一级 Tab / 搜索链路**：`pages[2]` → `SearchPage(active: _tab == 2)`；删除 `_openSearch()`、`_searchRoute()`、`GlassNavBar.onSearch`、`_lastTap`、`_lastIndex` 与双击 300ms 分支，`_onTap` 简化为「轻触感 + onChanged」。外壳去掉 `context.isTablet` 分支，两端统一 `SizedBox(width: 280)` 居中、`bottom = padding.bottom + 14`。`settings_page.dart` 移除右上角搜索按钮与对应的 `PageRouteBuilder`，删掉 `search_page.dart` import。
+
+**媒体库 4 类**：`LibraryIndexTab` 加 `favorites`；`_labels` 加「收藏」、`_icons` 加 `favorite_border_rounded`；容器与单项样式零改动（仍是 36dp / 200ms）。`LibraryPage.build` 的非 movies 分支增加收藏分支，把 `onIndexTabChanged: _setIndexTab` 与 `onSwitchTab` 传给 `FavoritesPage`。
+
+**FavoritesPage 嵌入化**：标题「收藏」→「媒体库」、副标题加「收藏 · 」前缀；标题下插入 `LibraryIndexSegment(favorites)` 主分段；内部次级 2 档由 38dp 降到 28dp、底色白 4% / 描边白 8%、去掉投影、图标改 `local_movies_outlined` / `person_outline_rounded`；空态 CTA「去影片详情收藏演员」→「去影片找演员」，动作从切一级 Tab 改为切主分段到 `movies`。海报堆叠墙、同步按钮、演员收藏网格保持原样。演员页 / 系列页标题统一为「媒体库」，维度信息移入副标题。
+
+**SearchPage 作为 Tab**：新增 `final bool active` 与 `_focusedOnce`，`didChangeDependencies` / `didUpdateWidget` 里 `_maybeFocus()` 只在首次可见时 `requestFocus()`；`initState` 的无条件聚焦移除，避免冷启动（Tab 在 `Offstage` 里也会 initState）就弹键盘。删除「取消 / `Navigator.pop`」按钮，搜索框独占整行；三处滚动体底部 padding 由 24 改 88（ListView 热播榜、`_ActorGrid` 的 GridView、`_ResultGrid` 的 Sliver 尾部），给 50dp bar + 14dp 离底留避让。搜索框图标 `search_rounded→search_outlined`、热门演员 `person_rounded→person_outline_rounded`。
+
+### 回归与修法
+
+| 现象 | 原因 | 修法 |
+|---|---|---|
+| `flutter analyze` 报 `onSearch` 未定义（3 处） | 三个测试还在给 `GlassNavBar` 传已删除的参数 | 重写 `nav_redesign_test.dart` / `global_search_test.dart`，`phone_regression_test.dart` 同步 |
+| 源码守卫断言 `_openSearch(` / `_searchRoute(` 不存在却为 true | main.dart 注释里写了完整旧函数名，被字符串守卫扫到 | 注释改写成「旧的半透明搜索路由转场」，守卫恢复 |
+| `library_index_test` 三条副标题断言失配 | 三个索引页标题统一为「媒体库」、维度移入副标题 | 断言改为「演员 · 共 N 位…」/「系列 · 共 N 个…」；分段测试扩为 4 类并验证点「收藏」出现 `FavoritesPage` |
+| `favorites_wall_test` 两幅 golden 像素差 15% / 11% | 收藏页新增主分段、次级胶囊变矮、标题变化 | `flutter test --update-goldens test/favorites_wall_test.dart` 重新出基准图 |
+| 搜索结果最后一排被悬浮导航压住 | 作为路由页时压在外壳之上，作为 Tab 后与底栏同层 | 三处滚动体底部改 88dp |
+| `global_search_test` 冷启动弹键盘风险 | `initState` 无条件 `requestFocus` | 改 `active` + `_focusedOnce` 首次聚焦 |
+
+### 设计稿状态
+
+- `/workspace/低干扰导航设计稿.html`：**已确认 · 已落地 v2.0.68**，补记空心图标要求与四项确认结论。
+- `/workspace/底部导航设计稿.html`：留档，记录 v2.0.67 的手机 A / 平板 B（本版视觉已被低干扰方案取代）。
+- `/workspace/圆形玻璃按钮设计稿.html`：**已否决**，本版依旧不实施。
+
+### 文件清单与测试
+
+修改：`lib/theme.dart`、`lib/main.dart`、`lib/widgets/library_index_segment.dart`、`lib/pages/library_page.dart`、`lib/pages/favorites_page.dart`、`lib/pages/actor_index_page.dart`、`lib/pages/series_index_page.dart`、`lib/pages/search_page.dart`、`lib/pages/settings_page.dart`、`test/nav_redesign_test.dart`、`test/global_search_test.dart`、`test/phone_regression_test.dart`、`test/library_index_test.dart`、`test/online_subtitle_test.dart`、`test/quality_pack_test.dart`、`test/goldens/favorites_wall.png`、`test/goldens/favorites_actors.png`、版本号 5 处、`README.md`、`VERIFICATION.md`、设计稿状态。`lib/layout.dart`、`lib/models.dart`、`lib/emby_client.dart` 与播放链路零改动。
+
+**真机重点验收**：底栏明显变窄变矮、居中悬浮，选中项是低调白雾面药丸而非青蓝发光胶囊；5 个图标全是空心线性款，切换时胶囊仍平滑展开、文字渐显且无黄色溢出条；媒体库顶部 4 类分段可切到「收藏」，收藏页里仍有影片收藏 / 演员收藏两档与海报堆叠墙；点第 3 个 Tab 直接进搜索页，双击任何 Tab 不再弹搜索，切走再切回搜索页保留上次输入且不自动弹键盘；「我的」页右上角不再有搜索按钮；所有圆形玻璃按钮外观与 v2.0.67 完全一致。
+
+验证（v2.0.68）：`flutter analyze` 0 error / 0 warning（419 项 info 全为既有 `withOpacity` 弃用，v2.0.67 为 425）；`flutter test` **505 全过**；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.68-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='268' versionName='2.0.68'`。

@@ -12,24 +12,33 @@ import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/library_index_segment.dart';
 import 'folder_page.dart';
 import 'person_page.dart';
 
-/// 收藏页（方案 B）：影片收藏 / 演员收藏
-/// 影片收藏以「海报堆叠墙」呈现收藏夹，点击进入夹内网格
+/// 媒体库「收藏」维度（方案 B）：影片收藏 / 演员收藏
+///
+/// v2.0.68：收藏并入媒体库成为第 4 类，不再是一级 Tab 页；顶部与
+/// 影片 / 演员 / 系列页共用 `LibraryIndexSegment` 4 类主分段，
+/// 内部再分「影片收藏 / 演员收藏」两档次级维度。
+/// 影片收藏以「海报堆叠墙」呈现收藏夹，点击进入夹内网格。
 class FavoritesPage extends StatefulWidget {
   const FavoritesPage({
     super.key,
     required this.state,
     required this.onOpenDetail,
     this.onSwitchTab,
+    this.onIndexTabChanged,
   });
 
   final AppState state;
   final OpenDetail onOpenDetail;
 
-  /// v2.0.64 空态 CTA：切到媒体库 /「我的」Tab 的真实跳转。
+  /// v2.0.64 空态 CTA：切到「我的」Tab 连接服务器的真实跳转。
   final ValueChanged<int>? onSwitchTab;
+
+  /// v2.0.68：4 类主分段切换（由 LibraryPage._setIndexTab 承接）。
+  final ValueChanged<LibraryIndexTab>? onIndexTabChanged;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -52,8 +61,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final state = widget.state;
     final tabs = ['影片收藏', '演员收藏'];
     final subtitle = _tab == 0
-        ? '${state.favorites.length} 部 · ${state.activeFolders.length} 个收藏夹'
-        : '${state.favoritePersons.length} 位演员';
+        ? '收藏 · ${state.favorites.length} 部 · ${state.activeFolders.length} 个收藏夹'
+        : '收藏 · ${state.favoritePersons.length} 位演员';
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: Stack(
@@ -99,7 +108,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       const Text(
-                        '收藏',
+                        '媒体库',
                         style: TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.w900,
@@ -124,19 +133,30 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 // v1.7.64：标题区与封面的间距收紧（14→10），与下方
                 // 「夹名 ↔ 新建卡」的节奏一致
                 const SizedBox(height: 10),
-                // 液态玻璃分段控件
+                // v2.0.68：媒体库 4 类主分段（影片 / 演员 / 系列 / 收藏），
+                // 与影片 / 演员 / 系列页顶部完全同一个组件。
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: LibraryIndexSegment(
+                    tab: LibraryIndexTab.favorites,
+                    onChanged: widget.onIndexTabChanged ?? (_) {},
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // 收藏内部次级维度：影片收藏 / 演员收藏。
+                // 28dp + 更淡的底色，与 36dp 主分段拉开层级。
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                   padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    color: Colors.white.withOpacity(0.06),
-                    border: Border.all(color: Colors.white.withOpacity(0.10)),
+                    color: Colors.white.withOpacity(0.04),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
                   ),
                   child: Row(
                     children: [
-                      _segItem(tabs[0], Icons.local_movies_rounded, 0),
-                      _segItem(tabs[1], Icons.person_rounded, 1),
+                      _segItem(tabs[0], Icons.local_movies_outlined, 0),
+                      _segItem(tabs[1], Icons.person_outline_rounded, 1),
                     ],
                   ),
                 ),
@@ -171,7 +191,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          height: 38,
+          height: 28,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
             gradient: on
@@ -184,25 +204,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
             border: Border.all(
               color: on ? Colors.white.withOpacity(0.26) : Colors.transparent,
             ),
-            boxShadow: on
-                ? const [
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      blurRadius: 12,
-                      offset: Offset(0, 4),
-                    ),
-                  ]
-                : null,
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 14, color: on ? Colors.white : AppColors.muted),
-              const SizedBox(width: 6),
+              Icon(icon, size: 13, color: on ? Colors.white : AppColors.muted),
+              const SizedBox(width: 5),
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 11.5,
                   fontWeight: on ? FontWeight.w800 : FontWeight.w600,
                   color: on ? Colors.white : AppColors.muted,
                 ),
@@ -420,8 +431,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   reason: connected
                       ? '进入影片详情，在演员头像右上角点 ♥ 即可收藏。'
                       : '还没有连接服务器。先在「我的 → 我的服务器」连接，再回来收藏演员。',
-                  primaryLabel: connected ? '去影片详情收藏演员' : '去连接服务器',
-                  onPrimary: () => widget.onSwitchTab?.call(connected ? 1 : 4),
+                  primaryLabel: connected ? '去影片找演员' : '去连接服务器',
+                  onPrimary: () {
+                    // v2.0.68：收藏已在媒体库内，「去影片」是切 4 类主分段，
+                    // 不再是切一级 Tab；「去连接服务器」仍跳「我的」。
+                    if (connected) {
+                      widget.onIndexTabChanged?.call(LibraryIndexTab.movies);
+                    } else {
+                      widget.onSwitchTab?.call(4);
+                    }
+                  },
                 ),
               ),
       );

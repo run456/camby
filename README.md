@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.67 (267)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.68 (268)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,21 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.68 (268) 低干扰导航 + 媒体库 4 类 + 搜索页升为一级 Tab
+
+真机反馈：v2.0.67 的 Tab 切换动画很好要保留，但青蓝渐变胶囊底栏「有些抢镜、有些宽」，希望换成媒体库切换 tab 的背景和样式；同时收藏并入媒体库（顶部分段变 4 类），原收藏页换成搜索页，双击 Tab 唤出搜索取消。设计稿 `/workspace/低干扰导航设计稿.html` 确认后按推荐落地，并追加一条：**一级 Tab 图标全部换成设计稿里的空心线性款**（旧版实心 `*_rounded` 不好看）。
+
+- **底栏降噪**：`GlassNavBar` 从「撑满 358dp × 62dp 玻璃条 + 108×48 青蓝渐变胶囊 + 青色外发光 + 顶部镜面高光线」改为「**280dp 居中 × 50dp 雾面分段条 + 96×42 白雾面药丸**」，直接复用 `LibraryIndexSegment` 的 token：白 6% 底 / 白 10% 描边 / 白 22%→8% 选中渐变 / 白 26% 内描边 / 圆角 999。模糊由 30 降到 20、投影由黑 40% blur36 降到黑 28% blur20，仍只挂 1 个 `BackdropFilter`。`280 − 2 描边 − 6 内距 = 272 = 96 + 4×44`，定宽 Row 零余量。
+- **动画原样保留**：`AnimatedContainer` 宽度 + `AnimatedSize` 文字展开、260ms `easeOutCubic`、`LiquidPress` 按压、`AppHaptics.light()`、页面保活与转场一行不改，只换 `Decoration`。
+- **手机 / 平板统一**：外壳删除 `context.isTablet` 分支，两端共用 280dp 居中悬浮条、离底统一 14dp；`AppNav` token 重设为 50 / 999 / 42 / 44 / 96 / 280 / 3。
+- **收藏并入媒体库**：`LibraryIndexTab` 扩为 `movies / actors / series / favorites`，分段 4 等分；影片 / 演员 / 系列 / 收藏四个索引页顶部常驻同一控件，标题统一为「媒体库」，维度放副标题。收藏页新增 4 类主分段（36dp）+ 内部 28dp 次级「影片收藏 / 演员收藏」，空态 CTA 改走主分段切「影片」；海报堆叠墙、与服务器同步按钮、演员收藏网格全部保留。
+- **搜索升为一级 Tab**：`pages[2]` 由 `FavoritesPage` 换成 `SearchPage`，`_items[2]` 换成 `search_outlined`；删除 `onSearch` / 双击 300ms 判定 / `_lastTap` / `_lastIndex` 以及两个搜索路由转场，「我的」页右上角重复搜索按钮同步移除。`SearchPage` 新增 `active` 参数，只在**首次进入**该 Tab 时自动聚焦，切走再切回保留查询与结果、不重复弹键盘；移除「取消 / pop」路由语义，三处滚动体底部给悬浮导航留 88dp 避让。
+- **空心图标**：一级 5 项改为 `home_outlined / grid_view_outlined / search_outlined / insert_chart_outlined / person_outline_rounded`；媒体库第 4 类 `favorite_border_rounded`；收藏页次级 2 档与搜索框、热门演员图标一并换空心。圆形玻璃按钮（`Glass` / `GlassIconButton`）仍按 v2.0.67 结论**不更改**。
+- **四项确认按推荐**：手机 / 平板统一 280dp；移除「我的」页右上角搜索按钮；收藏内保留次级 2 档；切回搜索 Tab 不自动弹键盘。
+- **回归**：重写 `nav_redesign_test.dart` / `global_search_test.dart`，同步 `phone_regression_test.dart`、`library_index_test.dart`、版本断言与两幅收藏页 golden；`layout.dart` 的 `useRail` 恒 false 不变，系列仍走 Emby BoxSet、播放链路 `MediaSourceId` 不动。
+
+验证：`flutter analyze` 0 error / 0 warning（419 项全为 info 级既有弃用，v2.0.67 为 425）；`flutter test` **505 全过**（v2.0.67 为 502，净增 3 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.68-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='268' versionName='2.0.68'`。
 
 ### v2.0.67 (267) 导航改造：手机方案 A + 平板方案 B
 

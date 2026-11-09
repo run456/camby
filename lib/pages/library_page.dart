@@ -12,6 +12,7 @@ import '../widgets/media_poster.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/skeleton.dart';
 import 'actor_index_page.dart';
+import 'favorites_page.dart';
 import 'series_index_page.dart';
 
 /// 媒体库：排序与筛选收进「两个入口 + 一个底部抽屉」
@@ -44,8 +45,8 @@ class _LibraryPageState extends State<LibraryPage> {
   static const _defaultDesc = [true, true, false, true, true];
   static const _resBuckets = ['2160P', '1080P', '720P', '480P', '未知'];
 
-  // v2.0.60：媒体库二级浏览维度（影片 / 演员 / 系列）。默认影片，
-  // 该分支完全沿用下方原有 CustomScrollView，布局零漂移。
+  // v2.0.60：媒体库二级浏览维度；v2.0.68 扩为 4 类（影片 / 演员 / 系列 /
+  // 收藏）。默认影片，该分支完全沿用下方原有 CustomScrollView，布局零漂移。
   LibraryIndexTab _indexTab = LibraryIndexTab.movies;
 
   int _sort = 1; // 默认发行日期
@@ -196,9 +197,19 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    // v2.0.60 设计稿方案 A：演员 / 系列收进媒体库二级分段，
-    // 独立索引页自带标题栏、分段与滚动体；底部导航一个像素都不动。
+    // v2.0.60 设计稿方案 A：演员 / 系列收进媒体库二级分段；
+    // v2.0.68：收藏也并入成为第 4 类，原一级收藏 Tab 换成搜索。
+    // 四个索引页各自带标题栏、4 类分段与滚动体，底部导航一个像素都不动。
     if (_indexTab != LibraryIndexTab.movies) {
+      if (_indexTab == LibraryIndexTab.favorites) {
+        return FavoritesPage(
+          state: state,
+          onOpenDetail: widget.onOpenDetail,
+          onIndexTabChanged: _setIndexTab,
+          // 「去连接服务器」仍由 main 切到「我的」Tab。
+          onSwitchTab: (_) => widget.onGoSettings?.call(),
+        );
+      }
       return _indexTab == LibraryIndexTab.actors
           ? ActorIndexPage(
               state: state,

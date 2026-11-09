@@ -99,7 +99,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            '系列',
+                            // v2.0.68：4 类同属媒体库，标题统一，维度放副标题。
+                            '媒体库',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -107,7 +108,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                             ),
                           ),
                           Text(
-                            '共 ${all.length} 个系列 · ${state.items.length} 部影片',
+                            '系列 · 共 ${all.length} 个 · ${state.items.length} 部影片',
                             style: const TextStyle(
                               fontSize: 10.5,
                               color: AppColors.muted,

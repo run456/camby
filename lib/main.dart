@@ -8,7 +8,6 @@ import 'package:gbk_codec/gbk_codec.dart';
 
 import 'subtitles/online_subtitle.dart';
 import 'app_state.dart';
-import 'layout.dart';
 import 'models.dart';
 import 'theme.dart';
 import 'widgets/liquid_press.dart';
@@ -19,7 +18,6 @@ import 'pages/detail_page.dart';
 import 'pages/player_page.dart';
 import 'pages/stats_page.dart';
 import 'pages/library_page.dart';
-import 'pages/favorites_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/search_page.dart';
 
@@ -145,39 +143,9 @@ class _AppShellState extends State<AppShell>
     Navigator.of(context).push(_detailRoute(item, heroTag));
   }
 
-  /// 全局搜索入口（v1.7.71）：双击当前 Tab 唤起，或「我的」页右上角搜索按钮。
-  /// 转场与详情页同款（半透明路由 + 淡入上浮）
-  void _openSearch() {
-    Navigator.of(context).push(_searchRoute(_state, _openDetail));
-  }
-
-  Route<void> _searchRoute(AppState state, OpenDetail onOpenDetail) {
-    return PageRouteBuilder<void>(
-      opaque: false,
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 340),
-      reverseTransitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (_, __, ___) =>
-          SearchPage(state: state, onOpenDetail: onOpenDetail),
-      transitionsBuilder: (_, anim, __, child) {
-        final curved = CurvedAnimation(
-          parent: anim,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        );
-      },
-    );
-  }
+  /// v2.0.68：搜索升为一级 Tab（index 2），双击当前 Tab 唤起搜索与
+  /// 「我的」页右上角搜索按钮一并取消，全局只剩「点搜索 Tab」一条路径。
+  /// 因此这里不再保留旧的半透明搜索路由转场。
 
   /// 详情页转场：淡入 + 轻微上浮（进入）/ 淡出（返回）
   /// 不用 Material 默认的 zoom 转场：整页（含全幅海报与玻璃层）缩放会显得"弹"
@@ -366,10 +334,12 @@ class _AppShellState extends State<AppShell>
             state: _state,
             onGoSettings: () => _goTab(4),
           ),
-          FavoritesPage(
+          SearchPage(
             state: _state,
             onOpenDetail: _openDetail,
-            onSwitchTab: _goTab,
+            // 首次进入搜索 Tab 才自动聚焦；切走再切回保留上次查询，
+            // 不会每次都把键盘顶起来。
+            active: _tab == 2,
           ),
           StatsPage(state: _state),
           SettingsPage(
@@ -383,12 +353,9 @@ class _AppShellState extends State<AppShell>
         ];
 
         // 内容体（页面保活 + 状态栏模糊）。
-        // v2.0.67：手机方案 A / 平板方案 B 共用同一条底部悬浮玻璃导航 ——
-        // 手机左右撑满留 16dp，平板限宽居中；左侧 Rail 分支整体移除。
-        // 内容区不再被轨道挤占，页面读到整屏宽度即为真实可视宽度，
-        // 因此原先「减去轨道宽」的 MediaQuery 注入也一并取消。
+        // v2.0.68：低干扰雾面导航，手机 / 平板统一 280dp 居中悬浮，
+        // 不再按 isTablet 分支给不同宽度；左侧 Rail 依旧保持废弃。
         final body = _buildBody(context, pages);
-        final wide = context.isTablet;
 
         return Scaffold(
           backgroundColor: AppColors.bg,
@@ -396,13 +363,12 @@ class _AppShellState extends State<AppShell>
             children: [
               body,
               Positioned(
-                left: wide ? 0 : 16,
-                right: wide ? 0 : 16,
-                bottom:
-                    MediaQuery.of(context).padding.bottom + (wide ? 14 : 10),
+                left: 0,
+                right: 0,
+                bottom: MediaQuery.of(context).padding.bottom + 14,
                 child: Center(
                   child: SizedBox(
-                    width: wide ? AppNav.tabletBarWidth : double.infinity,
+                    width: AppNav.tabletBarWidth,
                     child: GlassNavBar(
                       index: _tab,
                       onChanged: (i) {
@@ -413,7 +379,6 @@ class _AppShellState extends State<AppShell>
                         _tabAnim.forward(from: 0);
                         _blur.value = false;
                       },
-                      onSearch: _openSearch,
                     ),
                   ),
                 ),
@@ -492,25 +457,27 @@ class _AppShellState extends State<AppShell>
   // 一并移除；手机 / 平板两端共用同一个 GlassNavBar。
 }
 
-/// 全局液态玻璃 Tab 栏（v2.0.67 · 手机方案 A / 平板方案 B 共用）
+/// 全局低干扰雾面 Tab 栏（v2.0.68 · 手机 / 平板共用）。
+///
+/// 视觉语言与媒体库顶部 `LibraryIndexSegment` 同源：白 6% 底、白 10%
+/// 描边、白雾面选中项、无彩色渐变 / 无发光 / 无镜面高光线。
+/// v2.0.67 的 260ms 胶囊展开动画、LiquidPress 按压与轻触感原样保留。
 class GlassNavBar extends StatefulWidget {
   const GlassNavBar({
     required this.index,
     required this.onChanged,
-    this.onSearch,
   });
   final int index;
   final ValueChanged<int> onChanged;
 
-  /// 双击「当前所在」Tab 唤起全局搜索（方案 C）；非当前 Tab 的点击照常切换
-  final VoidCallback? onSearch;
-
+  /// v2.0.68：全部换成设计稿里的空心线性图标（用户明确反馈实心款不好看）。
+  /// 收藏并入媒体库第 4 类，一级 index 2 改为搜索。
   static const _items = [
-    (Icons.home_rounded, '首页'),
-    (Icons.grid_view_rounded, '媒体库'),
-    (Icons.favorite_rounded, '收藏'),
-    (Icons.insert_chart_rounded, '数据'),
-    (Icons.person_rounded, '我的'),
+    (Icons.home_outlined, '首页'),
+    (Icons.grid_view_outlined, '媒体库'),
+    (Icons.search_outlined, '搜索'),
+    (Icons.insert_chart_outlined, '数据'),
+    (Icons.person_outline_rounded, '我的'),
   ];
 
   @override
@@ -518,22 +485,8 @@ class GlassNavBar extends StatefulWidget {
 }
 
 class GlassNavBarState extends State<GlassNavBar> {
-  DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
-  int _lastIndex = -1;
-
   void _onTap(int i) {
-    final now = DateTime.now();
-    // 双击当前所在 Tab（300ms 内连点同一格且不切换）→ 唤起搜索
-    if (i == widget.index &&
-        i == _lastIndex &&
-        now.difference(_lastTap).inMilliseconds < 300) {
-      widget.onSearch?.call();
-      // 消费掉这次双击，避免第三次连点再次触发
-      _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
-      return;
-    }
-    _lastTap = now;
-    _lastIndex = i;
+    // v2.0.68：双击当前 Tab 唤起搜索已取消，不再记录时间戳 / 上次索引。
     // 切 Tab 是明确的状态变化，给一次最轻的 selectionClick。
     AppHaptics.light();
     widget.onChanged(i);
@@ -544,81 +497,41 @@ class GlassNavBarState extends State<GlassNavBar> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppNav.barRadius),
       child: BackdropFilter(
-        // 整条 bar 只模糊一次：胶囊内一律用渐变 + 内高光表达厚度，
-        // 不再给 5 个格子各挂一层滤镜（滚动时避免 5 次背景重采样）。
-        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        // 整条 bar 只模糊一次（v2.0.68 由 30 调到 20，弱化存在感）；
+        // 胶囊内一律用渐变 + 内描边表达厚度，不给 5 个格子各挂滤镜。
+        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           height: AppNav.barHeight,
+          padding: const EdgeInsets.all(AppNav.barInset),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppNav.barRadius),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: 0.17),
-                Colors.white.withValues(alpha: 0.05),
-                Colors.white.withValues(alpha: 0.11),
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
+            // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
+            color: Colors.white.withValues(alpha: 0.06),
             border: Border.all(
-              color: Colors.white.withValues(alpha: 0.17),
+              color: Colors.white.withValues(alpha: 0.10),
               width: 1,
             ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x66000000),
-                blurRadius: 36,
-                offset: Offset(0, 14),
+                color: Color(0x47000000),
+                blurRadius: 20,
+                offset: Offset(0, 8),
               ),
             ],
           ),
-          child: Stack(
-            children: [
-              // 顶部镜面高光线（玻璃上缘反光）
-              Positioned(
-                left: 34,
-                right: 34,
-                top: 0,
-                child: IgnorePointer(
-                  child: Container(
-                    height: 1,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.0),
-                          Colors.white.withValues(alpha: 0.55),
-                          Colors.white.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // 5 项整体居中：手机 bar 撑满时留白分在两端，平板 bar 限宽时
-              // 正好落在设计稿的 300dp 内容宽里。
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppNav.barInset,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(
-                      GlassNavBar._items.length,
-                      _navItem,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          // 5 项整体居中：280 − 2 描边 − 6 内距 = 272，正好等于
+          // 96 + 4×44，定宽 Row 不会挤出像素。
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(GlassNavBar._items.length, _navItem),
           ),
         ),
       ),
     );
   }
 
-  /// 单项：选中 = 108dp 青蓝渐变胶囊（图标 + 文字），未选中 = 48dp 纯图标。
+  /// 单项：选中 = 96dp 白雾面药丸（图标 + 文字），未选中 = 44dp 纯图标。
   Widget _navItem(int i) {
     final item = GlassNavBar._items[i];
     final sel = i == widget.index;
@@ -636,26 +549,14 @@ class GlassNavBarState extends State<GlassNavBar> {
         height: AppNav.itemHeight,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppNav.itemRadius),
+          // v2.0.68：选中态换成媒体库分段同款白雾面渐变，
+          // 彩色投影与青色发光全部清空，只留 1px 白 26% 内描边。
           gradient: sel ? AppNav.capsuleGradient : null,
           border: sel
               ? Border.all(
-                  color: Colors.white.withValues(alpha: 0.22),
+                  color: Colors.white.withValues(alpha: 0.26),
                   width: 1,
                 )
-              : null,
-          boxShadow: sel
-              ? const [
-                  BoxShadow(
-                    color: Color(0x472FD8B6),
-                    blurRadius: 18,
-                    offset: Offset(0, 6),
-                  ),
-                  BoxShadow(
-                    color: Color(0x4D000000),
-                    blurRadius: 8,
-                    offset: Offset(0, 2),
-                  ),
-                ]
               : null,
         ),
         child: ClipRRect(
@@ -666,10 +567,10 @@ class GlassNavBarState extends State<GlassNavBar> {
               children: [
                 Icon(
                   item.$1,
-                  size: 21,
+                  size: 20,
                   color: Colors.white.withValues(alpha: sel ? 0.96 : 0.55),
                 ),
-                // 文字宽度从 0 展开，与胶囊 48 → 108 共用同一条曲线：
+                // 文字宽度从 0 展开，与胶囊 44 → 96 共用同一条曲线：
                 // 任意时刻内容都比容器窄，不会触发 RenderFlex 溢出。
                 AnimatedSize(
                   duration: AppNav.duration,
@@ -678,7 +579,7 @@ class GlassNavBarState extends State<GlassNavBar> {
                   clipBehavior: Clip.hardEdge,
                   child: sel
                       ? Padding(
-                          padding: const EdgeInsets.only(left: 7),
+                          padding: const EdgeInsets.only(left: 6),
                           child: Text(
                             item.$2,
                             maxLines: 1,

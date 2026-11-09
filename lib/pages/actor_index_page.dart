@@ -91,7 +91,8 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            '演员',
+                            // v2.0.68：4 类同属媒体库，标题统一，维度放副标题。
+                            '媒体库',
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
@@ -99,7 +100,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                             ),
                           ),
                           Text(
-                            '共 ${all.length} 位 · 已收藏 $favCount 位',
+                            '演员 · 共 ${all.length} 位 · 已收藏 $favCount 位',
                             style: const TextStyle(
                               fontSize: 10.5,
                               color: AppColors.muted,

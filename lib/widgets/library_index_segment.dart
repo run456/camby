@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import 'haptics.dart';
 import 'liquid_press.dart';
 
-/// 媒体库二级浏览维度（v2.0.60 设计稿方案 A）。
+/// 媒体库二级浏览维度（v2.0.60 设计稿方案 A，v2.0.68 扩为 4 类）。
 ///
-/// 底部 5 个 Tab 已满且共用 `GlassNavBar._items`（手机 Tab 与平板 Rail 同源），
-/// 所以「演员」「系列」不再占一级导航，而是收进媒体库页顶部的分段控件。
-enum LibraryIndexTab { movies, actors, series }
+/// 用户确认：收藏与媒体库合并，不再占一级导航；原收藏页位置换成搜索 Tab。
+/// 于是「影片 / 演员 / 系列 / 收藏」四个维度共用顶部这一条分段控件，
+/// 四个页面（含演员 / 系列 / 收藏索引页）顶部都常驻它。
+enum LibraryIndexTab { movies, actors, series, favorites }
 
-/// 三档液态玻璃分段控件，与收藏页「影片收藏 / 演员收藏」同一套观感。
+/// 四档雾面分段控件（v2.0.68）。
+///
+/// 这套白 6% 底 / 白 10% 描边 / 白雾面选中项的样式，被 v2.0.68 的
+/// 底部导航 `GlassNavBar` 直接复用，是全应用「低干扰选中态」的基准。
 class LibraryIndexSegment extends StatelessWidget {
   const LibraryIndexSegment({
     super.key,
@@ -20,11 +24,13 @@ class LibraryIndexSegment extends StatelessWidget {
   final LibraryIndexTab tab;
   final ValueChanged<LibraryIndexTab> onChanged;
 
-  static const _labels = ['影片', '演员', '系列'];
+  /// v2.0.68：全部使用空心线性图标，与一级 Tab 的 outlined 图标族一致。
+  static const _labels = ['影片', '演员', '系列', '收藏'];
   static const _icons = [
     Icons.local_movies_outlined,
     Icons.person_outline_rounded,
     Icons.collections_bookmark_outlined,
+    Icons.favorite_border_rounded,
   ];
 
   @override

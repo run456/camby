@@ -27,41 +27,44 @@ class AppColors {
   );
 }
 
-/// 底部导航视觉 token（v2.0.67 · 手机方案 A / 平板方案 B 共用）。
+/// 底部导航视觉 token（v2.0.68 · 低干扰雾面分段条）。
 ///
-/// 用户确认：手机选中项为青蓝渐变胶囊（图标 + 文字）、未选中项只剩线性图标；
-/// 平板不再用左侧 Rail，改为底部居中悬浮的同款导航条。
-/// 两端差别只在**外层给的宽度与离底距离**，组件内部共用这里的常量，
-/// 不再出现「手机圆形高亮 / 平板玻璃胶囊」两套语言。
+/// 用户真机反馈 v2.0.67 的青蓝渐变胶囊「抢镜、有些宽」，确认改用
+/// 媒体库顶部 `LibraryIndexSegment` 的背景与选中样式：白 6% 底 + 白 10%
+/// 描边 + 白 22%→8% 选中渐变 + 白 26% 内描边 + 全圆角。
+/// 整条 bar 从「撑满屏幕」收成 280dp 居中悬浮、高 50dp，手机 / 平板
+/// 共用一份常量，不再按 isTablet 分叉。
+/// **切换动画（AnimatedContainer + AnimatedSize，260ms）原样保留**。
 class AppNav {
   const AppNav._();
 
-  /// 选中胶囊渐变：约 105deg 青 → 湖蓝 → 主蓝（设计稿 §④ 视觉 token）。
+  /// 选中项渐变：与 `LibraryIndexSegment` 完全同款的白雾面。
+  /// 去掉 v2.0.67 的青 → 湖蓝 → 主蓝高饱和三色渐变与青色外发光。
   static const capsuleGradient = LinearGradient(
-    begin: Alignment(-0.9, -0.6),
-    end: Alignment(0.9, 0.6),
-    colors: [Color(0xFF2FD8B6), Color(0xFF33B6E8), Color(0xFF4F8CFF)],
-    stops: [0.0, 0.46, 1.0],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0x38FFFFFF), Color(0x14FFFFFF)],
   );
 
   /// 待更新红点配色（设计稿默认关，本版未接更新源，只保留色值）。
   static const badgeColor = Color(0xFFFF5A5F);
 
-  /// 轨道：62dp 全圆角胶囊条。
-  static const double barHeight = 62;
-  static const double barRadius = 31;
+  /// 轨道：50dp 全圆角雾面分段条。
+  /// 50 = 1px 描边 + 3dp 内距 + 42dp 单项 + 3dp 内距 + 1px 描边。
+  static const double barHeight = 50;
+  static const double barRadius = 999;
 
-  /// 单项：未选中 48×48（触控下限），选中 108×48 横向药丸。
-  /// 设计稿写 h46，这里按「触控目标 ≥48×48」取 48，2dp 差异肉眼不可见。
-  static const double itemHeight = 48;
-  static const double itemRadius = 24;
-  static const double idleWidth = 48;
-  static const double selectedWidth = 108;
+  /// 单项：未选中 44×42 纯线性图标，选中 96×42 药丸（图标 + 文字）。
+  static const double itemHeight = 42;
+  static const double itemRadius = 999;
+  static const double idleWidth = 44;
+  static const double selectedWidth = 96;
 
-  /// 平板方案 B：悬浮条限宽居中（108 + 4×48 = 300，加两侧 7dp 内距、
-  /// 1px 描边各占 1dp，再留 4dp 余量，避免定宽 Row 被挤出 2px）。
-  static const double tabletBarWidth = 320;
-  static const double barInset = 7;
+  /// 手机 / 平板统一 280dp 居中悬浮。
+  /// 280 − 1px×2 描边 − 3dp×2 内距 = 272 = 96 + 4×44，定宽 Row 零余量，
+  /// 沿用 v2.0.67 修 `RenderFlex overflowed by 2.0 pixels` 的经验。
+  static const double tabletBarWidth = 280;
+  static const double barInset = 3;
 
   /// 切换动效：胶囊宽度与文字展开共用一条曲线，避免两段动画错拍。
   static const Duration duration = Duration(milliseconds: 260);

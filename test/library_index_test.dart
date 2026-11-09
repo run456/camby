@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:camby/app_state.dart';
 import 'package:camby/models.dart';
 import 'package:camby/pages/actor_index_page.dart';
+import 'package:camby/pages/favorites_page.dart';
 import 'package:camby/pages/library_page.dart';
 import 'package:camby/pages/person_page.dart';
 import 'package:camby/pages/series_index_page.dart';
@@ -165,7 +166,7 @@ void main() {
   group('演员总览', () {
     testWidgets('聚合去重 + 参演数，默认按参演最多排序', (tester) async {
       await pumpActors(tester);
-      expect(find.text('共 4 位 · 已收藏 0 位'), findsOneWidget);
+      expect(find.text('演员 · 共 4 位 · 已收藏 0 位'), findsOneWidget);
       expect(find.text('葵こはる'), findsOneWidget);
       expect(find.text('3 部'), findsOneWidget);
       expect(find.text('山田万次郎'), findsOneWidget);
@@ -225,7 +226,7 @@ void main() {
   group('系列总览', () {
     testWidgets('聚合系列名与部数，长名完整显示', (tester) async {
       await pumpSeries(tester);
-      expect(find.text('共 2 个系列 · 4 部影片'), findsOneWidget);
+      expect(find.text('系列 · 共 2 个 · 4 部影片'), findsOneWidget);
       expect(find.text('彼女の姉貴とイケナ関係'), findsOneWidget);
       expect(find.text('2 部影片'), findsOneWidget);
       expect(find.text('深海'), findsOneWidget);
@@ -253,27 +254,35 @@ void main() {
   // ---------------- 分段切换 ----------------
 
   group('媒体库二级分段', () {
-    testWidgets('影片 / 演员 / 系列三段可切换，影片分支保持原样', (tester) async {
+    testWidgets('v2.0.68：影片 / 演员 / 系列 / 收藏 4 类可切换', (tester) async {
       await pumpLibrary(tester);
       expect(find.byType(LibraryIndexSegment), findsOneWidget);
-      expect(segmentLabel('影片'), findsOneWidget);
-      expect(segmentLabel('演员'), findsOneWidget);
-      expect(segmentLabel('系列'), findsOneWidget);
+      for (final label in ['影片', '演员', '系列', '收藏']) {
+        expect(segmentLabel(label), findsOneWidget, reason: '缺少第 4 类 $label');
+      }
 
       await tester.tap(segmentLabel('演员'));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(ActorIndexPage), findsOneWidget);
-      expect(find.text('共 0 位 · 已收藏 0 位'), findsOneWidget);
+      expect(find.text('演员 · 共 0 位 · 已收藏 0 位'), findsOneWidget);
 
       await tester.tap(segmentLabel('系列'));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(SeriesIndexPage), findsOneWidget);
-      expect(find.text('共 0 个系列 · 0 部影片'), findsOneWidget);
+      expect(find.text('系列 · 共 0 个 · 0 部影片'), findsOneWidget);
+
+      await tester.tap(segmentLabel('收藏'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(FavoritesPage), findsOneWidget,
+          reason: '收藏并入媒体库第 4 类');
+      expect(segmentLabel('收藏'), findsOneWidget);
+      expect(find.text('影片收藏'), findsOneWidget);
 
       await tester.tap(segmentLabel('影片'));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(ActorIndexPage), findsNothing);
       expect(find.byType(SeriesIndexPage), findsNothing);
+      expect(find.byType(FavoritesPage), findsNothing);
       expect(find.byType(LibraryIndexSegment), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

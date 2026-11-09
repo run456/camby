@@ -13,7 +13,6 @@ import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
 import '../models.dart';
 import '../theme.dart';
-import 'search_page.dart';
 
 /// 设置页水平内边距：平板内容限宽 720 居中，手机保持 16。
 double _horizontalPad(BuildContext context) {
@@ -51,35 +50,8 @@ class _SettingsPageState extends State<SettingsPage> {
     _load();
   }
 
-  void _openSearch() {
-    Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        opaque: false,
-        barrierColor: Colors.transparent,
-        transitionDuration: const Duration(milliseconds: 340),
-        reverseTransitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (_, __, ___) =>
-            SearchPage(state: widget.state, onOpenDetail: widget.onOpenDetail),
-        transitionsBuilder: (_, anim, __, child) {
-          final curved = CurvedAnimation(
-            parent: anim,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          return FadeTransition(
-            opacity: curved,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.05),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
-  }
+  // v2.0.68：搜索已升为一级 Tab（index 2），「我的」页右上角的重复入口
+  // 与双击 Tab 手势一并移除，全局只剩「点搜索 Tab」一条路径。
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -179,32 +151,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   letterSpacing: -0.4,
                 ),
               ),
-              const Spacer(),
-              // v1.7.71：右上角搜索按钮（全局搜索的另一入口，与双击 Tab 并存）
-              LiquidPress(
-                onTap: _openSearch,
-                radius: 18,
-                scale: 0.9,
-                semanticLabel: '搜索',
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0x3DFFFFFF), Color(0x14FFFFFF)],
-                    ),
-                    border: Border.all(color: const Color(0x42FFFFFF)),
-                  ),
-                  child: const Icon(
-                    Icons.search_rounded,
-                    size: 19,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
+              // v2.0.68：右上角搜索按钮已移除（搜索是一级 Tab，无需重复入口）。
             ],
           ),
           const SizedBox(height: 14),

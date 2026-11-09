@@ -24,10 +24,15 @@ class SearchPage extends StatefulWidget {
     super.key,
     required this.state,
     required this.onOpenDetail,
+    this.active = true,
   });
 
   final AppState state;
   final OpenDetail onOpenDetail;
+
+  /// v2.0.68：搜索升为一级 Tab 后由外壳传入「当前是否可见」。
+  /// 只有首次进入该 Tab 才自动聚焦，切走再切回不重复弹键盘。
+  final bool active;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -64,10 +69,34 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
+  /// 只在首次进入搜索 Tab 时自动聚焦一次（v2.0.68）。
+  /// 页面由 Offstage + TickerMode 保活，State 不会重建，切回来时
+  /// `_q` / `_mode` / 结果与滚动位置都还在，也不该再把键盘顶起来。
+  bool _focusedOnce = false;
+
+  void _maybeFocus() {
+    if (_focusedOnce || !widget.active || !mounted) return;
+    _focusedOnce = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.active) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeFocus();
+  }
+
+  @override
+  void didUpdateWidget(SearchPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeFocus();
+  }
+
   @override
   void initState() {
     super.initState();
-    _focus.requestFocus();
     _computeHot();
     _hotPlayed =
         (List<MediaItem>.from(widget.state.items)
@@ -317,7 +346,8 @@ class _SearchPageState extends State<SearchPage> {
                           child: Row(
                             children: [
                               const Icon(
-                                Icons.search_rounded,
+                                // v2.0.68：与一级 Tab / 媒体库分段统一空心图标族。
+                                Icons.search_outlined,
                                 size: 18,
                                 color: AppColors.muted,
                               ),
@@ -360,19 +390,8 @@ class _SearchPageState extends State<SearchPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      LiquidPress(
-                        onTap: () => Navigator.of(context).pop(),
-                        radius: 8,
-                        scale: 0.94,
-                        child: const Text(
-                          '取消',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
+                      // v2.0.68：搜索已是一级 Tab，不再有「取消 / pop」路由语义，
+                      // 搜索框独占整行（与低干扰导航设计稿一致）。
                     ],
                   ),
                 ),
@@ -399,7 +418,8 @@ class _SearchPageState extends State<SearchPage> {
   Widget _body() {
     if (_q.isEmpty) {
       return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        // v2.0.68：底部给 280dp 悬浮导航留避让（50dp 条高 + 14dp 离底 + 余量）。
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
         children: [
           if (_hotTags.isNotEmpty) ...[
             const _BlockTitle('热门标签'),
@@ -416,7 +436,7 @@ class _SearchPageState extends State<SearchPage> {
               spacing: 8,
               runSpacing: 8,
               children: _hotCast
-                  .map((c) => _suggestion(c, icon: Icons.person_rounded))
+                  .map((c) => _suggestion(c, icon: Icons.person_outline_rounded))
                   .toList(),
             ),
             const SizedBox(height: 18),
@@ -623,7 +643,8 @@ class _ResultGrid extends StatelessWidget {
           ),
         ),
       ),
-      const SliverToBoxAdapter(child: SizedBox(height: 24)),
+      // v2.0.68：结果网格底部给 280dp 悬浮导航留避让。
+      const SliverToBoxAdapter(child: SizedBox(height: 88)),
     ],
   );
 }
@@ -642,7 +663,8 @@ class _ActorGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      // v2.0.68：结果网格同样给 280dp 悬浮导航留底部避让。
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         // 平板（≥840）：演员结果 6 列
         crossAxisCount: context.mediaGridColumns,
