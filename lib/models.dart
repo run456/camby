@@ -471,9 +471,14 @@ class MediaExtraPart {
     this.path = '',
     this.runtimeTicks = 0,
     this.container = '',
+    this.width = 0,
     this.height = 0,
     this.videoCodec = '',
     this.audioCodec = '',
+    this.audioChannels = 0,
+    this.audioLanguage = '',
+    this.audioDefault = false,
+    this.subtitleTracks = const <String>[],
     this.sizeBytes = 0,
     this.isPrimary = false,
   });
@@ -488,13 +493,40 @@ class MediaExtraPart {
   final String path;
   final int runtimeTicks;
   final String container;
+
+  /// v2.0.65「版本」选择器用：视频宽高、音频声道 / 语言 / 默认轨、字幕轨。
+  /// 全部取自 `MediaSources[i].MediaStreams`，服务端缺字段时保持空值。
+  final int width;
   final int height;
   final String videoCodec;
   final String audioCodec;
+  final int audioChannels;
+  final String audioLanguage;
+  final bool audioDefault;
+  final List<String> subtitleTracks;
   final int sizeBytes;
 
   /// 是否为主版本（主版本不进「额外部分」列表，仅用于排序判断）
   final bool isPrimary;
+
+  /// 仅用于媒体源解析时给排序后的第一条打主版本标记。
+  MediaExtraPart copyWith({bool? isPrimary}) => MediaExtraPart(
+    id: id,
+    name: name,
+    path: path,
+    runtimeTicks: runtimeTicks,
+    container: container,
+    width: width,
+    height: height,
+    videoCodec: videoCodec,
+    audioCodec: audioCodec,
+    audioChannels: audioChannels,
+    audioLanguage: audioLanguage,
+    audioDefault: audioDefault,
+    subtitleTracks: subtitleTracks,
+    sizeBytes: sizeBytes,
+    isPrimary: isPrimary ?? this.isPrimary,
+  );
 
   /// 时长（分钟）
   int get runtimeMin =>
@@ -515,6 +547,64 @@ class MediaExtraPart {
     return [spec, dur].where((e) => e.isNotEmpty).join(' · ');
   }
 
+  /// 人类可读体积：`20.31 GB` / `820 MB`。
+  String get sizeLabel {
+    if (sizeBytes <= 0) return '';
+    final gb = sizeBytes / 1073741824;
+    if (gb >= 1) return '${gb.toStringAsFixed(2)} GB';
+    final mb = sizeBytes / 1048576;
+    if (mb >= 1) return '${mb.round()} MB';
+    return '${(sizeBytes / 1024).round()} KB';
+  }
+
+  /// 分辨率档位：2160 及以上统一写「4K」，与网页端版本下拉一致。
+  String get resolutionLabel {
+    if (height >= 2160) return '4K';
+    if (height >= 1080) return '1080P';
+    if (height >= 720) return '720P';
+    if (height > 0) return '${height}P';
+    return '';
+  }
+
+  /// 版本框下方的视频规格胶囊：`4K HEVC`、`1080P H264`。
+  String get videoLabel => [
+    resolutionLabel,
+    if (videoCodec.isNotEmpty) videoCodec.toUpperCase(),
+  ].where((e) => e.isNotEmpty).join(' ');
+
+  /// 音频规格胶囊：`AAC stereo (默认)`、`TrueHD 5.1`。
+  String get audioLabel {
+    if (audioCodec.isEmpty && audioChannels == 0) return '';
+    String ch = '';
+    if (audioChannels == 1) {
+      ch = 'mono';
+    } else if (audioChannels == 2) {
+      ch = 'stereo';
+    } else if (audioChannels == 6) {
+      ch = '5.1';
+    } else if (audioChannels == 8) {
+      ch = '7.1';
+    } else if (audioChannels > 0) {
+      ch = '${audioChannels}ch';
+    }
+    final base = [
+      audioCodec.toUpperCase(),
+      ch,
+    ].where((e) => e.isNotEmpty).join(' ');
+    return audioDefault ? '$base (默认)' : base;
+  }
+
+  /// 字幕规格胶囊：`(SRT)` / `(SRT / ASS)`；无字幕轨时为空（不渲染胶囊）。
+  String get subtitleLabel =>
+      subtitleTracks.isEmpty ? '' : '(${subtitleTracks.join(' / ')})';
+
+  /// 版本下拉每一项右侧的副标题：`4K · MKV · 20.31 GB`。
+  String get versionSubtitle => [
+    resolutionLabel,
+    if (container.isNotEmpty) container.toUpperCase(),
+    sizeLabel,
+  ].where((e) => e.isNotEmpty).join(' · ');
+
   /// 从 Emby `MediaSources[i]` 解析；解析失败返回 null（由调用方过滤）。
   static MediaExtraPart? fromJson(Map<String, dynamic> j) {
     final id = (j['Id'] as String?)?.trim() ?? '';
@@ -530,20 +620,44 @@ class MediaExtraPart {
     }
     if (name.isEmpty) name = '分段 ${id.isEmpty ? '?' : id}';
 
-    // 分辨率 / 编码：优先取视频流，退化到源级字段
+    // 分辨率 / 编码：优先取视频流，退化到源级字段。
+    // v2.0.65 顺带把音频声道、默认轨与字幕轨一起读出来，供版本选择器展示。
+    var width = (j['Width'] as num?)?.toInt() ?? 0;
     var height = (j['Height'] as num?)?.toInt() ?? 0;
     var vcodec = ((j['VideoCodec'] as String?) ?? '');
     var acodec = ((j['AudioCodec'] as String?) ?? '');
+    var channels = 0;
+    var language = '';
+    var audioDefault = false;
+    final subs = <String>[];
     final streams = j['MediaStreams'];
     if (streams is List) {
       for (final s in streams) {
         if (s is! Map) continue;
         final t = ((s['Type'] as String?) ?? '').toLowerCase();
-        if (t == 'video' && height == 0) {
-          height = (s['Height'] as num?)?.toInt() ?? 0;
+        if (t == 'video') {
+          if (width == 0) width = (s['Width'] as num?)?.toInt() ?? 0;
+          if (height == 0) height = (s['Height'] as num?)?.toInt() ?? 0;
           if (vcodec.isEmpty) vcodec = (s['Codec'] as String?) ?? '';
-        } else if (t == 'audio' && acodec.isEmpty) {
-          acodec = (s['Codec'] as String?) ?? '';
+        } else if (t == 'audio') {
+          if (acodec.isEmpty) acodec = (s['Codec'] as String?) ?? '';
+          if (channels == 0) channels = (s['Channels'] as num?)?.toInt() ?? 0;
+          if (language.isEmpty) {
+            language = ((s['Language'] as String?) ?? '').trim();
+          }
+          if (s['IsDefault'] == true) audioDefault = true;
+        } else if (t == 'subtitle' && subs.length < 4) {
+          var label = ((s['DisplayTitle'] as String?) ?? '').trim();
+          if (label.isEmpty) {
+            label = ((s['Codec'] as String?) ?? '').trim().toUpperCase();
+          }
+          if (label.isEmpty) {
+            label = ((s['Language'] as String?) ?? '').trim().toUpperCase();
+          }
+          // DisplayTitle 常自带括号（如「(SRT)」），统一去掉后由
+          // subtitleLabel 自己包一层，避免「((SRT))」。
+          label = label.replaceAll(RegExp(r'^\(+|\)+$'), '').trim();
+          if (label.isNotEmpty && !subs.contains(label)) subs.add(label);
         }
       }
     }
@@ -554,9 +668,14 @@ class MediaExtraPart {
       path: path,
       runtimeTicks: (j['RunTimeTicks'] as num?)?.toInt() ?? 0,
       container: ((j['Container'] as String?) ?? '').trim(),
+      width: width,
       height: height,
       videoCodec: vcodec,
       audioCodec: acodec,
+      audioChannels: channels,
+      audioLanguage: language,
+      audioDefault: audioDefault,
+      subtitleTracks: List<String>.unmodifiable(subs),
       sizeBytes: (j['Size'] as num?)?.toInt() ?? 0,
     );
   }

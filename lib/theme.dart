@@ -45,6 +45,25 @@ class AppRadii {
   static const BorderRadius pillBr = BorderRadius.all(Radius.circular(pill));
 }
 
+/// 大面积半透面（v2.0.65 统一）。
+///
+/// 详情简介 / 媒体信息这类**整块宽度**的容器，一旦带亮描边或外阴影，
+/// 叠在全屏模糊背景上就会浮起来，和页面里那些小胶囊「平贴」的观感对不上
+/// （用户反馈「是不是加了阴影」）。这里统一成**无描边、低对比纯填充**：
+/// 只靠留白与内容排版分区，不再造第二层「玻璃框」。
+///
+/// 小胶囊 / 可点标签仍走各自的彩色配方（`_Cap` 等），不要改用本装饰。
+class AppSurface {
+  const AppSurface._();
+
+  /// 大面积内容块：无 border、无 shadow、无渐变。
+  static BoxDecoration soft({double radius = 14, double opacity = 0.045}) =>
+      BoxDecoration(
+        color: Colors.white.withValues(alpha: opacity),
+        borderRadius: BorderRadius.circular(radius),
+      );
+}
+
 /// 字号 token（v2.0.64 质感包）。
 ///
 /// 全项目 337 处手写 fontSize 不一次性替换，只把「同一类信息」统一：

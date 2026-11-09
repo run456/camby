@@ -194,6 +194,22 @@ class _AppShellState extends State<AppShell>
         builder: (_, __) => DetailPage(
           item: item,
           onPlay: _openPlayer,
+          // v2.0.65：版本下拉选中的非主版本，带 MediaSourceId 起播。
+          // 字幕传 null 让播放页按该源自动挑轨（item 级字幕 index
+          // 属于主版本，硬套到另一文件可能对不上）。
+          onPlayVersion: (
+            it, {
+            required mediaSourceId,
+            sourceLabel,
+            resume = true,
+          }) =>
+              _openPlayer(
+                it,
+                null,
+                resume: resume,
+                mediaSourceId: mediaSourceId,
+                sourceLabel: sourceLabel,
+              ),
           onPlayPart: _openExtraPart,
           state: _state,
           onOpenDetail: _openDetail,
@@ -280,6 +296,10 @@ class _AppShellState extends State<AppShell>
     MediaItem item,
     SubtitleTrackInfo? subtitle, {
     bool resume = true,
+    // v2.0.65：详情页版本下拉选中非主版本时，带上该 MediaSourceId 起播；
+    // 不传时行为与以前完全一致（服务端默认主版本）。
+    String? mediaSourceId,
+    String? sourceLabel,
   }) {
     final double startAt = resume ? (item.resumeSeconds ?? 0) : 0;
 
@@ -307,6 +327,8 @@ class _AppShellState extends State<AppShell>
             state: _state,
             subtitle: subtitle,
             startSeconds: startAt,
+            mediaSourceId: mediaSourceId,
+            sourceLabel: sourceLabel,
           ),
         ),
         transitionsBuilder: (_, anim, __, child) {

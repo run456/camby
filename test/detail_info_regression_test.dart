@@ -63,13 +63,22 @@ void main() {
 
   // ── ① 性能改动的源码守卫 ──
   group('性能改动守卫', () {
-    test('简介/媒体信息卡改用与标签同款半透明纯色框', () {
+    test('v2.0.65：简介/媒体信息卡统一为无描边半透面', () {
       final src = File('lib/pages/detail_page.dart').readAsStringSync();
-      final hits = 'color: Colors.white.withValues(alpha: 0.06)'
-          .allMatches(src)
-          .length;
-      expect(hits, 2,
-          reason: '两张卡片都应是纯色 + 1px 边框，不再是渐变 + 18px 模糊阴影');
+      expect(
+        RegExp(r'AppSurface\.soft\(\)').allMatches(src).length,
+        2,
+        reason: '两张大卡片统一走 AppSurface.soft：去掉 1px 亮描边，'
+            '不再用大面积半透明 + 描边模拟玻璃而产生浮起感',
+      );
+      final theme = File('lib/theme.dart').readAsStringSync();
+      final seg = theme.substring(
+        theme.indexOf('class AppSurface'),
+        theme.indexOf('/// 字号 token'),
+      );
+      expect(seg.contains('boxShadow'), isFalse);
+      expect(seg.contains('BoxShadow'), isFalse);
+      expect(seg.contains('border:'), isFalse);
     });
 
     test('内层横向滚动统一接入 _degradedVN 降级', () {

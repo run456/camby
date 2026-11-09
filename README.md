@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.64 (264)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.65 (265)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,20 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.65 (265) 影片版本选择 + 详情页半透质感统一
+
+两处真机反馈：剧情简介 / 媒体信息两块大卡片看着「带阴影」，和页面里平贴的小胶囊不统一；以及 Emby 网页端能切「版本」（4K / 1080p 等多个 MediaSource），App 里没有入口。
+
+- **质感核实与统一**：代码层面 `boxShadow` 早在 v2.0.54 就删了，这两块剩下的只是 `6% 白填充 + 12% 白 1px 描边 + 14 圆角`；大面积半透明块压在全屏模糊背景上，亮描边会形成浮起感。新增 `theme.dart` 的 `AppSurface.soft()`（无描边 / 无阴影 / 无渐变，4.5% 纯填充），简介与媒体信息统一走它，只靠留白分区；可点小胶囊保持各自彩色配方。
+- **版本数据**：`EmbyServer.mediaVersions()` 走单条详情 `/Users/{uid}/Items/{id}?Fields=MediaSources,MediaStreams,RunTimeTicks,Path`，按 `Index` 排序返回**含主版本**的完整列表。`versionsFromSources()` 为公开静态方法，便于纯 JSON 测试。详情页把原来只取「非主版本」的 `mediaSources()` 换成它，一次请求同时供版本下拉与「额外部分」，不再重复发请求。
+- **模型**：`MediaExtraPart` 补 `width / audioChannels / audioLanguage / audioDefault / subtitleTracks`，以及 `sizeLabel / resolutionLabel / videoLabel / audioLabel / subtitleLabel / versionSubtitle` 展示文案；字幕轨去重、最多 4 条；服务端缺 `MediaStreams` 时退回源级字段。
+- **版本板块**：≥2 个版本才显示（单版本不摆一个不能点的框）。`版本 共 N 个` 标题 + outlined 下拉（主行版本名、次行 `4K · MKV · 20.31 GB`）+ 底部玻璃单选单；下方视频 / 音频 / 字幕 / 时长规格胶囊随选择实时变化。手机与平板都插在「媒体信息」上方。
+- **信息联动**：切换版本后媒体信息卡的文件路径、封装格式、体积改用该 MediaSource 的值（服务端没开放 Path / Size 时退回 item 主版本），头图的 4K / 视频编码 / 音频声道徽章也同步刷新，避免切到 4K 后顶部还挂着 H264；「添加于」是 Item 级属性，不跟着变。
+- **播放联动**：新增可选 `DetailPage.onPlayVersion` 回调（刻意不扩 `onPlay` 签名，避免打断全部 widget 测试的 mock）。选中非主版本时用 `MediaSourceId` 起播，字幕传 null 让播放页按该源自动挑轨 —— item 级字幕 index 属于主版本，硬套到另一文件可能对不上。主版本 / 未接回调时行为完全不变。
+- **测试**：新增 `test/media_version_test.dart` 10 条，覆盖排序与主版本标记、空 / 单版本兜底、规格文案、字幕轨去重、无描边守卫、数据与播放链路接线。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **490 全过**（原 480 + 新增 10 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.65-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='265' versionName='2.0.65'`。
 
 ### v2.0.64 (264) 质感包：图片过渡 / 触觉 / token 收敛 / 空态 CTA
 

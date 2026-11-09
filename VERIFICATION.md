@@ -2479,3 +2479,36 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 **真机重点验收**：弱网首次进媒体库（先见 9 张带形状骨架，图片逐张淡入无硬切）、断网二次进入（磁盘缓存瞬间出现，看不到骨架与淡入）、图片 404（骨架 + 片名仍可点开详情）、快速来回滚动（无掉帧、无闪烁）、设置里关掉触感后全部震动消失、13 类空态 CTA 点击后确实跳到对应功能。
 
 验证（v2.0.64）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **480 全过**（原 461 + 新增 19 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.64-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='264' versionName='2.0.64'`。
+
+## §90 发布 v2.0.65（影片版本选择 + 详情页半透质感统一）
+
+### 用户反馈与核实
+
+1. 「详情页简介和信息详情是不是加了阴影，其他半透框没有」→ 核实结论：**没有**。 `_overviewCard` / `_mediaInfoCard` 的 `boxShadow` 在 v2.0.54 已删，装饰只剩 `Colors.white 0.06` + `Border.all(white 0.12)` + `circular(14)`。浮起感来自整块宽度的半透明 + 亮描边压在全屏模糊背景上，而页面里其他半透框是 `_Cap` 那种小面积彩色胶囊（`13% 填充 + 22% 描边 + 圆角 7`），两者不是同一套配方。
+2. 「增加影片版本选择，切换版本时影片文件信息跟着调整」→ Emby 的多版本是**一个 Item 下多个 MediaSource**，项目里已有单条详情拉取 `MediaSources` 的能力（`mediaSources()`）和 `MediaSourceId` 播放链路（`streamUrl(mediaSourceId:)` / `PlayerPage.mediaSourceId`），但前者只返回非主版本、后者只在「额外部分」用。缺的是把它们接成一条完整链路。
+
+### 变更
+
+**质感**：`theme.dart` 新增 `AppSurface.soft()` —— 无 border、无 shadow、无 gradient，`Colors.white.withValues(alpha: 0.045)` + `circular(14)`。两个大卡片改用同一装饰（源码守卫断言恰好出现 2 次），只靠留白与内容排版分区；小胶囊 / 可点标签不动。
+
+**数据层**：`EmbyServer.versionsFromSources(dynamic raw)` 公开静态解析，按 `Index` 升序、`index == 0` 标 `isPrimary`；`mediaVersions(itemId)` 用 `Fields=MediaSources,MediaStreams,RunTimeTicks,Path` 拉单条详情。`MediaExtraPart` 新增 `width / audioChannels / audioLanguage / audioDefault / subtitleTracks` 与 `copyWith({isPrimary})`，`fromJson` 从 `MediaStreams` 读视频宽高/编码、音频声道/语言/默认轨、字幕 DisplayTitle（去括号、去重、最多 4 条）；源级 `Height/Width/VideoCodec/AudioCodec` 作兜底。展示 getter：`sizeLabel`（GB/MB/KB）、`resolutionLabel`（≥2160 写 4K）、`videoLabel`、`audioLabel`（stereo / 5.1 / 7.1 + `(默认)`）、`subtitleLabel`、`versionSubtitle`。
+
+**详情页**：状态 `_versions` / `_versionIndex` / `_selectedVersion`（单版本返回 null）。`_loadExtras()` 改用 `mediaVersions()`，按 `isPrimary` 拆成版本列表与 `extraParts`，**一次请求供两处**。新增 `_versionSection({spacing})`（手机 16 / 平板 22，插在媒体信息上方）：`<2` 条返回空列表；否则 `版本 共 N 个` + `_VersionPicker` + 规格胶囊。切换时 `AppHaptics.light()`、收起媒体信息折叠态。`_mediaInfoCard` 新增 `version` 参数，路径 / 容器 / 体积优先取该源，新增 `_sizeLabel()` 支持 MB/KB，`添加于` 保持 Item 级。头图的 4K / 视频编码 / 音频声道徽章改走 `_shownIsTrue4K()` / `_shownVideoCodec()` / `_shownAudioCodec()` / `_shownAudioChannels()`，逐项以选中版本为准、缺字段退回 item 主版本。
+
+**播放**：新增**可选** `DetailPage.onPlayVersion`，`_playWithVersion()` 在非主版本且回调非空时带 `MediaSourceId` + `sourceLabel` 起播、字幕传 null；`main._openPlayer` 增加两个可选命名参数透传 `PlayerPage`。之所以不直接给 `onPlay` 加参数：Dart 函数子类型要求 mock 声明全部命名参数，会打断 12 个 widget 测试；可选回调让所有老调用方零改动，且未注入时安全退化为主版本播放。
+
+### 设计取舍
+
+- **单版本不显示选择器**：没有可切换内容时摆一个不能点的框是纯噪音，也让「多版本」这个信息本身失去意义。
+- **版本板块紧邻媒体信息**：参考图里版本框在播放按钮上方，但本 App 的「继续播放」是首屏关键操作，不能往下推；放在媒体信息上方既保留首屏，又让「切换 → 文件信息变化」的因果一眼可见。
+- **非主版本不强制塞 item 级字幕**：字幕轨 index / DeliveryUrl 属于主版本，硬套到另一个文件可能对不上；交给播放页按新源自动挑中文字幕，用户仍可手动换。
+- **保留 `mediaSources()`**：诊断面板（`trailerDiag`）仍用它，不改动既有诊断输出；只有详情页主线切到 `mediaVersions()`。
+- **`isPrimary` 以排序后第一条为准**：Emby 不保证 `MediaSources` 顺序与 `Index` 一致，测试里故意乱序覆盖。
+
+### 文件清单与测试
+
+新增：`test/media_version_test.dart`（10 条：乱序排序与主版本标记、非主版本派生额外部分、空/单条兜底、视频/音频/字幕/体积/时长文案、缺 MediaStreams 兜底、字幕轨去重上限、无描边守卫、版本数据与播放链路接线、模型字段守卫）。修改：`lib/theme.dart`、`lib/models.dart`、`lib/emby_client.dart`、`lib/pages/detail_page.dart`、`lib/main.dart`、版本断言、版本号 5 处。
+
+**真机重点验收**：找一部合并了 4K / 1080p 两个文件的影片 → 详情页应出现「版本」板块，下拉列出两个版本并带体积；逐个切换，文件路径 / 封装 / 体积 / 视频编码 / 音频 / 字幕胶囊应同步变化；选中 4K 后点「立即播放」，确认播的是 4K 源（播放信息里分辨率对得上）；单版本影片不应出现版本板块；顺带看剧情简介与媒体信息两块是否已不再有亮边框浮起感。
+
+验证（v2.0.65）：`flutter analyze` 0 error / 0 warning；`flutter test` **490 全过**（原 480 + 新增 10 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.65-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='265' versionName='2.0.65'`。

@@ -1517,6 +1517,48 @@ class EmbyServer {
     }
   }
 
+  /// 把 Emby `MediaSources` **完整**解析为版本列表（含主版本，v2.0.65）。
+  ///
+  /// 与 [_extraPartsFromSources] 的区别：那个只给「额外部分」（跳过主版本），
+  /// 这个按 `Index` 排序后全量返回，并把第一条标记为 `isPrimary`。
+  /// 抽成公开静态方法是为了让守卫测试能直接喂 JSON，不依赖网络。
+  static List<MediaExtraPart> versionsFromSources(dynamic raw) {
+    final sources = raw is List ? raw : const <dynamic>[];
+    final list = sources.whereType<Map<String, dynamic>>().toList()
+      ..sort(
+        (a, b) => ((a['Index'] as num?)?.toInt() ?? 0).compareTo(
+          (b['Index'] as num?)?.toInt() ?? 0,
+        ),
+      );
+    final out = <MediaExtraPart>[];
+    for (var i = 0; i < list.length; i++) {
+      final part = MediaExtraPart.fromJson(list[i]);
+      if (part != null) out.add(part.copyWith(isPrimary: i == 0));
+    }
+    return out;
+  }
+
+  /// 影片的「版本」列表（Emby 网页端详情页那个 `版本 UHD · 20.31 GB` 下拉）。
+  ///
+  /// Emby 把同一部片的多个文件（4K / 1080p / 不同压制）合并成**一个 Item
+  /// 下的多个 MediaSource**；批量 `/Items` 查询往往只回主版本，完整列表必须
+  /// 走单条详情。这里一次请求同时供「版本选择器」与「额外部分」使用：
+  /// 详情页拿到结果后按 `isPrimary` 拆成两份，避免为同一份数据发两次请求。
+  ///
+  /// 少于 2 条时调用方不渲染选择器（单版本没有可切换的东西）。
+  /// 任何失败静默返回空列表，不影响原有详情页。
+  Future<List<MediaExtraPart>> mediaVersions(String itemId) async {
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {'Fields': 'MediaSources,MediaStreams,RunTimeTicks,Path'},
+      );
+      return versionsFromSources(item['MediaSources']);
+    } catch (_) {
+      return const <MediaExtraPart>[];
+    }
+  }
+
   /// 影片所在目录（**带结尾分隔符**，避免 ABP-01 误配 ABP-018）+ 子条目数。
   ///
   /// `childCount` 为 0 表示服务端明确说「没有子条目」；拿不到详情时返回
