@@ -8,12 +8,12 @@ import 'package:camby/metadata/nfo_reader.dart';
 import 'package:camby/metadata/nfo_series_backfill.dart';
 import 'package:camby/models.dart';
 
-/// v2.0.62：系列「无论如何都加载不出来」的根因回归。
+/// v2.0.62 的 NFO 兜底链路回归（v2.0.63 起降级为最后兜底）。
 ///
-/// Emby 官方不解析 NFO 的 `<set><name>`（只留给 Kodi），所以只能直读 .nfo；
-/// 旧版卡在「_kItemFields 没要 Path → 路径为空」+「候选只有 1~2 个」。
-/// 这组测试锁死：路径来源补齐、候选铺全、诊断可见、批量回填不覆盖已有值，
-/// 以及演员页筛选条不再用那块冷蓝黑。
+/// 当时「只能直读 .nfo」的判断并不适用于所有库：用户服务端已把
+/// `<set><name>` 建成了 BoxSet 合集，主线改走服务端 API（见
+/// boxset_series_test.dart）。这里保留对路径来源、候选铺全、诊断可见、
+/// 批量回填不覆盖已有值，以及演员页筛选条配色的回归。
 void main() {
   MediaItem mk(String id, {String seriesName = '', String filePath = ''}) =>
       MediaItem(
@@ -158,10 +158,10 @@ void main() {
       expect(src.contains('_showNfoDiagnosis()'), isTrue);
     });
 
-    test('系列总览页挂上「补全系列」入口与进度', () {
+    test('系列总览页挂上「同步合集」入口与进度', () {
       final src = File('lib/pages/series_index_page.dart').readAsStringSync();
-      expect(src.contains('NfoSeriesBackfill.run('), isTrue);
-      expect(src.contains("'补全系列'"), isTrue);
+      expect(src.contains('BoxSetSeriesSync.run('), isTrue);
+      expect(src.contains("'同步合集'"), isTrue);
       expect(src.contains('LinearProgressIndicator('), isTrue);
       // 空态不再诱导用户「一部部浏览累积」
       expect(src.contains('浏览过的影片越多'), isFalse);

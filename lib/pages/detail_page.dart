@@ -89,6 +89,10 @@ class _DetailPageState extends State<DetailPage> {
   /// `SeriesName`，但刮削器写的 `<series>` / `<set><name>` 是有效系列信息。
   String _nfoSeries = '';
 
+  /// v2.0.63：系列名来源说明，供「系列：无」诊断弹窗展示。
+  /// 主线是服务端「所属合集」，NFO 只作为最后的兜底。
+  String _seriesSource = '';
+
   /// v2.0.62：NFO 读取每一步的诊断。系列显示「无」时点胶囊可查看，
   /// 把「还是没加载」变成能看到具体失败原因（哪个 URL、什么状态）。
   List<NfoProbe> _nfoProbes = const <NfoProbe>[];
@@ -164,15 +168,17 @@ class _DetailPageState extends State<DetailPage> {
     _loadNfoSeries();
   }
 
-  /// Emby 对电影不给 SeriesName，尝试从 NFO 兜底读系列名。
+  /// 读取系列名（v2.0.63：服务端「所属合集」为主，NFO 为兜底）。
   ///
-  /// v2.0.62：Emby 官方明确不解析 `<set><name>`（只把它留给 Kodi），所以
-  /// 直读 .nfo 是唯一路径。旧版候选只有「同名 .nfo + Emby 代理 / 直链」，
-  /// 且 `_kItemFields` 没要 Path，路径常常为空 → 永远读不到。这一版：
-  ///  1. 先取全库里已回填的最新 seriesName（全库扫描的结果）避免重复请求；
-  ///  2. filePath 缺失时补全单条详情（现在会带 Path）；
-  ///  3. 用 [buildNfoCandidates] 铺开「同名 / movie.nfo × 直链 / 去签名 / 代理」；
-  ///  4. 记录每一步诊断，供「系列：无」胶囊点击查看。
+  /// 之前两版把 NFO 的 `<set><name>` 当成唯一来源去直读 .nfo，方向就错了：
+  /// Emby 已经把它建成了独立的 BoxSet 对象，网页端详情页的「所属合集」区块
+  /// 就是靠 `ListItemIds` 反查渲染的。服务端 API 直接可读，不需要影片路径、
+  /// 不需要 HTTP 直链、也不会撞上本地路径 + 不存在的 sidecar 代理超时。
+  ///
+  ///  1. 先取全库里已同步的 seriesName，避免重复请求；
+  ///  2. 反查本片所属合集，命中即回填并写回全库；
+  ///  3. 没加入任何合集时，才退回 NFO 直读（保留离线 / 老库兜底）；
+  ///  4. 每一步都记来源与诊断，点「系列：无」胶囊可查看。
   /// 全程异步、失败静默、不阻塞首帧。
   Future<void> _loadNfoSeries() async {
     final state = widget.state;
@@ -183,9 +189,38 @@ class _DetailPageState extends State<DetailPage> {
       }
     }
     if (_item.seriesName.trim().isNotEmpty) return;
+
+    final server = state.server;
+    if (server != null && !_item.id.startsWith('demo-')) {
+      List<String> names;
+      try {
+        names = await server.boxSetNamesForItem(_item.id);
+      } catch (_) {
+        names = const <String>[];
+      }
+      if (!mounted) return;
+      _nfoTried = true;
+      setState(() {
+        _seriesSource = names.isEmpty
+            ? '服务端「所属合集」：未加入任何合集'
+            : '服务端「所属合集」：${names.join(' / ')}';
+      });
+      if (names.isNotEmpty) {
+        final v = names.first.trim();
+        setState(() {
+          _nfoSeries = v;
+          _nfoProbes = const <NfoProbe>[];
+        });
+        _backfillSeries(v);
+        return;
+      }
+    } else {
+      _seriesSource = '未连接服务器，跳过合集查询';
+    }
+
+    // 兜底：服务端没给合集，再尝试直读同目录 NFO。
     var path = _item.filePath;
     if (path.trim().isEmpty) {
-      final server = state.server;
       if (server != null && !_item.id.startsWith('demo-')) {
         final fresh = await server.itemDetail(_item.id);
         if (!mounted) return;
@@ -196,7 +231,6 @@ class _DetailPageState extends State<DetailPage> {
         }
       }
     }
-    final server = state.server;
     final candidates = buildNfoCandidates(
       path,
       embyBase: server?.baseUrl,
@@ -215,26 +249,26 @@ class _DetailPageState extends State<DetailPage> {
     if (!result.ok) return;
     final v = result.series!.trim();
     setState(() => _nfoSeries = v);
-    // v2.0.58 起：把 NFO 读到的系列名回填到全库，否则点「系列」胶囊
-    // 打开的聚合页几乎全空，媒体库「系列」筛选也拿不到数据。
     _backfillSeries(v);
   }
 
-  /// 系列显示「无」时，点胶囊把 NFO 读取诊断摊开给用户看（URL 已脱敏）。
+  /// 系列显示「无」时，点胶囊把「服务端合集 + NFO 兜底」的来源与诊断摊开。
   void _showNfoDiagnosis() {
     final probes = _nfoProbes;
-    final body = probes.isEmpty
+    final head = _seriesSource.isEmpty ? '尚未查询服务端合集。' : _seriesSource;
+    final nfoBody = probes.isEmpty
         ? (_nfoTried
-            ? '未能派生出任何 NFO 地址：这部影片没有可用的 Path / '
-                'MediaSources 路径。\n\n可到「媒体库 → 系列 → 从服务器补全系列」'
-                '查看全库诊断，确认服务端到底能不能访问 .nfo。'
-            : '尚未尝试读取 NFO，可下拉刷新重试。')
-        : probes.map((p) => '· ${p.describe}').join('\n');
+            ? 'NFO 兜底：未能派生出可用的 .nfo 地址（这部影片没有可访问的 Path）。'
+            : 'NFO 兜底：尚未尝试读取。')
+        : 'NFO 兜底候选：\n${probes.map((p) => '· ${p.describe}').join('\n')}';
+    final body = '$head\n\n$nfoBody\n\n'
+        '「系列」优先取服务端「所属合集」（BoxSet）。'
+        '若合集为空，可到「媒体库 → 系列 → 同步合集」全量同步。';
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF171C29),
-        title: const Text('系列 NFO 读取诊断',
+        title: const Text('系列来源诊断',
             style: TextStyle(fontSize: 15, color: Colors.white)),
         content: SingleChildScrollView(
           child: Text(

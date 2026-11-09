@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../layout.dart';
-import '../metadata/nfo_series_backfill.dart';
+import '../metadata/boxset_series.dart';
 import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
@@ -19,10 +19,11 @@ import 'tag_page.dart';
 /// `seriesName`。点击某一行打开 [TagPage] 的 series 模式，用「系列名 / 标签 /
 /// 类型 / 标题」去空白包含匹配列出同系列影片。
 ///
-/// v2.0.62：新增「补全系列」按钮，调 [NfoSeriesBackfill] 一次性从服务器
-/// 直读全库 .nfo 并批量回填 seriesName，不再只能靠逐条浏览慢慢累积。
-/// Emby 官方不解析 NFO 的 `<set><name>`（只留给 Kodi），所以服务端 API 里
-/// 拿不到，直读文件是唯一路径；页面会把每一步失败诊断原样展示给用户。
+/// v2.0.63：系列名改由服务端「合集 / BoxSet」同步而来（[BoxSetSeriesSync]）。
+/// 之前两版直读 .nfo 是走错路：Emby 把 `<set><name>` 建成了独立的 BoxSet
+/// 对象，网页端影片详情的「所属合集」就是证据，服务端 API 直接可读，
+/// 不需要影片文件路径、不需要 HTTP 直链。右上角「同步合集」主动扫全库
+/// 并批量写回 seriesName；NFO 只留在详情页作最后的兜底。
 class SeriesIndexPage extends StatefulWidget {
   const SeriesIndexPage({
     super.key,
@@ -47,7 +48,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   String _query = '';
   final TextEditingController _controller = TextEditingController();
 
-  // v2.0.62：主动从服务器直读 NFO 补全全库系列，不再只靠逐条浏览累积。
+  // v2.0.63：主动从服务端「合集 / BoxSet」同步全库系列名。
   bool _scanning = false;
   int _scanDone = 0;
   int _scanTotal = 0;
@@ -230,7 +231,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   Widget _backfillButton() {
     return LiquidPress(
       radius: 12,
-      onTap: _scanning ? null : () => _backfill(),
+      onTap: _scanning ? null : () => _syncBoxSets(),
       child: Container(
         height: 32,
         padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -248,11 +249,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                     height: 12,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.cloud_download_outlined,
+                : const Icon(Icons.collections_bookmark_outlined,
                     size: 14, color: AppColors.primary),
             const SizedBox(width: 5),
             Text(
-              _scanning ? '扫描中' : '补全系列',
+              _scanning ? '同步中' : '同步合集',
               style: const TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
@@ -265,8 +266,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
     );
   }
 
-  /// 主动从服务器直读全库 NFO，把 `<set><name>` / `<series>` 写回 seriesName。
-  Future<void> _backfill() async {
+  /// 从服务端「合集 / BoxSet」同步全库系列名（v2.0.63）。
+  Future<void> _syncBoxSets() async {
     if (_scanning) return;
     final server = widget.state.server;
     if (server == null) {
@@ -278,7 +279,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
       _scanDone = 0;
       _scanTotal = 0;
     });
-    final r = await NfoSeriesBackfill.run(
+    final r = await BoxSetSeriesSync.run(
       state: widget.state,
       server: server,
       onProgress: (done, total) {
@@ -294,25 +295,29 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
     await _showResult(r);
   }
 
-  Future<void> _showResult(NfoBackfillResult r) async {
+  Future<void> _showResult(BoxSetSyncResult r) async {
     final lines = <String>[];
-    if (r.targets == 0) {
-      lines.add('全部影片都已有系列名，无需补全。');
-    } else if (r.abortedByProbe) {
-      lines.add('试跑未能读到任何 NFO 文件，已提前中止全库扫描，避免无谓等待。');
-      lines.add('待补全 ${r.targets} 部 · 无文件路径 ${r.noPath} 部');
+    if (r.failed) {
+      lines.add(r.error ?? '读取合集失败。');
+      lines.add('请确认服务器可访问，且账号有查看合集的权限。');
+    } else if (r.targets == 0) {
+      lines.add('全部影片都已有系列名，无需同步。');
+    } else if (r.boxSets == 0) {
+      lines.add('服务端没有返回任何合集（BoxSet）。');
+      lines.add('请在服务端影片详情确认能看到「所属合集」区块。');
     } else {
-      lines.add('待补全 ${r.targets} 部，成功写入 ${r.filled} 部。');
-      lines.add('无路径 ${r.noPath} 部 · 取不到 NFO ${r.noNfo} 部 · '
-          'NFO 无 <set> ${r.noSetField} 部');
+      lines.add('服务端合集 ${r.boxSets} 个 · 待补 ${r.targets} 部 · '
+          '成功写入 ${r.filled} 部。');
+      if (r.noCollection > 0) lines.add('未关联合集 ${r.noCollection} 部');
+      if (r.usedItemLookup) lines.add('已启用 ListItemIds 反查兜底。');
       if (r.cancelled) lines.add('（已中途取消）');
     }
-    final samples = r.samples;
+    final notes = r.notes;
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF171C29),
-        title: const Text('从服务器补全系列',
+        title: const Text('同步服务端合集',
             style: TextStyle(fontSize: 15, color: Colors.white)),
         content: SingleChildScrollView(
           child: Column(
@@ -326,18 +331,18 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                       style: const TextStyle(
                           fontSize: 12, color: Colors.white, height: 1.5)),
                 ),
-              if (samples.isNotEmpty) ...[
+              if (notes.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                const Text('失败原因样例（URL 已隐藏令牌）',
+                const Text('说明',
                     style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: AppColors.primary)),
                 const SizedBox(height: 5),
-                for (final s in samples)
+                for (final n in notes)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 3),
-                    child: Text('· $s',
+                    child: Text('· $n',
                         style: const TextStyle(
                             fontSize: 10,
                             color: Colors.white60,
@@ -346,9 +351,9 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
               ],
               const SizedBox(height: 12),
               const Text(
-                'Emby 不解析 NFO 的 <set><name>，客户端必须能直接 HTTP 访问 .nfo。'
-                '若直链带签名、NFO 不在可访问目录，或服务端未开放文件代理，'
-                '需要在服务端放开 .nfo 的匿名读取。',
+                '「系列」现在取自服务端的「所属合集」（BoxSet），与 Emby 网页端'
+                '影片详情页的「所属合集」一致。只有服务端没有合集数据时，'
+                '详情页才会退回直读 NFO。',
                 style: TextStyle(
                     fontSize: 10.5, color: Colors.white54, height: 1.5),
               ),
@@ -484,8 +489,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              'Emby 不解析 NFO 的 <set><name>，系列名需客户端直读 .nfo。'
-              '点右上角「补全系列」可一次性从服务器扫描全库并回填。',
+              '系列名取自服务端的「所属合集」（BoxSet）。'
+              '点右上角「同步合集」可一次性扫描全库并回填。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 11,

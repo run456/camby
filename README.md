@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.62 (262)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.63 (263)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,19 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.63 (263) 系列改读服务端「所属合集」（BoxSet）
+
+真机反馈指出：影片详情里的「系列」对应 Emby 网页端的**「所属合集」**区块，前两版一直在直读 NFO 文件是走错了数据源。网页端截图里已有合集「罵倒女医のダメ男をわか…」，说明服务端已经把 `<set><name>` 建成了真正的 `BoxSet` 对象 —— 它**不是 Movie 上的一个字段**，所以 `SeriesName` 对电影永远为空，也不需要任何文件路径或 HTTP 直链就能通过 API 读到。此前「Emby 不解析 `<set>`」的结论只适用于原生 NFO 导入器，不适用于已生成合集的库。
+
+- **端点对齐网页端**：`EmbyServer` 新增 `boxSetNamesForItem()`，用 `Users/{uid}/Items?IncludeItemTypes=BoxSet&Recursive=true&ListItemIds={影片Id}` 反查单部影片所属合集；另加 `allBoxSets()` 与 `boxSetMemberIds()`（`ParentId`）用于全库映射。
+- **详情页优先级翻转**：打开影片详情先反查「所属合集」，命中即显示系列名并回填全库；只有未加入任何合集时才退回 NFO 直读。点「系列：无」弹出的诊断改为「系列来源诊断」，首行直接写明服务端合集查询结果，不再只列一堆 NFO 候选超时。
+- **全库「同步合集」**：新增 `BoxSetSeriesSync`，列出全部合集 → 并发拉成员反建 `itemId → 合集名` → `replaceSeriesNames` 一次性写回。部分 Emby 版本的 `ParentId` 对 BoxSet 不返回成员，此时自动降级为 `ListItemIds` 逐条反查（单轮上限 400 部，再点一次继续）。系列总览右上角按钮由「补全系列」改为「**同步合集**」，结果面板显示合集数 / 待补 / 成功写入 / 未关联合集 / 是否启用反查兜底。
+- **NFO 全库扫描下线**：`NfoSeriesBackfill` 不再被任何页面调用（文件与测试保留，作为最后的离线兜底实现）；`nfo_reader.dart` 仍供详情页使用。前两版「本地路径 + 不存在的 sidecar 代理 → 全部 `TimeoutException`」的问题从根上绕过。
+
+已知边界：`ListItemIds` 是 Emby 网页客户端使用但未写进公开文档的参数；若某版本完全不支持，主路径的 `ParentId` 映射仍可工作，两者都不通时结果面板会明确给出「服务端没有返回任何合集 / 未关联合集」而不是静默失败。一部影片同属多个合集时只取第一个作为系列名。
+
+验证：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **461 全过**（原 452 + 新增 9 条 `boxset_series_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.63-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='263' versionName='2.0.63'`。
 
 ### v2.0.62 (262) 系列 NFO 主动补全 + 演员页黑条修复
 

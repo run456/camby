@@ -14,12 +14,29 @@ import '../models.dart';
 
 /// 所有条目查询统一携带的字段
 /// 注意：Emby 的 /Items 默认只返回精简字段，Overview / Tags 等必须显式声明
-// v2.0.62：补 Path。NFO 系列回填完全依赖影片文件路径来派生 .nfo 地址，
-// 之前只靠 MediaSources[0].Path，非管理员账号常被隐藏 → 路径为空 → 系列永远「无」。
+// Path 供播放信息与 NFO 兜底使用；v2.0.63 起「系列」主线改读服务端合集，
+// 不再依赖影片文件路径。
 const _kItemFields =
     'Genres,People,UserData,MediaStreams,MediaSources,Overview,DateCreated,'
     'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,'
     'Tags,TagItems,Studios,SeriesName,Path';
+
+/// 服务端「合集 / BoxSet」的精简信息（v2.0.63）。
+///
+/// Emby 把 NFO 的 `<set><name>` 建成独立的 BoxSet 对象，而不是 Movie 上的
+/// 一个字段；电影的 `SeriesName` 因此永远为空。网页端详情页的「所属合集」
+/// 区块展示的就是这类对象。
+class BoxSetInfo {
+  const BoxSetInfo({
+    required this.id,
+    required this.name,
+    this.childCount = 0,
+  });
+
+  final String id;
+  final String name;
+  final int childCount;
+}
 
 class EmbyServer {
   EmbyServer({
@@ -906,6 +923,89 @@ class EmbyServer {
       },
     );
     return _parseItems(json);
+  }
+
+  // ---------------------------------------------------------------------------
+  // v2.0.63：服务端合集（BoxSet）—— 电影「系列」的真正来源
+  //
+  // 网页端影片详情「所属合集」用的就是 [boxSetNamesForItem] 里那条
+  // `ListItemIds` 查询。前两版直读 .nfo 属于绕远路：服务器只有本地路径、
+  // 没有可用的 sidecar 代理，候选必然全部超时。
+  // ---------------------------------------------------------------------------
+
+  /// 列出服务器上所有合集。
+  Future<List<BoxSetInfo>> allBoxSets() async {
+    final json = await _getJson(
+      '$baseUrl/Users/$_userId/Items',
+      query: {
+        'IncludeItemTypes': 'BoxSet',
+        'Recursive': 'true',
+        'Fields': 'Name,ChildCount,RecursiveItemCount',
+        'SortBy': 'SortName',
+        'Limit': '2000',
+      },
+    );
+    final items = json['Items'] as List<dynamic>? ?? const <dynamic>[];
+    final out = <BoxSetInfo>[];
+    for (final m in items) {
+      if (m is! Map<String, dynamic>) continue;
+      final id = m['Id']?.toString() ?? '';
+      final name = (m['Name'] as String? ?? '').trim();
+      if (id.isEmpty || name.isEmpty) continue;
+      final count = (m['ChildCount'] as num?)?.toInt() ??
+          (m['RecursiveItemCount'] as num?)?.toInt() ??
+          0;
+      out.add(BoxSetInfo(id: id, name: name, childCount: count));
+    }
+    return out;
+  }
+
+  /// 某个合集内的影片 Id（`ParentId` 查询）。
+  ///
+  /// 注意：部分 Emby 版本对 BoxSet 的 ParentId 查询不返回成员，此时
+  /// [BoxSetSeriesSync] 会自动降级到 [boxSetNamesForItem] 逐条反查。
+  Future<List<String>> boxSetMemberIds(String boxSetId) async {
+    final json = await _getJson(
+      '$baseUrl/Users/$_userId/Items',
+      query: {
+        'ParentId': boxSetId,
+        'Recursive': 'true',
+        'IncludeItemTypes': 'Movie,Series',
+        'Fields': 'Name',
+        'Limit': '2000',
+      },
+    );
+    final items = json['Items'] as List<dynamic>? ?? const <dynamic>[];
+    return <String>[
+      for (final m in items)
+        if (m is Map<String, dynamic>) m['Id']?.toString() ?? '',
+    ].where((s) => s.isNotEmpty).toList();
+  }
+
+  /// 反查单部影片所属的合集名。
+  ///
+  /// `ListItemIds` 是 Emby 网页客户端在「所属合集」区块使用的查询参数：
+  /// `Users/{uid}/Items?IncludeItemTypes=BoxSet&Recursive=true&ListItemIds={id}`。
+  /// 未加入任何合集、或服务端不支持该参数时返回空列表。
+  Future<List<String>> boxSetNamesForItem(String itemId) async {
+    final json = await _getJson(
+      '$baseUrl/Users/$_userId/Items',
+      query: {
+        'IncludeItemTypes': 'BoxSet',
+        'Recursive': 'true',
+        'ListItemIds': itemId,
+        'Fields': 'Name',
+        'Limit': '50',
+      },
+    );
+    final items = json['Items'] as List<dynamic>? ?? const <dynamic>[];
+    final out = <String>[];
+    for (final m in items) {
+      if (m is! Map<String, dynamic>) continue;
+      final n = (m['Name'] as String? ?? '').trim();
+      if (n.isNotEmpty && !out.contains(n)) out.add(n);
+    }
+    return out;
   }
 
   /// 单条详情（详情页「刷新」用）

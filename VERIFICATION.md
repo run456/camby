@@ -2379,3 +2379,43 @@ String? get _offlineHint => (_films == null && _localFilms.isNotEmpty)
 - A2「女演员」按头像近似、系列列表依赖 NFO 回填等既有边界沿用。
 
 验证（v2.0.62）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **452 全过**（原 436 + 新增 16 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.62-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='262' versionName='2.0.62'`。
+
+---
+
+## §88 发布 v2.0.63（系列改读服务端「所属合集」/ BoxSet）
+
+### 用户反馈与根因翻案
+
+用户贴出 Emby 网页端影片详情截图，指出「所属合集」区块里已有合集「罵倒女医のダメ男をわか…」，并问「这个系列应该读取的是合集字段，所以我们之前是取错字段了？」。
+
+结论：**前两版的数据源选错了**。`SeriesName` 是剧集字段，电影恒为空；「系列」对应的是 Emby 的 **BoxSet（合集）对象**，它是独立的 library item，不是 Movie 上的属性。网页端「所属合集」用的查询是：
+
+```
+GET /Users/{UserId}/Items?IncludeItemTypes=BoxSet&Recursive=true&ListItemIds={ItemId}&Fields=Name
+```
+
+`ListItemIds` 是 Emby 网页客户端 / Bulky 插件实际使用、但公开文档未列的参数；列出全部合集用 `IncludeItemTypes=BoxSet`，取成员可用 `ParentId`。
+
+v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` tag, other than preserve it so that Kodi can read it」只描述**原生 NFO 导入器**：它不把 `<set>` 存进 Movie 字段，但用户的库显然已通过刮削器 / 插件把它建成了真正的合集对象。既然网页端能显示，服务端 API 就一定可读 —— 客户端去直读 `.nfo` 属于绕远路。真机诊断里「所有候选均为 Emby 代理 + `TimeoutException`、没有任何直链候选」正是因为服务器只有本地路径 `/media/…`、且 Emby 没有读取 sidecar 的代理端点：这条链路从一开始就走不通，与刷新无关。
+
+### 实现
+
+- `EmbyServer` 新增 `BoxSetInfo` DTO 与三个方法：`allBoxSets()`、`boxSetMemberIds()`、`boxSetNamesForItem()`。全部复用既有 `_getJson` 的鉴权 / 超时 / 瞬断重试。
+- 新增 `lib/metadata/boxset_series.dart`：`BoxSetSeriesSync.run()` 列出合集 → 并发 6 拉成员 → `mergeMappings()` 反建 `itemId → 合集名` → `replaceSeriesNames()` 一次写回；对仍未命中的影片用 `ListItemIds` 逐条反查（单轮 400 部上限，可重复点击续跑）。`mergeMappings` 抽成纯函数供单测。
+- 详情页 `_loadNfoSeries()` 改为**先反查服务端合集**，命中即回填并 return；NFO 直读退到其后。`_seriesSource` 记录来源，点「系列：无」弹出「系列来源诊断」，首行直接写明服务端合集查询结果。
+- 系列总览「补全系列」→「**同步合集**」，结果面板改为合集数 / 待补 / 成功写入 / 未关联合集 / 是否启用反查兜底 + 说明；空态文案同步。
+- `NfoSeriesBackfill` 不再被任何页面引用（文件与测试保留，作为离线兜底实现），`nfo_reader.dart` 仍供详情页使用。
+
+### 设计取舍
+
+- **没有删除 NFO 链路**：服务端确实没有合集数据的库，详情页仍能走原来的直读兜底。但全库主动扫描不再走 NFO，避免上千部影片逐个撞超时。
+- **双路径而非单一 `ListItemIds`**：该参数未进公开文档，不能假定所有 Emby 版本都支持；`ParentId` 映射是主路径，逐条反查是兜底，两者都不通时结果面板给明确结论而不是静默失败。
+- 一部影片同属多个合集时，系列名只有一个槽位，按 `SortName` 顺序取第一个；详情页诊断里会列出全部合集名。
+- 不改 `MediaItem.seriesName` 语义，系列总览 / 系列胶囊 / 媒体库「系列」筛选全部沿用既有链路，零回归。
+- 上一轮被中断的 `v2.0.63` 半成品（`MediaItem.filePathAlt` 双路径、NFO 直链映射模板）已整体回滚：新方案完全不需要影片文件路径，保留只会增加死代码。
+
+### 文件清单与测试
+
+新增 `test/boxset_series_test.dart` 9 条：三个 API 端点的源码守卫（含 `ListItemIds` / `ParentId`）、`mergeMappings` 的先到优先与空值过滤、详情页「合集反查必须排在 NFO 之前」、系列页不再引用 `NfoSeriesBackfill`、同步服务不触碰 `loadNfoSeries`、`BoxSetSyncResult` 默认值。更新 `test/nfo_series_backfill_test.dart` 的按钮守卫为「同步合集」/ `BoxSetSeriesSync.run(`，并把该文件注释里「只能直读 .nfo」的旧结论改正。
+
+验证（v2.0.63）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **461 全过**（原 452 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.63-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='263' versionName='2.0.63'`。
