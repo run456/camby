@@ -49,21 +49,21 @@ class AppNav {
   /// 待更新红点配色（设计稿默认关，本版未接更新源，只保留色值）。
   static const badgeColor = Color(0xFFFF5A5F);
 
-  /// 轨道：50dp 全圆角雾面分段条。
-  /// 50 = 1px 描边 + 3dp 内距 + 42dp 单项 + 3dp 内距 + 1px 描边。
-  static const double barHeight = 50;
+  /// 轨道：56dp 全圆角雾面分段条（v2.0.69 由 50 上调，真机反馈偏小）。
+  /// 56 = 1px 描边 + 3dp 内距 + 48dp 单项 + 3dp 内距 + 1px 描边。
+  static const double barHeight = 56;
   static const double barRadius = 999;
 
-  /// 单项：未选中 44×42 纯线性图标，选中 96×42 药丸（图标 + 文字）。
-  static const double itemHeight = 42;
+  /// 单项：未选中 48×48 纯线性图标，选中 112×48 药丸（图标 + 文字）。
+  static const double itemHeight = 48;
   static const double itemRadius = 999;
-  static const double idleWidth = 44;
-  static const double selectedWidth = 96;
+  static const double idleWidth = 48;
+  static const double selectedWidth = 112;
 
-  /// 手机 / 平板统一 280dp 居中悬浮。
-  /// 280 − 1px×2 描边 − 3dp×2 内距 = 272 = 96 + 4×44，定宽 Row 零余量，
+  /// 手机 / 平板统一 312dp 居中悬浮（v2.0.69 由 280 上调，视觉比例更稳）。
+  /// 312 − 1px×2 描边 − 3dp×2 内距 = 304 = 112 + 4×48，定宽 Row 零余量，
   /// 沿用 v2.0.67 修 `RenderFlex overflowed by 2.0 pixels` 的经验。
-  static const double tabletBarWidth = 280;
+  static const double tabletBarWidth = 312;
   static const double barInset = 3;
 
   /// 切换动效：胶囊宽度与文字展开共用一条曲线，避免两段动画错拍。

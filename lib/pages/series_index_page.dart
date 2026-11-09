@@ -317,57 +317,77 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
     final notes = r.notes;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF171C29),
-        title: const Text('同步服务端合集',
-            style: TextStyle(fontSize: 15, color: Colors.white)),
-        content: SingleChildScrollView(
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        child: Glass(
+          blur: 30,
+          radius: 22,
+          tint: 0.14,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final l in lines)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(l,
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.white, height: 1.5)),
-                ),
-              if (notes.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                const Text('说明',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary)),
-                const SizedBox(height: 5),
-                for (final n in notes)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Text('· $n',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white60,
-                            height: 1.4)),
+              const Text('同步服务端合集',
+                  style: TextStyle(fontSize: 15, color: Colors.white)),
+              const SizedBox(height: 10),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final l in lines)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(l,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.white, height: 1.5)),
+                        ),
+                      if (notes.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        const Text('说明',
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary)),
+                        const SizedBox(height: 5),
+                        for (final n in notes)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Text('· $n',
+                                style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.white60,
+                                    height: 1.4)),
+                          ),
+                      ],
+                      const SizedBox(height: 12),
+                      const Text(
+                        '「系列」现在取自服务端的「所属合集」（BoxSet），与 Emby 网页端'
+                        '影片详情页的「所属合集」一致。只有服务端没有合集数据时，'
+                        '详情页才会退回直读 NFO。',
+                        style: TextStyle(
+                            fontSize: 10.5, color: Colors.white54, height: 1.5),
+                      ),
+                    ],
                   ),
-              ],
+                ),
+              ),
               const SizedBox(height: 12),
-              const Text(
-                '「系列」现在取自服务端的「所属合集」（BoxSet），与 Emby 网页端'
-                '影片详情页的「所属合集」一致。只有服务端没有合集数据时，'
-                '详情页才会退回直读 NFO。',
-                style: TextStyle(
-                    fontSize: 10.5, color: Colors.white54, height: 1.5),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('知道了'),
+                ),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了'),
-          ),
-        ],
       ),
     );
   }
@@ -508,22 +528,40 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   Future<void> _showSourceInfo() async {
     await showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF171C29),
-        title: const Text('系列从哪里来',
-            style: TextStyle(fontSize: 15, color: Colors.white)),
-        content: const Text(
-          '「系列」读取的是服务端的「所属合集」（BoxSet），与 Emby 网页端影片详情页的「所属合集」一致。\n\n'
-          '如果服务端还没有合集，可在网页端新建合集并把影片加进去，再回到这里点「同步合集」。'
-          '只有服务端完全没有合集数据时，详情页才会退回直读 NFO 兜底。',
-          style: TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.6),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了'),
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        child: Glass(
+          blur: 30,
+          radius: 22,
+          tint: 0.14,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('系列从哪里来',
+                  style: TextStyle(fontSize: 15, color: Colors.white)),
+              const SizedBox(height: 10),
+              const Text(
+                '「系列」读取的是服务端的「所属合集」（BoxSet），与 Emby 网页端影片详情页的「所属合集」一致。\n\n'
+                '如果服务端还没有合集，可在网页端新建合集并把影片加进去，再回到这里点「同步合集」。'
+                '只有服务端完全没有合集数据时，详情页才会退回直读 NFO 兜底。',
+                style: TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.6),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('知道了'),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

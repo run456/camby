@@ -56,7 +56,8 @@ Future<String?> promptFolderName(
                 child: Center(
                   child: TextField(
                     controller: ctrl,
-                    autofocus: true,
+                    // v2.0.69：禁止自动聚焦。弹窗出现时不弹键盘，
+                    // 用户点这个输入框才唤起输入法。
                     textInputAction: TextInputAction.done,
                     style: const TextStyle(fontSize: 14),
                     cursorColor: AppColors.primary,
@@ -318,20 +319,19 @@ class _FolderSheetState extends State<_FolderSheet> {
                 if (folders.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    // v2.0.64：空态直接把光标送到下方输入框，少一次「找入口」。
+                    // v2.0.69：空态只做提示，不再自动把光标送进输入框
+                    // （自动聚焦会在页面返回时把键盘又顶起来）。
                     child: EmptyHint(
-                      message: '还没有自定义收藏夹，先在下面建一个吧',
-                      actionLabel: '新建收藏夹',
+                      message: '还没有自定义收藏夹，点下方输入框即可新建',
+                      actionLabel: '在下方输入名称',
                       onAction: () {
-                        if (_fav) {
-                          _focus.requestFocus();
-                        } else {
-                          showToast(
-                            context,
-                            '先收藏当前影片，再新建收藏夹',
-                            icon: Icons.info_outline_rounded,
-                          );
-                        }
+                        showToast(
+                          context,
+                          _fav
+                              ? '点下方输入框输入名称，回车创建'
+                              : '先收藏当前影片，再新建收藏夹',
+                          icon: Icons.info_outline_rounded,
+                        );
                       },
                     ),
                   )

@@ -248,7 +248,7 @@ void main() {
 
       final pub = File('pubspec.yaml').readAsStringSync();
       expect(pub.contains('gbk_codec: ^0.4.0'), isTrue);
-      expect(pub.contains('version: 2.0.68+268'), isTrue);
+      expect(pub.contains('version: 2.0.69+269'), isTrue);
 
       final license = File('licenses/LICENSE-UPSTREAM.txt');
       expect(license.existsSync(), isTrue,

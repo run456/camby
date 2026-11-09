@@ -278,4 +278,75 @@ void main() {
           isTrue);
     });
   });
+
+  group('v2.0.69 版本名推断分辨率', () {
+    // 复现真机 bug：服务端不回版本源的 Width/Height（某些 Emby 兼容实现只给
+    // 文件名），旧逻辑 height 恒为 0，详情页与播放页把 4K 源误显示成主版本 1080p。
+    test('MediaSource 缺宽高但名称含 4K → 推断 2160', () {
+      final v = MediaExtraPart.fromJson({
+        'Id': 'src-4k',
+        'Name': '4K Remux',
+        'Path': '/media/movie-uhd.mkv',
+        'Container': 'mkv',
+        'MediaStreams': [
+          {'Type': 'Video', 'Codec': 'hevc'}, // 故意不给 Width / Height
+        ],
+      })!;
+      expect(v.height, 2160, reason: '名称里的 4K 必须被采信');
+      expect(v.resolutionLabel, '4K');
+      expect(v.videoLabel, '4K HEVC');
+    });
+
+    test('名称认不出时退回文件路径里的 2160p 标记', () {
+      final v = MediaExtraPart.fromJson({
+        'Id': 'src-4k',
+        'Name': '终极收藏版',
+        'Path': '/media/Movie.2160p.WEB-DL.x265.mkv',
+        'MediaStreams': [
+          {'Type': 'Video', 'Codec': 'hevc'},
+        ],
+      })!;
+      expect(v.height, 2160);
+      expect(v.resolutionLabel, '4K');
+    });
+
+    test('名字与路径都认不出分辨率 → 不误判，height 保持 0', () {
+      final v = MediaExtraPart.fromJson({
+        'Id': 'src-x',
+        'Name': '正片',
+        'Path': '/media/Movie.mkv',
+        'MediaStreams': [
+          {'Type': 'Video', 'Codec': 'hevc'},
+        ],
+      })!;
+      expect(v.height, 0);
+      expect(v.resolutionLabel, isEmpty);
+    });
+
+    test('推断出的 4K 规格联动到播放页（顶栏不再写 1080p）', () {
+      const base = MediaItem(
+        id: 'm',
+        name: '影片',
+        type: MediaType.movie,
+        overview: '',
+        colors: [],
+        videoHeight: 1080,
+        videoCodec: 'H264',
+        audioCodec: 'AAC',
+        audioChannels: 6,
+        container: 'MKV',
+      );
+      final inferred4k = MediaExtraPart.fromJson({
+        'Id': 'src-4k',
+        'Name': '4K',
+        'Path': '/media/movie-2160p.mkv',
+        'MediaStreams': [
+          {'Type': 'Video', 'Codec': 'hevc'},
+        ],
+      })!;
+      final out = base.withMediaSource(inferred4k);
+      expect(out.videoHeight, 2160, reason: '播放页顶栏必须显示 4K');
+      expect(out.resolutionKnown, isTrue);
+    });
+  });
 }

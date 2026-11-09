@@ -1,7 +1,7 @@
 // v2.0.68 低干扰导航 + 媒体库 4 类 + 空心图标回归
 //
 // 用户确认：保留 260ms 切换动画；底栏改用媒体库分段同款白雾面；
-// 手机 / 平板统一 280dp 居中；收藏并入媒体库成为第 4 类；原收藏一级 Tab
+// 手机 / 平板统一 312dp 居中；收藏并入媒体库成为第 4 类；原收藏一级 Tab
 // 换成搜索页；双击唤起搜索取消；一级 Tab 图标全部换成空心线性款。
 import 'dart:io';
 
@@ -45,13 +45,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('源码守卫', () {
-    test('外壳无左侧 Rail，手机 / 平板共用同一条 280dp 悬浮导航', () {
+    test('外壳无左侧 Rail，手机 / 平板共用同一条 312dp 悬浮导航', () {
       final main = _src('lib/main.dart');
       expect(main.contains('_buildRail('), isFalse);
       expect(main.contains('class _RailButton'), isFalse);
       expect(main.contains('context.useRail'), isFalse);
       expect(main.contains('context.isTablet'), isFalse,
-          reason: 'v2.0.68 两端统一 280dp，外壳不再按平板分支给宽度');
+          reason: 'v2.0.68 两端统一 312dp，外壳不再按平板分支给宽度');
       expect(main.contains('AppNav.tabletBarWidth'), isTrue,
           reason: '限宽居中，且手机 / 平板共用');
       expect(main.contains('left: 0,'), isTrue);
@@ -69,8 +69,8 @@ void main() {
       // index 2 = 搜索，收藏页不再挂在一级 pages 里。
       expect(main.contains('SearchPage('), isTrue);
       expect(main.contains('FavoritesPage('), isFalse);
-      expect(main.contains('active: _tab == 2'), isTrue,
-          reason: '搜索 Tab 只在首次进入时自动聚焦');
+      expect(main.contains('active: _tab == 2'), isFalse,
+          reason: 'v2.0.69 搜索页不再接收外壳可见性，也不自动聚焦');
     });
 
     test('整条导航只挂 1 个模糊层，胶囊内不再嵌滤镜', () {
@@ -138,10 +138,10 @@ void main() {
         'class AppNav',
         'capsuleGradient',
         'tabletBarWidth',
-        'idleWidth = 44',
-        'selectedWidth = 96',
-        'itemHeight = 42',
-        'barHeight = 50',
+        'idleWidth = 48',
+        'selectedWidth = 112',
+        'itemHeight = 48',
+        'barHeight = 56',
       ]) {
         expect(theme.contains(k), isTrue, reason: '缺少 $k');
       }
@@ -205,13 +205,13 @@ void main() {
     });
 
     test('尺寸 / 动效 token 达标（低干扰雾面值）', () {
-      expect(AppNav.itemHeight, 42);
-      expect(AppNav.idleWidth, 44);
-      expect(AppNav.selectedWidth, 96);
-      expect(AppNav.tabletBarWidth, 280);
-      expect(AppNav.barHeight, 50);
+      expect(AppNav.itemHeight, 48);
+      expect(AppNav.idleWidth, 48);
+      expect(AppNav.selectedWidth, 112);
+      expect(AppNav.tabletBarWidth, 312);
+      expect(AppNav.barHeight, 56);
       expect(AppNav.barInset, 3);
-      // 280 − 2 描边 − 6 内距 = 272 = 96 + 4×44，定宽 Row 零余量。
+      // 312 − 2 描边 − 6 内距 = 304 = 112 + 4×48，定宽 Row 零余量。
       expect(
         AppNav.tabletBarWidth - 2 - 2 * AppNav.barInset,
         AppNav.selectedWidth + 4 * AppNav.idleWidth,

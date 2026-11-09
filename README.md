@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.68 (268)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.69 (269)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,19 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.69 (269) 真机回归修复：键盘 / 导航条 / 弹窗玻璃 / 4K 版本联动
+
+四处真机反馈逐条修复：
+
+- **禁止页面自动弹键盘**：移除 `SearchPage` 的首次自动聚焦与 `folder_sheet` 的 `autofocus`，外壳 `Scaffold` 包一层 `GestureDetector`（`deferToChild`，点输入框本身不会误触 `unfocus`）在点空白 / 卡片 / 按钮时收起键盘；新增 `_FocusResetObserver`，任何路由出栈（详情页 pop 回首页等）一律清掉主焦点。结果：**只有主动点输入框才弹键盘，返回 / 切 Tab 不再凭空弹**。
+- **底部导航条放大**：尺寸由 280×50 调到 **312×56**（选中 112 / 未选 48、图标 22 / 文字 13），保持白雾面低干扰与 260ms 切换动画不变；零余量公式同步 `312 − 2 描边 − 6 内距 = 304 = 112 + 4×48`。`blur` 模糊 20、`BackdropFilter` 仍只整条 bar 一个。
+- **统一弹窗玻璃质感**：5 个纯色 `AlertDialog`（设置删除确认、`series_index` ×2、详情「系列来源诊断 / 预告片诊断」）+ 2 个纯色底部弹层（详情字幕选择 / 版本选择）全部改用 `Glass` / `GlassPanelRoute` 液态玻璃，与播放页面板一致；近全屏抽屉（`_ServerSheet` / 媒体筛选）沿用渐变（加玻璃模糊既浪费又看不出效果）。
+- **4K 版本信息联动**：根因是 `MediaExtraPart.fromJson` 只从源/流读 `Width/Height`，**没像主条目那样从文件名兜底推断**——服务端不回版本源宽高时 height 恒 0，详情页与播放页全退回主版本 1080p。新增共享 `heightFromName()`（从 `emby_client._heightFromName` 抽出），版本解析在 height 为 0 时从名称/路径（`2160p`/`4K`/`UHD`）推断；`withMediaSource` 把推断出的规格带到播放页，选中 4K 不再显示 1080p。
+
+回归：`nav_redesign_test.dart` / `global_search_test.dart` 同步尺寸与「无自动聚焦」断言；`media_version_test.dart` 新增「版本名推断分辨率 + 联动播放页」用例；`phone_regression_test.dart` 导航宽度断言 280 → 312。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 全过（v2.0.68 为 505，净增若干条）；`perf_audit.py` 0 命中（弹窗只引用 `Glass` 本体，模糊层在已豁免的 `theme.dart`）；`verify_release.sh --build` 出包 `releases/camby-2.0.69-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='269' versionName='2.0.69'`。
 
 ### v2.0.68 (268) 低干扰导航 + 媒体库 4 类 + 搜索页升为一级 Tab
 

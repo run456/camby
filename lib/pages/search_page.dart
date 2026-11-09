@@ -24,15 +24,15 @@ class SearchPage extends StatefulWidget {
     super.key,
     required this.state,
     required this.onOpenDetail,
-    this.active = true,
   });
 
   final AppState state;
   final OpenDetail onOpenDetail;
 
-  /// v2.0.68：搜索升为一级 Tab 后由外壳传入「当前是否可见」。
-  /// 只有首次进入该 Tab 才自动聚焦，切走再切回不重复弹键盘。
-  final bool active;
+  // v2.0.69：不再接收外壳的「是否可见」，也不做首次自动聚焦。
+  // 自动聚焦会让焦点一直挂在输入框上，详情页返回 / Tab 切换时系统把焦点
+  // 还给 TextField，就会在没有输入需求的地方凭空弹出键盘。现在只有用户
+  // 主动点搜索框才会获得焦点，[FocusNode] 仅用于提交后主动收起键盘。
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -67,31 +67,6 @@ class _SearchPageState extends State<SearchPage> {
       _results = const [];
       _actors = const [];
     });
-  }
-
-  /// 只在首次进入搜索 Tab 时自动聚焦一次（v2.0.68）。
-  /// 页面由 Offstage + TickerMode 保活，State 不会重建，切回来时
-  /// `_q` / `_mode` / 结果与滚动位置都还在，也不该再把键盘顶起来。
-  bool _focusedOnce = false;
-
-  void _maybeFocus() {
-    if (_focusedOnce || !widget.active || !mounted) return;
-    _focusedOnce = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.active) _focus.requestFocus();
-    });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _maybeFocus();
-  }
-
-  @override
-  void didUpdateWidget(SearchPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _maybeFocus();
   }
 
   @override
@@ -418,7 +393,7 @@ class _SearchPageState extends State<SearchPage> {
   Widget _body() {
     if (_q.isEmpty) {
       return ListView(
-        // v2.0.68：底部给 280dp 悬浮导航留避让（50dp 条高 + 14dp 离底 + 余量）。
+        // v2.0.69：底部给 312dp 悬浮导航留避让（56dp 条高 + 20dp 离底 + 余量）。
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
         children: [
           if (_hotTags.isNotEmpty) ...[

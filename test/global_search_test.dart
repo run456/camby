@@ -84,25 +84,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('搜索页已是一级 Tab，且只在首次进入时自动聚焦', () {
+  test('搜索页已是一级 Tab，且不自动聚焦键盘', () {
     final main = File('lib/main.dart').readAsStringSync();
     final search = File('lib/pages/search_page.dart').readAsStringSync();
 
     expect(main.contains('SearchPage('), isTrue);
-    expect(main.contains('active: _tab == 2'), isTrue);
     expect(main.contains('FavoritesPage('), isFalse);
     expect(main.contains('_searchRoute('), isFalse);
 
-    expect(search.contains('final bool active;'), isTrue);
-    expect(search.contains('_focusedOnce'), isTrue);
-    expect(search.contains('didUpdateWidget(SearchPage oldWidget)'), isTrue);
-    expect(search.contains("_focus.requestFocus()"), isTrue);
-    // 旧的 initState 无条件聚焦必须移除，否则冷启动就弹键盘。
+    // v2.0.69：不再接收外壳可见性、不再做首次自动聚焦。
+    // 只有用户主动点搜索框才弹键盘，返回首页 / 切 Tab 不会凭空弹键盘。
+    expect(search.contains('final bool active;'), isFalse);
+    expect(search.contains('_focusedOnce'), isFalse);
+    expect(search.contains('didUpdateWidget(SearchPage oldWidget)'), isFalse);
+    expect(search.contains('active: _tab == 2'), isFalse);
+    // 旧的 initState / didChangeDependencies 无条件聚焦必须移除。
+    expect(search.contains('_focus.requestFocus()'), isFalse);
     expect(search.contains('super.initState();\n    _focus.requestFocus();'),
         isFalse);
     // 「取消 / pop」是路由页语义，作为 Tab 后必须移除。
     expect(search.contains("Navigator.of(context).pop()"), isFalse);
-    // 底部给 280dp 悬浮导航留避让。
+    // 底部给 312dp 悬浮导航留避让。
     expect(search.contains('EdgeInsets.fromLTRB(16, 4, 16, 88)'), isTrue);
   });
 }

@@ -208,23 +208,12 @@ class EmbyServer {
   /// 落到兜底值 1080，媒体库筛选「4K」就永远筛不到这些片。这里在读媒体流信息
   /// 之前先兜一遍文件名：只要名字里带 `Movie.2160p.WEB-DL` 这类标记就采信。
   /// 返回 null 表示名字里没有可靠标记，仍走 MediaStreams / 默认值。
-  static int? _heightFromName(String name) {
-    final s = name.toLowerCase();
-    final m = RegExp(r'(?<![0-9])(2160|1440|1080|720|576|480|360)p(?![0-9a-z])')
-        .firstMatch(s);
-    if (m != null) return int.parse(m.group(1)!);
-    // 4K / 8K 写法
-    if (RegExp(r'(?<![0-9a-z])8k(?![0-9a-z])').hasMatch(s)) return 4320;
-    if (RegExp(r'(?<![0-9a-z])4k(?![0-9a-z])').hasMatch(s)) return 2160;
-    if (RegExp(r'(?<![0-9a-z])(uhd|uhdrip)(?![0-9a-z])').hasMatch(s))
-      return 2160;
-    if (RegExp(r'(?<![0-9a-z])hdrip(?![0-9a-z])').hasMatch(s)) return 720;
-    return null;
-  }
+  /// v2.0.69：实现抽到 [heightFromName]（models.dart）共享，避免与主条目解析漂移。
+  static int? _heightFromName(String name) => heightFromName(name);
 
-  /// 测试入口：文件名 → 分辨率兜底推断（实现见 [_heightFromName]）
+  /// 测试入口：文件名 → 分辨率兜底推断（实现见 [heightFromName]）
   @visibleForTesting
-  static int? heightFromNameForTest(String name) => _heightFromName(name);
+  static int? heightFromNameForTest(String name) => heightFromName(name);
 
   /// 写回播放进度（1.7.38 新增，1.7.65 强化）
   ///

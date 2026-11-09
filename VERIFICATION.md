@@ -2651,3 +2651,18 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 **真机重点验收**：底栏明显变窄变矮、居中悬浮，选中项是低调白雾面药丸而非青蓝发光胶囊；5 个图标全是空心线性款，切换时胶囊仍平滑展开、文字渐显且无黄色溢出条；媒体库顶部 4 类分段可切到「收藏」，收藏页里仍有影片收藏 / 演员收藏两档与海报堆叠墙；点第 3 个 Tab 直接进搜索页，双击任何 Tab 不再弹搜索，切走再切回搜索页保留上次输入且不自动弹键盘；「我的」页右上角不再有搜索按钮；所有圆形玻璃按钮外观与 v2.0.67 完全一致。
 
 验证（v2.0.68）：`flutter analyze` 0 error / 0 warning（419 项 info 全为既有 `withOpacity` 弃用，v2.0.67 为 425）；`flutter test` **505 全过**；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.68-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='268' versionName='2.0.68'`。
+
+## §94 发布 v2.0.69（键盘 / 导航条 / 弹窗玻璃 / 4K 版本联动）
+
+四处真机回归：
+
+1. **禁止页面自动弹键盘**：删 `SearchPage` 首次自动聚焦与 `folder_sheet` `autofocus`；外壳 `Scaffold` 包 `GestureDetector`（`HitTestBehavior.deferToChild`，点输入框本身不会误触 `unfocus`）在点空白/卡片/按钮时收起键盘；新增 `_FocusResetObserver` 在任意路由出栈清主焦点（修「详情页 pop 回首页却弹键盘」）。保留「用户主动点输入框才弹键盘」。
+2. **底部导航条放大**：尺寸 280×50 → **312×56**，选中 112 / 未选 48、图标 22 / 文字 13；保持白雾面低干扰、`barHeight 50→56` 模糊 20、整条 bar 仍只有 1 个 `BackdropFilter` 与 260ms 动画；零余量公式 `312 − 2 − 6 = 304 = 112 + 4×48`。
+3. **统一弹窗玻璃**：5 个纯色 `AlertDialog`（`settings` 删除确认、`detail` 系列来源诊断 / 预告片诊断、`series_index` ×2）+ 2 个纯色底部弹层（`detail` 字幕选择 / 版本选择）改用 `Glass` / `GlassPanelRoute` 液态玻璃；`_ServerSheet` / 媒体筛选近全屏抽屉沿用渐变（加模糊既浪费又看不出效果）。
+4. **4K 版本信息联动**：根因 `MediaExtraPart.fromJson` 只读源/流 `Width/Height`，未像主条目那样从文件名兜底推断——服务端不回版本源宽高时 height 恒 0，详情页与播放页全退回主版本 1080p。抽出共享 `heightFromName()`（原 `emby_client._heightFromName`），版本解析在 height 为 0 时从名称/路径（`2160p`/`4K`/`UHD`）推断；`withMediaSource` 把推断规格带到播放页。
+
+修改：`lib/main.dart`、`lib/theme.dart`、`lib/models.dart`、`lib/emby_client.dart`、`lib/pages/detail_page.dart`、`lib/pages/series_index_page.dart`、`lib/pages/settings_page.dart`、`lib/widgets/folder_sheet.dart`、`test/nav_redesign_test.dart`、`test/global_search_test.dart`、`test/phone_regression_test.dart`、`test/media_version_test.dart`、`pubspec.yaml`、`README.md`、`VERIFICATION.md`。`lib/layout.dart`、播放链路与圆形玻璃按钮零改动。
+
+**真机重点验收**：所有页面都不会自动弹键盘，只有点搜索框等输入框才弹；底部导航条明显更大更稳，选中项仍是低调白雾面药丸；设置删除确认、详情诊断弹窗、系列说明、字幕/版本选择弹层都带玻璃磨砂质感；选 4K 版本后详情页与播放页顶栏正确显示 4K（不再误显 1080p）。
+
+验证（v2.0.69）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.69-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='269' versionName='2.0.69'`。

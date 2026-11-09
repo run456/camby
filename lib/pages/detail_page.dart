@@ -342,23 +342,45 @@ class _DetailPageState extends State<DetailPage> {
         '若合集为空，可到「媒体库 → 系列 → 同步合集」全量同步。';
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF171C29),
-        title: const Text('系列来源诊断',
-            style: TextStyle(fontSize: 15, color: Colors.white)),
-        content: SingleChildScrollView(
-          child: Text(
-            body,
-            style: const TextStyle(
-                fontSize: 11, color: Colors.white70, height: 1.55),
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        child: Glass(
+          blur: 30,
+          radius: 22,
+          tint: 0.14,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '系列来源诊断',
+                style: TextStyle(fontSize: 15, color: Colors.white),
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(
+                    body,
+                    style: const TextStyle(
+                        fontSize: 11, color: Colors.white70, height: 1.55),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('知道了'),
+                ),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('知道了'),
-          ),
-        ],
       ),
     );
   }
@@ -540,11 +562,11 @@ class _DetailPageState extends State<DetailPage> {
     final result = await showModalBottomSheet<Object>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xF21A2233),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
+      builder: (ctx) => Glass(
+        radius: 24,
+        blur: 24,
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        padding: EdgeInsets.zero,
         child: SafeArea(
           top: false,
           child: Column(
@@ -998,59 +1020,84 @@ class _DetailPageState extends State<DetailPage> {
     final fullText = '影片 ID: ${_item.id}\n\n${log.join('\n\n')}';
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xF21A2233),
-        title: const Text('预告片 / 额外部分诊断', style: TextStyle(fontSize: 16)),
-        content: SingleChildScrollView(
-          child: SelectableText(
-            fullText,
-            style: const TextStyle(fontSize: 11, height: 1.5),
+      barrierColor: Colors.black.withOpacity(0.55),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
+        child: Glass(
+          blur: 30,
+          radius: 22,
+          tint: 0.14,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '预告片 / 额外部分诊断',
+                style: TextStyle(fontSize: 16, color: Colors.white),
+              ),
+              const SizedBox(height: 10),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    fullText,
+                    style: const TextStyle(fontSize: 11, height: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    // 截图常有滚动截断 / 看不清，直接复制纯文本一次性拿全
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: fullText));
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                      _toast('诊断结果已复制，可直接粘贴反馈');
+                    },
+                    child: const Text('复制'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      Navigator.of(ctx).pop();
+                      final list = await server.trailers(
+                        _item.id,
+                        includeLocalChildren: !_item.isSeries,
+                      );
+                      final extras = _item.isSeries
+                          ? <MediaItem>[]
+                          : await server.extraParts(_item.id);
+                      final parts = _item.isSeries
+                          ? const <MediaExtraPart>[]
+                          : await server.mediaSources(_item.id);
+                      if (mounted) {
+                        setState(() {
+                          _trailers = list;
+                          _extras = extras;
+                          if (parts.isNotEmpty) {
+                            _item = _item.copyWith(extraParts: parts);
+                          }
+                        });
+                        _toast(
+                          '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个'
+                          ' · 分段 ${parts.length} 个',
+                        );
+                      }
+                    },
+                    child: const Text('重新加载'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('关闭'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            // 截图常有滚动截断 / 看不清，直接复制纯文本一次性拿全
-            onPressed: () async {
-              await Clipboard.setData(ClipboardData(text: fullText));
-              if (ctx.mounted) Navigator.of(ctx).pop();
-              _toast('诊断结果已复制，可直接粘贴反馈');
-            },
-            child: const Text('复制'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              final list = await server.trailers(
-                _item.id,
-                includeLocalChildren: !_item.isSeries,
-              );
-              final extras = _item.isSeries
-                  ? <MediaItem>[]
-                  : await server.extraParts(_item.id);
-              final parts = _item.isSeries
-                  ? const <MediaExtraPart>[]
-                  : await server.mediaSources(_item.id);
-              if (mounted) {
-                setState(() {
-                  _trailers = list;
-                  _extras = extras;
-                  if (parts.isNotEmpty) {
-                    _item = _item.copyWith(extraParts: parts);
-                  }
-                });
-                _toast(
-                  '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个'
-                  ' · 分段 ${parts.length} 个',
-                );
-              }
-            },
-            child: const Text('重新加载'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('关闭'),
-          ),
-        ],
       ),
     );
   }
@@ -2662,11 +2709,11 @@ class _VersionPicker extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xF21A2233),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
+      builder: (ctx) => Glass(
+        radius: 24,
+        blur: 24,
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        padding: EdgeInsets.zero,
         child: SafeArea(
           top: false,
           child: Column(

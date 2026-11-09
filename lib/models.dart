@@ -460,6 +460,28 @@ class SubtitleTrackInfo {
       );
 }
 
+/// 从文件名 / 名称推断分辨率高度（2160 / 1440 / 1080 / 720 / 576 / 480 / 360 / 4320）。
+///
+/// 部分自建库的 MediaStreams / MediaSource 缺宽高（刮削失败、strm、NFO 导入，
+/// 或某些 Emby 兼容实现只回文件名不回尺寸），Height 会落空。只要名字里带
+/// `Movie.2160p.WEB-DL`、`4K`、`UHD` 这类标记就采信，避免版本选择器 / 播放页
+/// 把 4K 源误显示成主版本的 1080p。返回 null 表示名字里没有可靠标记，
+/// 调用方继续走 MediaStreams / 默认值。
+///
+/// v2.0.69：从 [EmbyClient._heightFromName] 抽出在此共享，让 [MediaExtraPart]
+/// 的版本解析与主条目解析共用同一套推断，不再各写一遍。
+int? heightFromName(String name) {
+  final s = name.toLowerCase();
+  final m = RegExp(r'(?<![0-9])(2160|1440|1080|720|576|480|360)p(?![0-9a-z])')
+      .firstMatch(s);
+  if (m != null) return int.parse(m.group(1)!);
+  if (RegExp(r'(?<![0-9a-z])8k(?![0-9a-z])').hasMatch(s)) return 4320;
+  if (RegExp(r'(?<![0-9a-z])4k(?![0-9a-z])').hasMatch(s)) return 2160;
+  if (RegExp(r'(?<![0-9a-z])(uhd|uhdrip)(?![0-9a-z])').hasMatch(s)) return 2160;
+  if (RegExp(r'(?<![0-9a-z])hdrip(?![0-9a-z])').hasMatch(s)) return 720;
+  return null;
+}
+
 /// 「额外部分」：影片同一条目下的其它 MediaSource（Emby 网页版的「额外部分」）。
 ///
 /// 典型场景：`xxx-Cd1.mkv` + `xxx-Cd2.mkv` 被识别成同一影片的两个来源，
@@ -620,10 +642,15 @@ class MediaExtraPart {
     }
     if (name.isEmpty) name = '分段 ${id.isEmpty ? '?' : id}';
 
-    // 分辨率 / 编码：优先取视频流，退化到源级字段。
-    // v2.0.65 顺带把音频声道、默认轨与字幕轨一起读出来，供版本选择器展示。
+    // 分辨率 / 编码：优先取视频流，退化到源级字段，最后从名字兜底（v2.0.69）。
+    // 部分服务端不回版本源的宽高，直接读会是 0，导致版本选择器 / 播放页把 4K
+    // 源误显示成主版本的 1080p。名字里带 `2160p`/`4K`/`UHD` 就采信。
     var width = (j['Width'] as num?)?.toInt() ?? 0;
     var height = (j['Height'] as num?)?.toInt() ?? 0;
+    if (height == 0) {
+      final h = heightFromName(name) ?? heightFromName(path);
+      if (h != null) height = h;
+    }
     var vcodec = ((j['VideoCodec'] as String?) ?? '');
     var acodec = ((j['AudioCodec'] as String?) ?? '');
     var channels = 0;

@@ -71,6 +71,22 @@ void _guard(String name, void Function() body) {
 /// 启动期被跳过的补丁名（诊断用，目前只写日志）
 final List<String> _bootIssues = <String>[];
 
+/// 路由出栈时清掉输入框焦点。
+///
+/// 详情页是半透明路由，pop 回首页 / Tab 时 Flutter 偶尔会把焦点还给上一条
+/// 路由里曾经聚焦的 TextField，于是「返回首页却弹出键盘」。这里统一收口：
+/// 任何一次 pop 都把主焦点收掉，键盘只由用户主动点输入框唤起。
+class _FocusResetObserver extends NavigatorObserver {
+  _FocusResetObserver();
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    });
+  }
+}
+
 class CambyApp extends StatelessWidget {
   const CambyApp({super.key});
 
@@ -80,6 +96,10 @@ class CambyApp extends StatelessWidget {
       title: 'Camby',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
+      // v2.0.69：路由出栈时一律清掉输入框焦点。详情页是半透明路由，
+      // pop 时 Flutter 偶尔会把焦点还给上一条路由里曾经聚焦的 TextField，
+      // 于是「返回首页却弹出键盘」。这里统一收口，键盘只由用户点输入框唤起。
+      navigatorObservers: [_FocusResetObserver()],
       home: const AppShell(),
     );
   }
@@ -334,12 +354,10 @@ class _AppShellState extends State<AppShell>
             state: _state,
             onGoSettings: () => _goTab(4),
           ),
+          // v2.0.69：搜索页不再自动聚焦，切走再切回保留上次查询且键盘不弹。
           SearchPage(
             state: _state,
             onOpenDetail: _openDetail,
-            // 首次进入搜索 Tab 才自动聚焦；切走再切回保留上次查询，
-            // 不会每次都把键盘顶起来。
-            active: _tab == 2,
           ),
           StatsPage(state: _state),
           SettingsPage(
@@ -359,31 +377,40 @@ class _AppShellState extends State<AppShell>
 
         return Scaffold(
           backgroundColor: AppColors.bg,
-          body: Stack(
-            children: [
-              body,
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: MediaQuery.of(context).padding.bottom + 14,
-                child: Center(
-                  child: SizedBox(
-                    width: AppNav.tabletBarWidth,
-                    child: GlassNavBar(
-                      index: _tab,
-                      onChanged: (i) {
-                        setState(() {
-                          _tab = i;
-                          _visited.add(i);
-                        });
-                        _tabAnim.forward(from: 0);
-                        _blur.value = false;
-                      },
+          // v2.0.69：点到非输入区域一律收起键盘。deferToChild 让子 widget
+          // 的点击优先，所以点搜索框本身不会误触发 unfocus；只有点空白、
+          // 卡片、按钮时才会顺手把键盘收掉。
+          body: GestureDetector(
+            behavior: HitTestBehavior.deferToChild,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: Stack(
+              children: [
+                body,
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: MediaQuery.of(context).padding.bottom + 20,
+                  child: Center(
+                    child: SizedBox(
+                      width: AppNav.tabletBarWidth,
+                      child: GlassNavBar(
+                        index: _tab,
+                        onChanged: (i) {
+                          // 切 Tab 不该把上一个页面的键盘带过去。
+                          FocusScope.of(context).unfocus();
+                          setState(() {
+                            _tab = i;
+                            _visited.add(i);
+                          });
+                          _tabAnim.forward(from: 0);
+                          _blur.value = false;
+                        },
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -519,8 +546,8 @@ class GlassNavBarState extends State<GlassNavBar> {
               ),
             ],
           ),
-          // 5 项整体居中：280 − 2 描边 − 6 内距 = 272，正好等于
-          // 96 + 4×44，定宽 Row 不会挤出像素。
+          // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
+          // 112 + 4×48，定宽 Row 不会挤出像素。
           child: Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -567,7 +594,7 @@ class GlassNavBarState extends State<GlassNavBar> {
               children: [
                 Icon(
                   item.$1,
-                  size: 20,
+                  size: 22,
                   color: Colors.white.withValues(alpha: sel ? 0.96 : 0.55),
                 ),
                 // 文字宽度从 0 展开，与胶囊 44 → 96 共用同一条曲线：
@@ -584,7 +611,7 @@ class GlassNavBarState extends State<GlassNavBar> {
                             item.$2,
                             maxLines: 1,
                             style: const TextStyle(
-                              fontSize: 12,
+                              fontSize: 13,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.3,
                               color: Colors.white,
