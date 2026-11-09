@@ -89,6 +89,11 @@ class _DetailPageState extends State<DetailPage> {
   /// `SeriesName`，但刮削器写的 `<series>` / `<set><name>` 是有效系列信息。
   String _nfoSeries = '';
 
+  /// v2.0.62：NFO 读取每一步的诊断。系列显示「无」时点胶囊可查看，
+  /// 把「还是没加载」变成能看到具体失败原因（哪个 URL、什么状态）。
+  List<NfoProbe> _nfoProbes = const <NfoProbe>[];
+  bool _nfoTried = false;
+
   /// 滚动降级：滚动期间关掉实时模糊（换成纯渐变），停下 180ms 后恢复。
   ///
   /// 详情页上下两条渐进模糊带都是 `BackdropFilter`，每帧要把整块滚动内容
@@ -161,15 +166,26 @@ class _DetailPageState extends State<DetailPage> {
 
   /// Emby 对电影不给 SeriesName，尝试从 NFO 兜底读系列名。
   ///
-  /// 列表精简 item 通常不带回 filePath，进入详情页时派生不到 NFO 地址，所以这里在
-  /// filePath 缺失且已连 server 时，先用单条详情补全 item（顺带也可能补全
-  /// seriesName），再按 [buildNfoUrls] 双策略（Emby 代理优先 + 直链兜底）逐个尝试。
+  /// v2.0.62：Emby 官方明确不解析 `<set><name>`（只把它留给 Kodi），所以
+  /// 直读 .nfo 是唯一路径。旧版候选只有「同名 .nfo + Emby 代理 / 直链」，
+  /// 且 `_kItemFields` 没要 Path，路径常常为空 → 永远读不到。这一版：
+  ///  1. 先取全库里已回填的最新 seriesName（全库扫描的结果）避免重复请求；
+  ///  2. filePath 缺失时补全单条详情（现在会带 Path）；
+  ///  3. 用 [buildNfoCandidates] 铺开「同名 / movie.nfo × 直链 / 去签名 / 代理」；
+  ///  4. 记录每一步诊断，供「系列：无」胶囊点击查看。
   /// 全程异步、失败静默、不阻塞首帧。
   Future<void> _loadNfoSeries() async {
+    final state = widget.state;
+    for (final e in state.items) {
+      if (e.id == _item.id && e.seriesName.trim().isNotEmpty) {
+        if (mounted) setState(() => _nfoSeries = e.seriesName.trim());
+        return;
+      }
+    }
     if (_item.seriesName.trim().isNotEmpty) return;
     var path = _item.filePath;
     if (path.trim().isEmpty) {
-      final server = widget.state.server;
+      final server = state.server;
       if (server != null && !_item.id.startsWith('demo-')) {
         final fresh = await server.itemDetail(_item.id);
         if (!mounted) return;
@@ -180,27 +196,61 @@ class _DetailPageState extends State<DetailPage> {
         }
       }
     }
-    final server = widget.state.server;
-    final urls = buildNfoUrls(
+    final server = state.server;
+    final candidates = buildNfoCandidates(
       path,
       embyBase: server?.baseUrl,
       embyToken: server?.token,
       itemId: _item.id,
     );
-    for (final url in urls) {
-      final name = await loadNfoSeries(url);
-      if (name != null && name.trim().isNotEmpty) {
-        if (!mounted) return;
-        final v = name.trim();
-        setState(() => _nfoSeries = v);
-        // v2.0.58：把 NFO 读到的系列名回填到全库列表对应条目。
-        // Emby 对 Movie 不返回 SeriesName，若不回填，点「系列」胶囊打开的
-        // 聚合页会几乎全空；回填后当前影片（以及之后浏览过的同系列影片）
-        // 才能被 series 模式命中，媒体库「系列」筛选也随之逐步累积数据。
-        _backfillSeries(v);
-        return;
-      }
+    if (!mounted) return;
+    _nfoTried = true;
+    if (candidates.isEmpty) {
+      setState(() => _nfoProbes = const <NfoProbe>[]);
+      return;
     }
+    final result = await loadNfoSeriesDetailed(candidates);
+    if (!mounted) return;
+    setState(() => _nfoProbes = result.probes);
+    if (!result.ok) return;
+    final v = result.series!.trim();
+    setState(() => _nfoSeries = v);
+    // v2.0.58 起：把 NFO 读到的系列名回填到全库，否则点「系列」胶囊
+    // 打开的聚合页几乎全空，媒体库「系列」筛选也拿不到数据。
+    _backfillSeries(v);
+  }
+
+  /// 系列显示「无」时，点胶囊把 NFO 读取诊断摊开给用户看（URL 已脱敏）。
+  void _showNfoDiagnosis() {
+    final probes = _nfoProbes;
+    final body = probes.isEmpty
+        ? (_nfoTried
+            ? '未能派生出任何 NFO 地址：这部影片没有可用的 Path / '
+                'MediaSources 路径。\n\n可到「媒体库 → 系列 → 从服务器补全系列」'
+                '查看全库诊断，确认服务端到底能不能访问 .nfo。'
+            : '尚未尝试读取 NFO，可下拉刷新重试。')
+        : probes.map((p) => '· ${p.describe}').join('\n');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF171C29),
+        title: const Text('系列 NFO 读取诊断',
+            style: TextStyle(fontSize: 15, color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Text(
+            body,
+            style: const TextStyle(
+                fontSize: 11, color: Colors.white70, height: 1.55),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 回填系列名到全库条目：仅在目标条目 seriesName 为空时写一次，
@@ -1146,6 +1196,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
         onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
         onOpenSeries: _openSeries,
+        onNoSeriesTap: _showNfoDiagnosis,
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -1252,6 +1303,7 @@ class _DetailPageState extends State<DetailPage> {
         onOpenDirector: (v) => _openCredit(v, TagPageMode.director),
         onOpenStudio: (v) => _openCredit(v, TagPageMode.studio),
         onOpenSeries: _openSeries,
+        onNoSeriesTap: _showNfoDiagnosis,
         seriesNameOverride: _nfoSeries,
       ),
       // 视频（预告片 + 额外部分合并为一行，卡片带来源角标）
@@ -2727,6 +2779,7 @@ class _InfoBlock extends StatelessWidget {
     required this.onOpenDirector,
     required this.onOpenStudio,
     required this.onOpenSeries,
+    this.onNoSeriesTap,
     this.seriesNameOverride = '',
   });
 
@@ -2739,6 +2792,9 @@ class _InfoBlock extends StatelessWidget {
   final void Function(String name) onOpenDirector;
   final void Function(String name) onOpenStudio;
   final void Function(String name) onOpenSeries;
+
+  /// v2.0.62：系列为「无」时点胶囊看 NFO 诊断，不再是一个死占位。
+  final VoidCallback? onNoSeriesTap;
 
   /// NFO 直读兜底拿到的系列名。Emby 对电影的 `SeriesName` 通常为空，
   /// 即使 NFO 里写了 `<series>` / `<set><name>` 也不会带出来。
@@ -2810,7 +2866,7 @@ class _InfoBlock extends StatelessWidget {
                     maxLines: seriesName.isEmpty ? 1 : null,
                     fillWidth: true,
                     onTap: seriesName.isEmpty
-                        ? null
+                        ? onNoSeriesTap
                         : () => onOpenSeries(seriesName),
                     trailing: seriesName.isEmpty
                         ? null

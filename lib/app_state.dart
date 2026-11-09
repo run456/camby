@@ -302,6 +302,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// v2.0.62：全库 NFO 系列回填批量写回。
+  ///
+  /// 逐条 [replaceItem] 会 notify 上千次、把整页重建上千次；这里一次 map
+  /// 一次通知。只填 seriesName 为空的条目，绝不覆盖服务端已有值。
+  void replaceSeriesNames(Map<String, String> updates) {
+    if (updates.isEmpty) return;
+    var hit = false;
+    _items = _items.map((e) {
+      final v = updates[e.id];
+      if (v == null || v.trim().isEmpty || e.seriesName.trim().isNotEmpty) {
+        return e;
+      }
+      hit = true;
+      return e.copyWith(seriesName: v.trim());
+    }).toList();
+    if (!hit) return;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
   /// 播放中 / 退出时把进度写回本地列表。
   ///
   /// 只改内存 + 重建派生缓存，不发请求：服务端的 `PlaybackPositionTicks`

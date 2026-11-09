@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../app_state.dart';
 import '../layout.dart';
+import '../metadata/nfo_series_backfill.dart';
 import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
+import '../widgets/glass_toast.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/library_index_segment.dart';
 import '../widgets/liquid_press.dart';
@@ -17,8 +19,10 @@ import 'tag_page.dart';
 /// `seriesName`。点击某一行打开 [TagPage] 的 series 模式，用「系列名 / 标签 /
 /// 类型 / 标题」去空白包含匹配列出同系列影片。
 ///
-/// 已知边界：Emby 对 Movie 通常不返回 SeriesName，客户端在详情页读到 NFO 后
-/// 会把系列名回填到全库对应条目，因此系列列表会随浏览过的影片逐步累积。
+/// v2.0.62：新增「补全系列」按钮，调 [NfoSeriesBackfill] 一次性从服务器
+/// 直读全库 .nfo 并批量回填 seriesName，不再只能靠逐条浏览慢慢累积。
+/// Emby 官方不解析 NFO 的 `<set><name>`（只留给 Kodi），所以服务端 API 里
+/// 拿不到，直读文件是唯一路径；页面会把每一步失败诊断原样展示给用户。
 class SeriesIndexPage extends StatefulWidget {
   const SeriesIndexPage({
     super.key,
@@ -42,6 +46,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   int _sort = 0;
   String _query = '';
   final TextEditingController _controller = TextEditingController();
+
+  // v2.0.62：主动从服务器直读 NFO 补全全库系列，不再只靠逐条浏览累积。
+  bool _scanning = false;
+  int _scanDone = 0;
+  int _scanTotal = 0;
 
   @override
   void dispose() {
@@ -105,6 +114,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    _backfillButton(),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -116,6 +127,33 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                 _searchBox(),
                 const SizedBox(height: 8),
                 _sortRow(),
+                if (_scanning) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: _scanTotal > 0
+                                ? (_scanDone / _scanTotal).clamp(0.0, 1.0)
+                                : null,
+                            minHeight: 4,
+                            backgroundColor: Colors.white.withOpacity(0.10),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                AppColors.primary),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '$_scanDone / $_scanTotal',
+                        style: const TextStyle(
+                            fontSize: 10, color: AppColors.muted),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -185,6 +223,144 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           state: widget.state,
           onOpenDetail: widget.onOpenDetail,
         ),
+      ),
+    );
+  }
+
+  Widget _backfillButton() {
+    return LiquidPress(
+      radius: 12,
+      onTap: _scanning ? null : () => _backfill(),
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: AppColors.primary.withOpacity(_scanning ? 0.08 : 0.16),
+          border: Border.all(color: AppColors.primary.withOpacity(0.45)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _scanning
+                ? const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_download_outlined,
+                    size: 14, color: AppColors.primary),
+            const SizedBox(width: 5),
+            Text(
+              _scanning ? '扫描中' : '补全系列',
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 主动从服务器直读全库 NFO，把 `<set><name>` / `<series>` 写回 seriesName。
+  Future<void> _backfill() async {
+    if (_scanning) return;
+    final server = widget.state.server;
+    if (server == null) {
+      showToast(context, '请先连接服务器', icon: Icons.wifi_off_rounded);
+      return;
+    }
+    setState(() {
+      _scanning = true;
+      _scanDone = 0;
+      _scanTotal = 0;
+    });
+    final r = await NfoSeriesBackfill.run(
+      state: widget.state,
+      server: server,
+      onProgress: (done, total) {
+        if (!mounted) return;
+        setState(() {
+          _scanDone = done;
+          _scanTotal = total;
+        });
+      },
+    );
+    if (!mounted) return;
+    setState(() => _scanning = false);
+    await _showResult(r);
+  }
+
+  Future<void> _showResult(NfoBackfillResult r) async {
+    final lines = <String>[];
+    if (r.targets == 0) {
+      lines.add('全部影片都已有系列名，无需补全。');
+    } else if (r.abortedByProbe) {
+      lines.add('试跑未能读到任何 NFO 文件，已提前中止全库扫描，避免无谓等待。');
+      lines.add('待补全 ${r.targets} 部 · 无文件路径 ${r.noPath} 部');
+    } else {
+      lines.add('待补全 ${r.targets} 部，成功写入 ${r.filled} 部。');
+      lines.add('无路径 ${r.noPath} 部 · 取不到 NFO ${r.noNfo} 部 · '
+          'NFO 无 <set> ${r.noSetField} 部');
+      if (r.cancelled) lines.add('（已中途取消）');
+    }
+    final samples = r.samples;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF171C29),
+        title: const Text('从服务器补全系列',
+            style: TextStyle(fontSize: 15, color: Colors.white)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final l in lines)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(l,
+                      style: const TextStyle(
+                          fontSize: 12, color: Colors.white, height: 1.5)),
+                ),
+              if (samples.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                const Text('失败原因样例（URL 已隐藏令牌）',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+                const SizedBox(height: 5),
+                for (final s in samples)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text('· $s',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white60,
+                            height: 1.4)),
+                  ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'Emby 不解析 NFO 的 <set><name>，客户端必须能直接 HTTP 访问 .nfo。'
+                '若直链带签名、NFO 不在可访问目录，或服务端未开放文件代理，'
+                '需要在服务端放开 .nfo 的匿名读取。',
+                style: TextStyle(
+                    fontSize: 10.5, color: Colors.white54, height: 1.5),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
       ),
     );
   }
@@ -308,8 +484,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              '系列名来自 Emby 的 SeriesName 或影片的 NFO。'
-              '打开影片详情后客户端会读取 NFO 并回填，浏览过的影片越多，这里越全。',
+              'Emby 不解析 NFO 的 <set><name>，系列名需客户端直读 .nfo。'
+              '点右上角「补全系列」可一次性从服务器扫描全库并回填。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 11,

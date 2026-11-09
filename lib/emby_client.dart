@@ -14,10 +14,12 @@ import '../models.dart';
 
 /// 所有条目查询统一携带的字段
 /// 注意：Emby 的 /Items 默认只返回精简字段，Overview / Tags 等必须显式声明
+// v2.0.62：补 Path。NFO 系列回填完全依赖影片文件路径来派生 .nfo 地址，
+// 之前只靠 MediaSources[0].Path，非管理员账号常被隐藏 → 路径为空 → 系列永远「无」。
 const _kItemFields =
     'Genres,People,UserData,MediaStreams,MediaSources,Overview,DateCreated,'
     'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,'
-    'Tags,TagItems,Studios,SeriesName';
+    'Tags,TagItems,Studios,SeriesName,Path';
 
 class EmbyServer {
   EmbyServer({
@@ -640,6 +642,10 @@ class EmbyServer {
         ? sources.first as Map<String, dynamic>
         : <String, dynamic>{};
     final msPath = (ms0['Path'] as String?) ?? '';
+    // v2.0.62：顶层 Path 与 MediaSources[0].Path 都试一遍。Emby 对非管理员
+    // 常隐藏后者但保留前者；两者都空时 NFO 候选为空，系列只能停在「无」。
+    final itemPath = (j['Path'] as String?) ?? '';
+    final effectivePath = itemPath.trim().isNotEmpty ? itemPath : msPath;
     final msSize = (ms0['Size'] as num?)?.toInt() ?? 0;
     final msContainer =
         ((ms0['Container'] as String?) ?? (j['Container'] as String?) ?? '')
@@ -702,7 +708,7 @@ class EmbyServer {
       resolutionKnown: heightFound,
       videoUrl: '$baseUrl/Videos/$id/stream?Static=true&api_key=$_token',
       addedDaysAgo: _addedDays(j['DateCreated'] as String?),
-      filePath: msPath,
+      filePath: effectivePath,
       fileSizeBytes: msSize,
       dateCreatedMs: DateTime.tryParse(j['DateCreated'] as String? ?? '')
           ?.millisecondsSinceEpoch,

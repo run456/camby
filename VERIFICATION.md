@@ -2323,3 +2323,59 @@ String? get _offlineHint => (_films == null && _localFilms.isNotEmpty)
 - A2「女演员」仍是近似规则，服务端无 gender 时可能有头像的男优混入，「全部」档可兜底。
 
 验证（v2.0.61）：`flutter analyze` 0 error / 0 warning（437 项全为 info 级既有弃用）；`flutter test` **436 全过**（原 421 + 新增 15 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.61-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='261' versionName='2.0.61'`。
+
+## §87 发布 v2.0.62（系列 NFO 主动补全 + 演员页黑条修复）
+
+承接两条真机反馈：①「影片详情的系列还是没有加载，无论是否刷新影片，不能直接从服务器上读取 nfo 文件，解析 `<set><name>憧れの競泳水着インストラクター</name></set>` 来回填吗」；②「演员页有黑条，再优化下样式」（附截图）。
+
+### ① 系列：解析早就有了，卡在取不到 NFO 文件
+
+先查证数据边界：Emby 官方在社区明确回复过「we don't currently do anything with the `<set>` tag, other than preserve it so that Kodi can read it」—— 服务端**不会**把 `<set><name>` 映射成 `SeriesName` / BoxSet / 任何可经 API 读取的字段。所以想通过服务端查询拿系列名是走不通的，直读 .nfo 是唯一路径。
+
+而项目里 `parseNfoSeries()` 从 v2.0.54 起就支持 `<series>` 优先、回退 `<set><name>`，对用户给的多行缩进样例能正确解出日文名。**问题在读文件**：
+
+1. `_kItemFields` 没有 `Path`，`filePath` 只取 `MediaSources[0].Path`；Emby 对非管理员账号常隐藏该字段 → 路径为空 → `buildNfoUrls('')` 返回空列表 → 一个请求都不发，系列永远静默停在「无」。`itemDetail()` 用的也是同一份 `_kItemFields`，所以「刷新影片」也补不回来，与用户观察一致。
+2. 即便有路径，旧候选只有：Emby 代理 `/Items/{id}/File?Path=...` + 直链同名 `.nfo`（且本地路径连直链都没有，只剩代理一个候选）。文件名只认同名 `.nfo`，不认 Kodi 另一种常见约定 `movie.nfo`；带签名的 AList 直链在替换扩展名后签名按 path 校验失效；代理端点本身也未必可用。任何一环断掉就静默失败。
+3. 失败完全静默，用户只能看到「无」，没法知道是路径空、404、超时还是 NFO 里没有 `<set>`。
+
+改动：
+
+| 文件 | 改动 |
+|---|---|
+| `lib/emby_client.dart` | `_kItemFields` 补 `Path`；`filePath` 优先 `j['Path']`、回退 `MediaSources[0].Path` |
+| `lib/metadata/nfo_reader.dart` | 新增 `NfoCandidate` / `NfoProbe` / `NfoReadResult`、`buildNfoCandidates()`、`loadNfoSeriesDetailed()`；保留旧 `buildNfoUrls` / `loadNfoSeries` 不破坏既有调用与测试 |
+| `lib/metadata/nfo_series_backfill.dart`（新增） | 全库并发扫描服务 |
+| `lib/app_state.dart` | 新增 `replaceSeriesNames(Map)` 批量写回 |
+| `lib/pages/series_index_page.dart` | 「补全系列」按钮 + 进度条 + 结果/诊断面板；空态文案改写 |
+| `lib/pages/detail_page.dart` | `_loadNfoSeries` 改用新候选；「系列：无」胶囊可点看诊断 |
+
+`buildNfoCandidates` 的候选矩阵（按可靠性排序、URL 去重）：同名 `.nfo` 直链 → 同名 `.nfo` 直链去签名 → `movie.nfo` 直链 → `movie.nfo` 直链去签名 → 同名 `.nfo` Emby 代理 → `movie.nfo` Emby 代理。本地路径没有直链，只有后两态。`_safeUrl()` 在写诊断前移除 `api_key` / `sign` / `token`，避免令牌出现在 UI 里。
+
+### 设计取舍：先试跑，再全库扫
+
+逐条懒读（打开详情页才回填）意味着系列列表要「浏览过才累积」，用户明确希望主动从服务器回填。但全库扫描有个陷阱：如果环境根本取不到 .nfo，上千部影片 × 6 候选 × 3s 超时会变成几分钟的无谓等待，最后还是一句失败。
+
+`NfoSeriesBackfill.run()` 因此先串行试跑 3 部有路径的样本：只要出现过 `noSeriesField`（NFO 读到了、只是没 `<set>`）或命中，就认为通道可用，再按并发 6 分块扫剩余条目；若所有候选都是 HTTP 错误 / 超时 / 非 NFO 正文，立即 `abortedByProbe` 中止并把逐候选诊断交给 UI。扫描结果一次性 `state.replaceSeriesNames(updates)`，只 `_invalidateDerived()` + `notifyListeners()` 一次，不逐条重建整页；只填 `seriesName` 为空的条目，绝不覆盖服务端已有值。
+
+结果面板给出「待补全 / 成功写入 / 无路径 / 取不到 NFO / NFO 无 `<set>`」统计 + 最多 5 条脱敏失败样例；详情页点「系列：无」可看同一套逐步诊断。
+
+### ② 演员页黑条
+
+采样截图：资料区背景 `(43,35,33)` 暖棕、海报区 `(105,80,75)` 偏亮暖棕，中间筛选条 `(29,31,46)` 冷蓝黑 —— 正是 `_filterBar` 写死的 `Color(0xF20B1020)`（95% 不透明）盖出的横带。
+
+改为与页面同色系的半透明暖色渐变（`0x802B2321 → 0xCC2B2321 → 0x9E2B2321`）+ 顶部高光细边 + 底部分隔线：上下沿自然过渡，海报滚到下面被压暗但不会变成另一块颜色。**刻意不用 `BackdropFilter`**：吸顶 header 每帧参与滚动合成，真模糊要重新采样整块内容，与 v2.0.54 详情页「半透明纯色卡片替代模糊」的性能结论一致，也避开 `perf_audit.py` 的模糊层红线。
+
+截图左下角那个黑色圆钮（旋转箭头 + 屏幕图标）是 **Android 系统的自动旋转悬浮按钮**，项目里没有 `FloatingActionButton` / 全局 `OverlayEntry` 与之对应，不属于 App，未改动。
+
+### 文件清单与测试
+
+新增 `test/nfo_series_backfill_test.dart` 16 条：多候选矩阵（http 直链 6 态、本地路径 2 态、空路径、无凭据）、用户 `<set><name>` 样例与 CDATA 解析、诊断脱敏源码守卫、空候选不抛异常、`samples` 去重限 5 条排除命中、`_kItemFields` 含 `Path` 与 `effectivePath` 守卫、`replaceSeriesNames` 只填空值/不覆盖/trim、详情页与系列页接入守卫、演员页不再出现冷蓝黑色值。
+
+一处守卫自摆乌龙：初版把旧色值 `0xF20B1020` 写进了注释，被 `contains('0xF20B1020')` 守卫命中导致 1 条失败；改注释为文字描述后 16 条全过。
+
+### 数据边界（需向用户说明）
+
+- Emby 不解析 `<set><name>`，客户端必须能**直接 HTTP 访问 .nfo**。若直链带按路径校验的签名、NFO 不在可访问目录、或服务端未开放文件代理，仍需在服务端放开 `.nfo` 匿名读取；现在这类情况会在结果面板给出具体 HTTP 状态与候选 URL（脱敏），不再静默。
+- A2「女演员」按头像近似、系列列表依赖 NFO 回填等既有边界沿用。
+
+验证（v2.0.62）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **452 全过**（原 436 + 新增 16 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.62-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='262' versionName='2.0.62'`。

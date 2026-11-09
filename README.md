@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.61 (261)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.62 (262)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,22 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.62 (262) 系列 NFO 主动补全 + 演员页黑条修复
+
+承接真机反馈「系列无论是否刷新都不加载，能不能直接从服务器读 NFO 解析 `<set><name>` 回填」与「演员页有黑条」。
+
+**系列为什么一直读不出来**：解析 `<set><name>` 的代码从 v2.0.54 就有（`<series>` 优先、回退 `<set><name>`），问题从来不在解析，而在**取不到 NFO 文件**。Emby 官方也明确表示不会处理 NFO 的 `<set>` 标签，只把它原样留给 Kodi —— 也就是说服务端 API 里拿不到这个字段，只能直读 .nfo。旧链路有两处硬伤：`_kItemFields` 没请求 `Path`（非管理员账号的 `MediaSources[0].Path` 常被隐藏），路径一空就派生不出任何地址；即便有路径，候选也只有「同名 .nfo + Emby 代理 / 直链」两种，任一环失效就静默退化成「系列：无」。
+
+- **补齐路径来源**：`_kItemFields` 增加 `Path`，`filePath` 改为优先取顶层 `Path`、回退 `MediaSources[0].Path`。
+- **候选铺全**：新增 `buildNfoCandidates`，覆盖 Kodi 两种文件名约定（与视频同名 `.nfo` / `movie.nfo`）× 三种访问形态（直链保留 query、直链去掉签名 query、Emby 文件代理），最多 6 个候选并按可靠性排序去重。带签名的 AList 直链换扩展名后签名会失效，因此额外提供「去签名」候选。
+- **一键全库回填**：新增 `NfoSeriesBackfill` 服务与系列总览页右上角「**补全系列**」按钮，主动遍历全库 `seriesName` 为空的电影，并发 6 直读 NFO 并批量写回 `AppState`（`replaceSeriesNames` 只通知一次、不覆盖服务端已有值）。带进度条；完成后展示「成功写入 / 无路径 / 取不到 NFO / NFO 无 `<set>`」统计与脱敏后的失败样例。**先试跑 3 部**：若环境根本取不到 NFO 就立即中止，避免上千部影片逐个耗满超时。
+- **诊断可见**：详情页「系列：无」胶囊现在可点，弹出本次每个候选的结果（HTTP 状态 / 是否解析到 `<set>`），URL 已剔除 `api_key` / `sign`，不再只能靠猜。
+- **演员页黑条**：吸顶筛选条原来是近乎不透明的冷蓝黑实色，夹在暖棕资料区与海报区之间形成一条割裂的黑带。改为与页面同色系的半透明暖色竖向渐变 + 上下细分隔线，海报滚到下面时被压暗但不再变色；刻意不用 `BackdropFilter`（吸顶 header 每帧参与滚动合成，与 v2.0.54 详情页去模糊的性能结论一致）。截图左下角的黑色圆钮是 **Android 系统的自动旋转悬浮按钮**，不属于 App，未改动。
+
+已知边界：Emby 不解析 `<set><name>`，客户端必须能**直接 HTTP 访问 .nfo**。若直链带按路径校验的签名、NFO 不在可访问目录、或服务端未开放文件代理，仍需在服务端放开 `.nfo` 的匿名读取 —— 现在这类情况会在结果面板里直接给出具体失败原因，而不是静默显示「无」。
+
+验证：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **452 全过**（原 436 + 新增 16 条 `nfo_series_backfill_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.62-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='262' versionName='2.0.62'`。
 
 ### v2.0.61 (261) 演员详情页重设计 + 头像变形 / 性别误标修复
 

@@ -152,3 +152,194 @@ Future<String?> loadNfoSeries(String url) async {
 
 /// 仅供测试：清空进程内缓存。
 void clearNfoSeriesCache() => _seriesCache.clear();
+
+// ---------------------------------------------------------------------------
+// v2.0.62：补全「取不到 NFO 文件」这一环
+//
+// 旧 [buildNfoUrls] 的候选太少：同名 .nfo 一种文件名、直链一种形态，
+// 本地路径更是只剩 Emby 代理一个候选。任何一环失效（路径为空 / 端点不通 /
+// 直链签名按 path 校验 / 刮削器写的是 movie.nfo）都会静默退化成「系列：无」。
+// 而且 Emby 官方明确不会把 <set><name> 解析成可通过 API 读取的字段，
+// 只把它留在 NFO 里给 Kodi，所以直读 NFO 是唯一可行路径，必须把候选铺全。
+// ---------------------------------------------------------------------------
+
+/// 一条 NFO 读取候选，[label] 用于把失败原因原样展示给用户。
+class NfoCandidate {
+  const NfoCandidate(this.url, this.label);
+
+  final String url;
+  final String label;
+}
+
+enum NfoProbeStatus { hit, noSeriesField, httpError, networkError, notNfo }
+
+/// 单个候选的诊断结果。绝不把 api_key / 直链签名写进 [detail]。
+class NfoProbe {
+  const NfoProbe(this.label, this.status, {this.detail});
+
+  final String label;
+  final NfoProbeStatus status;
+  final String? detail;
+
+  String get describe => switch (status) {
+        NfoProbeStatus.hit => '命中：$detail',
+        NfoProbeStatus.noSeriesField => '$label：$detail',
+        NfoProbeStatus.httpError => '$label：$detail',
+        NfoProbeStatus.networkError => '$label：$detail',
+        NfoProbeStatus.notNfo => '$label：$detail',
+      };
+}
+
+class NfoReadResult {
+  const NfoReadResult({this.series, this.probes = const []});
+
+  final String? series;
+  final List<NfoProbe> probes;
+
+  bool get ok => series != null && series!.trim().isNotEmpty;
+}
+
+/// 把 URL / 本地路径最后一段换成 [basename]，保留 scheme、query 等其余部分。
+String? _swapBasename(String urlOrPath, String basename) {
+  final u = Uri.tryParse(urlOrPath);
+  if (u == null) return null;
+  final p = u.path;
+  final i = p.lastIndexOf('/');
+  if (i < 0 || p.endsWith('/')) return null;
+  return u.replace(path: '${p.substring(0, i + 1)}$basename').toString();
+}
+
+/// 脱敏：去掉 api_key / sign / token 等凭据类 query，避免诊断面板泄露令牌。
+String _safeUrl(String u) {
+  final uri = Uri.tryParse(u);
+  if (uri == null) return u.length > 120 ? '${u.substring(0, 120)}…' : u;
+  final q = Map<String, String>.of(uri.queryParameters)
+    ..remove('api_key')
+    ..remove('sign')
+    ..remove('token');
+  final clean = uri.replace(queryParameters: q).toString();
+  return clean.length > 120 ? '${clean.substring(0, 120)}…' : clean;
+}
+
+/// 生成完整的 NFO 候选，按「最可能成功」排序并去重。
+///
+/// 文件名覆盖 Kodi 两种常见约定：与视频同名 `.nfo`、`movie.nfo`；
+/// 直链覆盖保留 query（带签名）与去掉 query（免签 / 签名按 path 校验）；
+/// Emby 代理作为本地路径的唯一通道保留到最后。
+List<NfoCandidate> buildNfoCandidates(
+  String filePath, {
+  String? embyBase,
+  String? embyToken,
+  String? itemId,
+}) {
+  final out = <NfoCandidate>[];
+  final seen = <String>{};
+  void add(String? url, String label) {
+    if (url == null || url.isEmpty) return;
+    if (!seen.add(url)) return;
+    out.add(NfoCandidate(url, label));
+  }
+
+  final trimmed = filePath.trim();
+  if (trimmed.isEmpty) return out;
+
+  final uri = Uri.tryParse(trimmed);
+  final isHttp = uri != null &&
+      (uri.scheme == 'http' || uri.scheme == 'https');
+
+  // ① 直链候选（只有 http(s) 路径才有意义）
+  final direct = nfoUrlFromMediaPath(trimmed);
+  if (direct != null) {
+    final du = Uri.parse(direct);
+    add(direct, '同名 .nfo（直链）');
+    if (du.query.isNotEmpty) {
+      add(du.replace(query: '').toString(), '同名 .nfo（直链·去签名）');
+    }
+    add(_swapBasename(direct, 'movie.nfo'), 'movie.nfo（直链）');
+    if (du.query.isNotEmpty) {
+      add(
+        _swapBasename(du.replace(query: '').toString(), 'movie.nfo'),
+        'movie.nfo（直链·去签名）',
+      );
+    }
+  }
+
+  // ② Emby 代理候选（本地路径唯一通道；直链也保留作最后兜底）
+  final localNfo = nfoPathFromMediaPath(trimmed);
+  if (localNfo != null &&
+      embyBase != null &&
+      embyBase.isNotEmpty &&
+      embyToken != null &&
+      embyToken.isNotEmpty &&
+      itemId != null &&
+      itemId.isNotEmpty) {
+    String proxy(String p) =>
+        '$embyBase/Items/$itemId/File'
+        '?Path=${Uri.encodeQueryComponent(p)}&api_key=$embyToken';
+    add(proxy(localNfo), '同名 .nfo（Emby 代理）');
+    final moviePath = _swapBasename(localNfo, 'movie.nfo');
+    if (moviePath != null) add(proxy(moviePath), 'movie.nfo（Emby 代理）');
+  }
+
+  // 纯 http 路径若没派生出直链（异常 URI），仍给一次代理机会
+  if (out.isEmpty && isHttp && embyBase != null && itemId != null) {
+    final p = nfoPathFromMediaPath(trimmed);
+    if (p != null && embyToken != null) {
+      add(
+        '$embyBase/Items/$itemId/File'
+        '?Path=${Uri.encodeQueryComponent(p)}&api_key=$embyToken',
+        '同名 .nfo（Emby 代理）',
+      );
+    }
+  }
+  return out;
+}
+
+/// 依次尝试候选并返回系列名 + 每一步的诊断。命中值仍走进程内缓存。
+///
+/// [timeout] / [maxAttempts] 供全库扫描收紧（默认供单条详情页使用），
+/// 避免在「环境根本不通」时对每部影片都耗满一轮超时。
+Future<NfoReadResult> loadNfoSeriesDetailed(
+  List<NfoCandidate> candidates, {
+  Duration timeout = const Duration(seconds: 5),
+  int maxAttempts = 8,
+}) async {
+  final probes = <NfoProbe>[];
+  var attempts = 0;
+  for (final c in candidates) {
+    if (attempts >= maxAttempts) break;
+    attempts++;
+    final cached = _seriesCache[c.url];
+    if (cached != null) {
+      probes.add(const NfoProbe('缓存', NfoProbeStatus.hit, detail: '已读到过'));
+      return NfoReadResult(series: cached, probes: probes);
+    }
+    try {
+      final res = await http.get(Uri.parse(c.url)).timeout(timeout);
+      if (res.statusCode != 200) {
+        probes.add(NfoProbe(c.label, NfoProbeStatus.httpError,
+            detail: 'HTTP ${res.statusCode} · ${_safeUrl(c.url)}'));
+        continue;
+      }
+      final body = utf8.decode(res.bodyBytes, allowMalformed: true);
+      if (body.length > 256 * 1024) {
+        probes.add(NfoProbe(c.label, NfoProbeStatus.notNfo,
+            detail: '响应过大（多半是登录页/HTML）· ${_safeUrl(c.url)}'));
+        continue;
+      }
+      final v = parseNfoSeries(body);
+      if (v != null) {
+        _seriesCache[c.url] = v;
+        probes.add(NfoProbe(c.label, NfoProbeStatus.hit,
+            detail: _safeUrl(c.url)));
+        return NfoReadResult(series: v, probes: probes);
+      }
+      probes.add(NfoProbe(c.label, NfoProbeStatus.noSeriesField,
+          detail: 'NFO 内无 <set><name> / <series> · ${_safeUrl(c.url)}'));
+    } catch (e) {
+      probes.add(NfoProbe(c.label, NfoProbeStatus.networkError,
+          detail: '${e.runtimeType} · ${_safeUrl(c.url)}'));
+    }
+  }
+  return NfoReadResult(probes: probes);
+}

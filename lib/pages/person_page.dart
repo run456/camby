@@ -627,10 +627,26 @@ class _PersonPageState extends State<PersonPage> {
     return Container(
       height: 46,
       padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 5),
+      // v2.0.62：旧版是近乎不透明的冷蓝黑实色，夹在暖棕资料区与海报区
+      // 之间形成一条突兀的「黑条」。这里改成与页面同色系的
+      // 半透明暖色玻璃：竖向渐变让上下沿自然过渡，顶部高光 + 底部细分隔线
+      // 勾勒层次，海报滚到下面时被压暗但不会变成另一块颜色。
+      // 刻意不用 BackdropFilter：吸顶 header 每帧参与滚动合成，真模糊会
+      // 重新采样整块内容，与 v2.0.54 详情页去模糊的性能结论一致。
       decoration: BoxDecoration(
-        color: const Color(0xF20B1020),
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0x802B2321),
+            Color(0xCC2B2321),
+            Color(0x9E2B2321),
+          ],
+          stops: [0.0, 0.55, 1.0],
+        ),
         border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.06)),
+          top: BorderSide(color: Colors.white10),
+          bottom: BorderSide(color: Colors.white12),
         ),
       ),
       child: Row(
