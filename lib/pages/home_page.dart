@@ -17,6 +17,7 @@ import '../widgets/cached_image.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/poster_hero.dart';
+import '../widgets/skeleton.dart';
 
 /// 首页（沉浸式）：
 /// 1. 竖版海报满屏铺满（封面），文字叠在底部渐隐区上
@@ -743,48 +744,43 @@ class _HomePageState extends State<HomePage> {
                               SizedBox(
                                 height: tablet ? rowW * 1.45 + 44 : 216,
                                 child: row.isEmpty
-                                    ? LiquidPress(
-                                        // 空行可点重试：只重拉这一个库，不再靠整页刷新
-                                        onTap: _rowsLoading
-                                            ? null
-                                            : () => _retryRow(v),
-                                        radius: 12,
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: _rowsLoading
-                                                    ? const CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        color:
-                                                            AppColors.primary,
-                                                      )
-                                                    : const Icon(
-                                                        Icons.refresh_rounded,
-                                                        size: 15,
-                                                        color:
-                                                            AppColors.primary,
-                                                      ),
+                                    ? (_rowsLoading
+                                        // v2.0.64：行加载中先画出卡片形状，
+                                        // 不再是「一行文字 + 一个小转圈」。
+                                        ? ListSkeleton(
+                                            itemCount: 4,
+                                            height:
+                                                tablet ? rowW * 1.45 + 44 : 216,
+                                            shimmer: false,
+                                          )
+                                        : LiquidPress(
+                                            // 空行可点重试：只重拉这一个库，不再靠整页刷新
+                                            onTap: () => _retryRow(v),
+                                            radius: 12,
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 16,
                                               ),
-                                              const SizedBox(width: 10),
-                                              Text(
-                                                _rowsLoading
-                                                    ? '正在载入 ${v.name}…'
-                                                    : '暂无内容 · 点此重试',
-                                                style: const TextStyle(
-                                                  fontSize: 11,
-                                                  color: AppColors.muted,
-                                                ),
+                                              child: Row(
+                                                children: [
+                                                  const Icon(
+                                                    Icons.refresh_rounded,
+                                                    size: 15,
+                                                    color: AppColors.primary,
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  Text(
+                                                    '暂无内容 · 点此重试',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: AppColors.muted,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
-                                            ],
-                                          ),
-                                        ),
-                                      )
+                                            ),
+                                          ))
                                     : ListView.builder(
                                         scrollDirection: Axis.horizontal,
                                         padding: const EdgeInsets.symmetric(

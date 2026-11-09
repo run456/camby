@@ -9,6 +9,7 @@ import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/sort_chip_row.dart';
+import '../widgets/empty_state.dart';
 
 /// 聚合筛选页：列出全库中符合某个「键」的影片。
 ///
@@ -177,11 +178,12 @@ class _TagPageState extends State<TagPage> {
           ),
           Expanded(
             child: items.isEmpty
-                ? const Center(
-                    child: Text(
-                      '没有相关影片',
-                      style: TextStyle(fontSize: 13, color: AppColors.muted),
-                    ),
+                ? EmptyState(
+                    icon: Icons.movie_outlined,
+                    title: '没有相关影片',
+                    reason: '这个标签 / 系列下暂时没有匹配影片，换个入口看看。',
+                    primaryLabel: '返回媒体库',
+                    onPrimary: () => Navigator.of(context).maybePop(),
                   )
                 : GridView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),

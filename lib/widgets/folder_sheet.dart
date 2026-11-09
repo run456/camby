@@ -8,6 +8,7 @@ import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import 'cached_image.dart';
 import 'glass_toast.dart';
+import 'empty_state.dart';
 
 /// 新建 / 重命名收藏夹的输入弹窗
 ///
@@ -317,12 +318,21 @@ class _FolderSheetState extends State<_FolderSheet> {
                 if (folders.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Text(
-                      '还没有自定义收藏夹，先在下面建一个吧',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.muted.withOpacity(0.9),
-                      ),
+                    // v2.0.64：空态直接把光标送到下方输入框，少一次「找入口」。
+                    child: EmptyHint(
+                      message: '还没有自定义收藏夹，先在下面建一个吧',
+                      actionLabel: '新建收藏夹',
+                      onAction: () {
+                        if (_fav) {
+                          _focus.requestFocus();
+                        } else {
+                          showToast(
+                            context,
+                            '先收藏当前影片，再新建收藏夹',
+                            icon: Icons.info_outline_rounded,
+                          );
+                        }
+                      },
                     ),
                   )
                 else

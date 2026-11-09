@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import 'cached_image.dart';
+import 'haptics.dart';
 import 'poster_hero.dart';
 import '../theme.dart';
 
@@ -65,6 +66,7 @@ class MediaPoster extends StatelessWidget {
                       fit: fit,
                       memWidth: cacheW,
                       filterQuality: FilterQuality.low,
+                      fallbackLabel: showTitle ? null : item.name,
                     ),
                   ),
                 if (showTitle)
@@ -95,12 +97,7 @@ class MediaPoster extends StatelessWidget {
                       item.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        height: 1.2,
-                      ),
+                      style: AppType.posterTitle,
                     ),
                   ),
               ],
@@ -151,6 +148,8 @@ class _PosterCardState extends State<PosterCard> {
   void _setDown(bool v) {
     if (_down == v) return;
     setState(() => _down = v);
+    // 只在「按下」这一刻给一次轻震动；松手、滚动、图片淡入都不震。
+    if (v) AppHaptics.light();
   }
 
   @override
@@ -165,9 +164,9 @@ class _PosterCardState extends State<PosterCard> {
         onTapUp: (_) => _setDown(false),
         onTapCancel: () => _setDown(false),
         child: AnimatedScale(
-          scale: _down ? 0.96 : 1.0,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
+          scale: _down ? 0.97 : 1.0,
+          duration: AppMotion.press,
+          curve: Anim.curve,
           child: SizedBox(
             width: widget.width,
             child: Column(
@@ -194,6 +193,32 @@ class _PosterCardState extends State<PosterCard> {
                           )
                         else
                           poster,
+                        // 按压边缘高光：与 scale 同一档时长，给卡片一点物理反馈。
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: AnimatedOpacity(
+                              opacity: _down ? 1 : 0,
+                              duration: AppMotion.press,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.30),
+                                    width: 1.5,
+                                  ),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      Colors.white.withOpacity(0.10),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                         if (widget.showResBadge &&
                             item.resolutionKnown &&
                             item.videoHeight > 0)
@@ -240,11 +265,7 @@ class _PosterCardState extends State<PosterCard> {
                   item.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFFE2EAF8),
-                  ),
+                  style: AppType.cardTitle,
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -301,7 +322,7 @@ class _PosterCardState extends State<PosterCard> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 9.5,
+                        fontSize: 10,
                         color: AppColors.accent,
                       ),
                     ),

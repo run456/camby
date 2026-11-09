@@ -6,6 +6,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/sort_chip_row.dart';
+import '../widgets/empty_state.dart';
 
 /// 字幕筛选页：本地筛选含中文字幕的条目（数据来自内存全量 items）
 ///
@@ -110,33 +111,13 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
             ),
             Expanded(
               child: _items.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.subtitles_off_rounded,
-                            size: 44,
-                            color: AppColors.muted.withOpacity(0.5),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            '没有检测到中文字幕',
-                            style: TextStyle(
-                              fontSize: 13.5,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            '仅统计服务器已入库的字幕轨（外挂/内嵌）',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: AppColors.muted,
-                            ),
-                          ),
-                        ],
-                      ),
+                  ? EmptyState(
+                      icon: Icons.subtitles_off_rounded,
+                      title: '没有检测到中文字幕',
+                      reason: '仅统计服务器已入库的字幕轨（外挂 / 内嵌）。'
+                          '到影片详情里挂载字幕，或在服务端重新扫描媒体库后回来刷新。',
+                      primaryLabel: '返回媒体库',
+                      onPrimary: () => Navigator.of(context).maybePop(),
                     )
                   : GridView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),

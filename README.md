@@ -4,7 +4,7 @@
 
 Camby 是一款面向 Emby 媒体服务器的 Android 播放客户端。界面采用统一的液态玻璃（Liquid Glass）设计语言，播放内核抽象为可切换的双引擎（ExoPlayer 兼容最佳、MPV 支持 ASS 特效字幕与更强硬解），并针对大媒体库的浏览、搜索、详情与播放体验做了大量性能与交互优化。
 
-当前版本：**v2.0.63 (263)** · 构建目标：arm64  Release APK
+当前版本：**v2.0.64 (264)** · 构建目标：arm64  Release APK
 
 > ⚠️ **源码重建说明**：v1.7.21 (61) 之后的源码工作副本丢失，本工程由 `Camby-v1.7.38-arm64-release.apk`（versionCode 78）反编译取证 + v1.7.21 旧仓库代码对拍重建而成。详见文末 [源码重建说明](#源码重建说明)。重建后以 v1.7.38 为基线，由 WorkBuddy 持续迭代至当前 **v1.7.56 (96)**，全过程见上方「更新日志」。
 
@@ -158,6 +158,19 @@ flutter analyze         # 静态分析，目标 0 错误 0 警告
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.64 (264) 质感包：图片过渡 / 触觉 / token 收敛 / 空态 CTA
+
+按《质感包前后对比稿》确认的推荐项实施。结论是**功能不缺，缺的是状态切换的连续性**：这一版只处理内容出现、加载、点按、空态四个瞬间，不动业务逻辑、不碰数据层、不改导航结构、不动播放页控件层，也不掺优先级 ② 的本地库持久化。
+
+- **图片过渡**：`CachedImage` 从「空占位 + 0ms 硬切」改为低饱和渐变骨架 → 180ms 淡入（`Anim.curve`）；渲染前用 `flutter_cache_manager` 探一次磁盘缓存，命中则 `fadeInDuration = 0`，断网二次进入瞬间出图；404 / 加载失败保留骨架 + 片名，卡片仍可点开详情。`pubspec.yaml` 把该包从传递依赖提为直接依赖（与 lock 一致，3.4.6）。
+- **骨架组件**：新增 `lib/widgets/skeleton.dart`（`SkeletonBox` / `SkeletonCard` / `ShimmerScope` / `LibrarySkeleton` / `ListSkeleton`）。纯渐变、单个父级 `AnimationController` 驱动扫光、`RepaintBoundary` 隔离；覆盖媒体库首屏 / 切库、首页媒体库行、详情页分集与推荐首帧三处。缓存命中与列表分页加载不加任何动画。
+- **触觉反馈**：新增 `lib/widgets/haptics.dart`，三档 `selectionClick` / `mediumImpact` / `heavyImpact`，接入底部 Tab、二级分段、排序 chip、海报按下、收藏切换、删除服务器与断开连接。设置页新增「触感反馈」开关（默认开、立即生效、跟随系统触感设置），关掉后所有调用直接 return。绝不用于图片淡入、骨架扫光、列表滚动、播放进度更新、toast。
+- **token 收敛**：`theme.dart` 新增 `AppRadii`（6/12/20/999）、`AppType`（title / section / body / caption / micro + 卡片标题 / 元信息）、`AppMotion`（180/120/1500/90ms）、`SkeletonColors`；`TextTheme.bodySmall` 11、`labelSmall` 10；五页卡片标题统一 11、年份 / 计数统一 10；`ChipLabel` 圆角收进 pill 档。**不做 337 处全量替换**，只收同语义层级。
+- **空态 CTA**：新增 `lib/widgets/empty_state.dart`（`EmptyState` / `EmptyHint`）。13 类空态逐处给真实动作：系列「同步合集」+「了解数据来源」、演员档切档 / 清搜索 / 刷新、收藏页「去影片详情收藏演员」/「去连接服务器」、收藏夹「去全部收藏」、标签页与搜索「清除搜索 / 返回媒体库」、演员详情「联网重试」、媒体库「清除筛选 / 刷新 / 去连接服务器」、统计页 9 处「了解统计口径」、字幕筛选「返回媒体库」、收藏夹弹层「新建收藏夹」聚焦输入框。跨页 CTA 统一走 `AppShell._goTab()`，不是摆设。
+- **回归修复**：骨架卡片改用 `Expanded` 吃剩余高度，避免详情页矮卡（150dp）向下溢出；`ListSkeleton` 用固定 children 而非 builder，避免被详情页「横向 3 项 = 制作信息混排」守卫误判；收藏页两张 golden 随 UI 重做更新。
+
+验证：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **480 全过**（原 461 + 新增 19 条 `quality_pack_test.dart`）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.64-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='264' versionName='2.0.64'`。
 
 ### v2.0.63 (263) 系列改读服务端「所属合集」（BoxSet）
 

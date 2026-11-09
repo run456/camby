@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,6 +10,7 @@ import '../lara/lara_client.dart';
 import '../layout.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
+import '../widgets/haptics.dart';
 import '../models.dart';
 import '../theme.dart';
 import 'search_page.dart';
@@ -86,6 +89,8 @@ class _SettingsPageState extends State<SettingsPage> {
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
         'record_history': prefs.getBool('set_record_history') ?? true,
+        // v2.0.64 质感包：默认开，系统层面是否震动仍由 Android 决定。
+        'haptics': prefs.getBool('set_haptics') ?? true,
       };
     });
   }
@@ -96,6 +101,12 @@ class _SettingsPageState extends State<SettingsPage> {
     if (value is int) await prefs.setInt('set_$key', value);
     if (value is bool) await prefs.setBool('set_$key', value);
     if (value is double) await prefs.setDouble('set_$key', value);
+    if (key == 'haptics' && value is bool) {
+      // 立即生效（不必重启 / 重进页面）。打开时给一次轻震动作为预览；
+      // 关闭时什么都不会震，AppHaptics 内部直接 return。
+      unawaited(AppHaptics.setEnabled(value));
+      if (value) AppHaptics.light();
+    }
   }
 
   void _toast(String msg) => showToast(context, msg);
@@ -246,6 +257,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               _RowItem(
+                title: '触感反馈',
+                desc: '点按、收藏等状态变化时的轻震动 · 跟随系统触感设置',
+                trailing: _Toggle(
+                  value: _s['haptics'],
+                  onChanged: (v) => _set('haptics', v),
+                ),
+              ),
+              _RowItem(
                 title: '导出统计数据',
                 desc: 'JSON · 复制到剪贴板',
                 trailing: _Value('导出', onTap: _exportStats),
@@ -345,7 +364,10 @@ class _ServersSection extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await state.deleteServer(p.id);
+    if (ok == true) {
+      AppHaptics.heavy();
+      await state.deleteServer(p.id);
+    }
   }
 
   /// 切换服务器：给出明确反馈（进行中 / 成功 / 失败原因）。
@@ -492,7 +514,10 @@ class _ServersSection extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           LiquidPress(
-            onTap: () => state.disconnect(),
+            onTap: () {
+              AppHaptics.heavy();
+              state.disconnect();
+            },
             radius: 8,
             scale: 0.94,
             child: const Padding(

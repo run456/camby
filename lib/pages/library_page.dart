@@ -9,6 +9,8 @@ import '../widgets/glass_toast.dart';
 import '../widgets/library_index_segment.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/skeleton.dart';
 import 'actor_index_page.dart';
 import 'series_index_page.dart';
 
@@ -24,10 +26,14 @@ class LibraryPage extends StatefulWidget {
     super.key,
     required this.onOpenDetail,
     required this.state,
+    this.onGoSettings,
   });
 
   final OpenDetail onOpenDetail;
   final AppState state;
+
+  /// v2.0.64：空态「去连接服务器」的真实跳转（由 main 切到「我的」Tab）。
+  final VoidCallback? onGoSettings;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
@@ -464,31 +470,43 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
               ),
             ),
-            if (list.isEmpty)
+            // v2.0.64：首屏 / 切库先画出「要出现的内容形状」，而不是一个
+            // 居中小转圈 + 大片空白。骨架高度固定，不参与滚动路径上的动画。
+            if (state.loading || _viewLoading)
+              const SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 470,
+                  child: LibrarySkeleton(),
+                ),
+              )
+            else if (list.isEmpty)
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 24,
-                  ),
-                  child: Center(
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.movie_outlined,
-                          size: 34,
-                          color: AppColors.muted,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _viewLoading ? '正在加载媒体库…' : '该筛选条件下没有条目',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ],
-                    ),
+                child: SizedBox(
+                  height: 370,
+                  child: EmptyState(
+                    icon: Icons.movie_outlined,
+                    title: '该筛选条件下没有条目',
+                    reason: _asFilter.activeCount > 0
+                        ? '当前 ${_asFilter.activeCount} 个筛选条件组合后没有匹配影片。'
+                            '清掉条件就能看到完整媒体库。'
+                        : (state.server == null
+                            ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
+                            : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
+                    primaryLabel: _asFilter.activeCount > 0
+                        ? '清除筛选'
+                        : (state.server == null ? '去连接服务器' : '刷新媒体库'),
+                    onPrimary: () {
+                      if (_asFilter.activeCount > 0) {
+                        setState(() {
+                          _clearFilters();
+                          _cacheKey = '';
+                        });
+                      } else if (state.server == null) {
+                        widget.onGoSettings?.call();
+                      } else {
+                        _onRefresh();
+                      }
+                    },
                   ),
                 ),
               )

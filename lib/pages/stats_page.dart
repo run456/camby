@@ -7,6 +7,7 @@ import '../models.dart';
 import '../theme.dart';
 import '../layout.dart';
 import '../widgets/cached_image.dart';
+import '../widgets/empty_state.dart';
 
 /// 数据总结：液态玻璃风格
 /// A 本地库聚合（精确） + B Playback Reporting / 活动日志（真实行为）
@@ -427,6 +428,26 @@ class _ExplainButton extends StatelessWidget {
     );
   }
 }
+
+/// v2.0.64：统计页各图表空态的说明文案。
+const String _kStatsEmptyExplain = '''
+统计页的数据来自服务端活动日志与本地播放记录。
+
+在 App 内点开看过的影片会累计播放次数，随后出现在「播放排行」「观看趋势」
+「时段分布」等图表里；服务端活动日志需要开启活动记录，且日志里的账号
+要和当前登录账号一致。
+
+如果这里长期为空，先去媒体库点开一部影片播放一会儿，再回来下拉刷新。
+''';
+
+/// 统计页空态：保留原本的原因说明，再给一个能点的「了解统计口径」入口。
+/// 弹窗复用页面上已有的玻璃说明组件，不是摆设按钮。
+Widget _statsEmpty(BuildContext context, String message) => EmptyHint(
+      message: message,
+      actionLabel: '了解统计口径',
+      onAction: () =>
+          _showExplainDialog(context, '统计口径', _kStatsEmptyExplain),
+    );
 
 /// 计算说明弹窗：液态玻璃（Glass 自带实时模糊 + 折射高光），
 /// 比旧版纯色 AlertDialog 更贴合全局玻璃质感。
@@ -891,12 +912,9 @@ class _CompletionCard extends StatelessWidget {
             );
           }),
         ] else
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text(
-              '服务端暂无播放记录',
-              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
-            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _statsEmpty(context, '服务端暂无播放记录'),
           ),
       ],
     );
@@ -911,10 +929,7 @@ class _TagBars extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (dist.isEmpty)
-      return const Text(
-        '暂无标签数据',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
-      );
+      return _statsEmpty(context, '暂无标签数据');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: dist.entries.map((e) {
@@ -971,10 +986,7 @@ class _TagCloud extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (tags.isEmpty)
-      return const Text(
-        '暂无标签数据',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
-      );
+      return _statsEmpty(context, '暂无标签数据');
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -1191,11 +1203,7 @@ class _TopPeople extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (people.isEmpty)
-      return const Text(
-        '暂无数据',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
-      );
+    if (people.isEmpty) return _statsEmpty(context, '暂无数据');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: people.map((p) {
@@ -1278,9 +1286,9 @@ class _TopMovies extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (movies.isEmpty) {
-      return const Text(
+      return _statsEmpty(
+        context,
         '暂无播放记录（服务器与本地播放次数都还是 0；在 App 内点开看过的影片会按次数出现在这里）',
-        style: TextStyle(fontSize: 11, color: AppColors.muted, height: 1.5),
       );
     }
     return Wrap(
@@ -1367,13 +1375,9 @@ class _TopItems extends StatelessWidget {
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
       final suffix = hint.isEmpty ? '' : '（$hint）';
-      return Text(
+      return _statsEmpty(
+        context,
         '暂无播放记录（服务端活动日志里没有本账号的播放$suffix）',
-        style: const TextStyle(
-          fontSize: 11,
-          color: AppColors.muted,
-          height: 1.5,
-        ),
       );
     }
     return Column(
@@ -1505,13 +1509,9 @@ class _DailyBars extends StatelessWidget {
   Widget build(BuildContext context) {
     if (daily.isEmpty) {
       final suffix = hint.isEmpty ? '' : '；$hint';
-      return Text(
+      return _statsEmpty(
+        context,
         '暂无每日观看数据（数据来自服务器活动日志$suffix）',
-        style: const TextStyle(
-          fontSize: 11,
-          color: AppColors.muted,
-          height: 1.5,
-        ),
       );
     }
     final maxMin = daily.fold<double>(
@@ -1585,9 +1585,9 @@ class _HourBars extends StatelessWidget {
     final total = buckets.fold<int>(0, (a, b) => a + b);
     if (total == 0) {
       final suffix = hint.isEmpty ? '' : '；$hint';
-      return Text(
+      return _statsEmpty(
+        context,
         '暂无播放时段数据（数据来自服务器活动日志$suffix）',
-        style: const TextStyle(fontSize: 11, color: AppColors.muted),
       );
     }
     final max = buckets.fold<int>(1, (a, b) => b > a ? b : a);
@@ -1649,11 +1649,7 @@ class _TrendBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (trend.isEmpty)
-      return const Text(
-        '暂无趋势数据',
-        style: TextStyle(fontSize: 11, color: AppColors.muted),
-      );
+    if (trend.isEmpty) return _statsEmpty(context, '暂无趋势数据');
     final max = trend.fold<double>(1, (a, b) => b > a ? b : a);
     final now = DateTime.now();
     return Column(

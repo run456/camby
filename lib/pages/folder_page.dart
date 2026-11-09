@@ -6,6 +6,7 @@ import '../models.dart';
 import '../widgets/liquid_press.dart';
 import '../theme.dart';
 import '../widgets/folder_sheet.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
 
@@ -158,27 +159,13 @@ class _FolderPageState extends State<FolderPage> {
   }
 
   Widget _empty() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.folder_open_rounded,
-            size: 44,
-            color: AppColors.muted.withOpacity(0.5),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            '这个收藏夹还是空的',
-            style: TextStyle(fontSize: 13.5, color: AppColors.muted),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '在「全部收藏」里长按影片即可归入',
-            style: TextStyle(fontSize: 11.5, color: AppColors.muted),
-          ),
-        ],
-      ),
+    // v2.0.64：空夹给一个能立刻点的返回动作，回到「全部收藏」去长按归类。
+    return EmptyState(
+      icon: Icons.folder_open_rounded,
+      title: '这个收藏夹还是空的',
+      reason: '回到「全部收藏」，长按任意影片即可归入这个收藏夹。',
+      primaryLabel: '去全部收藏',
+      onPrimary: () => Navigator.of(context).maybePop(),
     );
   }
 

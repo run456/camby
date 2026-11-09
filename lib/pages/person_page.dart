@@ -12,6 +12,7 @@ import '../widgets/cached_image.dart';
 import '../widgets/gender_badge.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/empty_state.dart';
 
 /// 演员详情页（v2.0.61 设计稿方案 A）。
 ///
@@ -698,9 +699,12 @@ class _PersonPageState extends State<PersonPage> {
           child: Padding(
             padding:
                 const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            child: Text(
-              _offlineHint ?? '该分类下暂无作品',
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
+            // v2.0.64：离线 / 筛选无结果时给一次可点的联网重试，
+            // 而不是留一行无法操作的灰字。
+            child: EmptyHint(
+              message: _offlineHint ?? '该分类下暂无作品',
+              actionLabel: '联网重试',
+              onAction: _load,
             ),
           ),
         )

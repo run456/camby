@@ -8,6 +8,7 @@ import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
 import '../widgets/cached_image.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/library_index_segment.dart';
 import '../widgets/liquid_press.dart';
 import 'person_page.dart';
@@ -404,27 +405,43 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
       2 => '还没有收藏演员',
       _ => '媒体库里还没有演员信息',
     };
-    final hint = _query.isEmpty
-        ? '换个筛选条件试试，或下拉刷新同步媒体库'
-        : '没有匹配「$_query」的演员';
+    final searching = _query.isNotEmpty;
+    final hint = searching
+        ? '没有匹配「$_query」的演员'
+        : (_scope == 2
+            ? '在演员卡片右上角点 ♥ 收藏后，这里就会出现。'
+            : '换个筛选条件试试，或下拉刷新同步媒体库');
+    // v2.0.64：逐档给真实动作，不套一句通用文案。
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
       children: [
-        const SizedBox(height: 90),
-        Icon(Icons.person_search_rounded,
-            size: 40, color: AppColors.muted.withOpacity(0.5)),
-        const SizedBox(height: 12),
-        Center(
-          child: Text(msg,
-              style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-        ),
-        const SizedBox(height: 5),
-        Center(
-          child: Text(hint,
-              style: TextStyle(
-                  fontSize: 11, color: AppColors.muted.withOpacity(0.8))),
+        const SizedBox(height: 56),
+        SizedBox(
+          height: 330,
+          child: EmptyState(
+            icon: Icons.person_search_rounded,
+            title: msg,
+            reason: hint,
+            primaryLabel: searching
+                ? '清除搜索'
+                : _scope == 2
+                    ? '去全部演员'
+                    : _scope == 1
+                        ? '查看全部演员'
+                        : '刷新媒体库',
+            onPrimary: () {
+              if (searching) {
+                _controller.clear();
+                setState(() => _query = '');
+              } else if (_scope != 0) {
+                setState(() => _scope = 0);
+              } else {
+                widget.state.refresh();
+              }
+            },
+          ),
         ),
       ],
     );

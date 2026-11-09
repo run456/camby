@@ -27,6 +27,116 @@ class AppColors {
   );
 }
 
+/// 圆角档位（v2.0.64 质感包）。
+///
+/// 此前 `circular(2/3/4/8/9/11/12/13/14/15/999)` 混用，多为历史像素微调。
+/// 按对比稿只收敛「卡片 / 胶囊 / 面板」三类高频，其余保留不动以避免大 diff。
+class AppRadii {
+  const AppRadii._();
+
+  static const double sm = 6;
+  static const double md = 12;
+  static const double lg = 20;
+  static const double pill = 999;
+
+  static const BorderRadius smBr = BorderRadius.all(Radius.circular(sm));
+  static const BorderRadius mdBr = BorderRadius.all(Radius.circular(md));
+  static const BorderRadius lgBr = BorderRadius.all(Radius.circular(lg));
+  static const BorderRadius pillBr = BorderRadius.all(Radius.circular(pill));
+}
+
+/// 字号 token（v2.0.64 质感包）。
+///
+/// 全项目 337 处手写 fontSize 不一次性替换，只把「同一类信息」统一：
+/// 重点是卡片标题（统一 11）与年份 / 计数 / 胶囊（统一 10）。
+class AppType {
+  const AppType._();
+
+  static const TextStyle title = TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.3,
+  );
+  static const TextStyle section = TextStyle(
+    fontSize: 15.5,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.2,
+  );
+  static const TextStyle body = TextStyle(fontSize: 13, height: 1.6);
+
+  /// 卡片标题：首页 / 媒体库 / 收藏 / 演员 / 系列五页统一使用。
+  static const TextStyle caption = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    height: 1.25,
+  );
+
+  /// 年份、计数、胶囊等元信息。
+  static const TextStyle micro = TextStyle(fontSize: 10);
+
+  /// 卡片标题（浅色，海报下方）。
+  static const TextStyle cardTitle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    color: Color(0xFFE2EAF8),
+  );
+
+  /// 海报内叠加的片名（白字）。
+  static const TextStyle posterTitle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    color: Colors.white,
+    height: 1.2,
+  );
+
+  /// 卡片元信息（年份 / 剩余时长）。
+  static const TextStyle cardMeta = TextStyle(
+    fontSize: 10,
+    color: AppColors.muted,
+  );
+}
+
+/// 动效时长补充（v2.0.64）。基础三档在 [Anim] 里，这里只加质感包专用项。
+class AppMotion {
+  const AppMotion._();
+
+  /// 图片淡入：比 Anim.fast(160) 略柔，比 Anim.base(220) 利落。
+  static const Duration imageFade = Duration(milliseconds: 180);
+
+  /// 骨架 → 内容交叉淡出，避免两层叠加瞬间变亮。
+  static const Duration crossFade = Duration(milliseconds: 120);
+
+  /// shimmer 扫光周期：慢到不抢注意力。
+  static const Duration shimmer = Duration(milliseconds: 1500);
+
+  /// 按压缩放时长（沿用 LiquidPress 手感）。
+  static const Duration press = Duration(milliseconds: 90);
+}
+
+/// 骨架渐变：低饱和的深色玻璃底，与 [PosterBox] 同一套视觉语言，
+/// 但去掉高饱和色块，避免加载态比真实海报还抢眼。
+class SkeletonColors {
+  const SkeletonColors._();
+
+  static const Color base = Color(0xFF121B2C);
+  static const Color hi = Color(0xFF1C2A42);
+
+  static const LinearGradient gradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [base, hi, base],
+    stops: [0.0, 0.52, 1.0],
+  );
+
+  /// 文字条：比海报块更暗一档，形成层次。
+  static const LinearGradient bar = LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFF182337), Color(0xFF22314A), Color(0xFF182337)],
+    stops: [0.0, 0.5, 1.0],
+  );
+}
+
 class AppTheme {
   static ThemeData dark() {
     const cs = ColorScheme.dark(
@@ -64,8 +174,9 @@ class AppTheme {
           height: 1.6,
           color: Color(0xFFC3D3EE),
         ),
-        bodySmall: TextStyle(fontSize: 11.5, color: AppColors.muted),
-        labelSmall: TextStyle(fontSize: 10.5, color: AppColors.muted),
+        // v2.0.64：卡片标题 11 / 元信息 10，与 AppType.caption、micro 对齐。
+        bodySmall: TextStyle(fontSize: 11, color: AppColors.muted),
+        labelSmall: TextStyle(fontSize: 10, color: AppColors.muted),
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
@@ -389,7 +500,7 @@ class ChipLabel extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: AppRadii.pillBr,
         border: Border.all(color: bd, width: 1),
       ),
       child: Text(
@@ -459,12 +570,7 @@ class PosterBox extends StatelessWidget {
               item.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                height: 1.2,
-              ),
+              style: AppType.posterTitle,
             ),
           ),
           if (progress != null)

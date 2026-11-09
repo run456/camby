@@ -21,6 +21,7 @@ import '../lara/translate_cache.dart';
 import '../lara/translate_sheet.dart';
 import '../metadata/nfo_reader.dart';
 import '../widgets/status_bar_blur.dart';
+import '../widgets/skeleton.dart';
 import 'person_page.dart';
 import 'subtitle_filter_page.dart';
 
@@ -2125,16 +2126,12 @@ class _DetailPageState extends State<DetailPage> {
   Widget _episodeList() {
     final eps = _episodes;
     if (eps == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 14),
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppColors.primary,
-          ),
-        ),
+      // v2.0.64：分集首帧用内容形状占位，而不是一个小转圈。
+      return const ListSkeleton(
+        itemCount: 3,
+        cardWidth: 148,
+        height: 150,
+        shimmer: false,
       );
     }
     if (eps.isEmpty)
@@ -2313,16 +2310,11 @@ class _DetailPageState extends State<DetailPage> {
   Widget _similarRow() {
     final list = _similar;
     if (list == null) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 16),
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: AppColors.primary,
-          ),
-        ),
+      // v2.0.64：推荐首帧同样先画海报形状，切到内容时交叉淡出。
+      return const ListSkeleton(
+        itemCount: 3,
+        height: 190,
+        shimmer: false,
       );
     }
     if (list.isEmpty)

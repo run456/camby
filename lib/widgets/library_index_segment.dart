@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'haptics.dart';
 import 'liquid_press.dart';
 
 /// 媒体库二级浏览维度（v2.0.60 设计稿方案 A）。
@@ -49,7 +50,10 @@ class LibraryIndexSegment extends StatelessWidget {
     return LiquidPress(
       radius: 999,
       scale: 0.96,
-      onTap: () => onChanged(LibraryIndexTab.values[i]),
+      onTap: () {
+        AppHaptics.light();
+        onChanged(LibraryIndexTab.values[i]);
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,

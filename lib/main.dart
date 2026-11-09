@@ -13,6 +13,7 @@ import 'models.dart';
 import 'theme.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
+import 'widgets/haptics.dart';
 import 'pages/home_page.dart';
 import 'pages/detail_page.dart';
 import 'pages/player_page.dart';
@@ -22,7 +23,7 @@ import 'pages/favorites_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/search_page.dart';
 
-void main() {
+Future<void> main() async {
   // 在线字幕：迅雷字幕是 GBK 编码，注入解码器避免中文乱码。
   // 漏掉这一步不会报错，但字幕会显示成乱码，属于「静默失败」。
   OnlineSubtitleConfig.gbkDecoder = (bytes) => gbk_bytes.decode(bytes);
@@ -45,6 +46,9 @@ void main() {
   // runApp 就根本不会执行 —— 表现是「点开 App 一片黑，永远进不去」。
   // 现在改成逐个 try：启动补丁失败最多损失一点动效/播 MPV 的能力，不能连首页都打不开。
   WidgetsFlutterBinding.ensureInitialized();
+  // 触感开关要在首个可交互帧之前读好，否则第一次点按会用错档位。
+  // load() 内部自带兜底，插件未注册也不会阻断启动。
+  await AppHaptics.load();
   _guard('Inspire.warmUp', Inspire.warmUp);
   _guard('imageCache', () {
     // 图片内存缓存：千部库滚动时减少「解码→淘汰→再解码」抖动
@@ -228,6 +232,17 @@ class _AppShellState extends State<AppShell>
     _blur.value = false;
   }
 
+  /// v2.0.64：空态 CTA 的真实跳转（去媒体库 / 去「我的」连接服务器）。
+  /// 与底部 Tab 点击走同一套过渡，避免「点了一下界面像没反应」。
+  void _goTab(int i) {
+    setState(() {
+      _tab = i;
+      _visited.add(i);
+    });
+    _tabAnim.forward(from: 0);
+    _blur.value = false;
+  }
+
   /// 只关注页面最外层纵向滚动：上滑超过阈值才显示状态栏模糊
   bool _onScroll(ScrollNotification n) {
     if (n.depth == 0 && n.metrics.axis == Axis.vertical) {
@@ -318,11 +333,22 @@ class _AppShellState extends State<AppShell>
             onOpenLibrary: _openLibrary,
             onOpenAll: _openAllLibrary,
           ),
-          LibraryPage(onOpenDetail: _openDetail, state: _state),
-          FavoritesPage(state: _state, onOpenDetail: _openDetail),
+          LibraryPage(
+            onOpenDetail: _openDetail,
+            state: _state,
+            onGoSettings: () => _goTab(4),
+          ),
+          FavoritesPage(
+            state: _state,
+            onOpenDetail: _openDetail,
+            onSwitchTab: _goTab,
+          ),
           StatsPage(state: _state),
           SettingsPage(
-            onTabChanged: (i) => setState(() => _tab = i),
+            onTabChanged: (i) {
+              AppHaptics.light();
+              setState(() => _tab = i);
+            },
             state: _state,
             onOpenDetail: _openDetail,
           ),
@@ -617,6 +643,8 @@ class GlassNavBarState extends State<GlassNavBar> {
     }
     _lastTap = now;
     _lastIndex = i;
+    // 切 Tab 是明确的状态变化，给一次最轻的 selectionClick。
+    AppHaptics.light();
     widget.onChanged(i);
   }
 

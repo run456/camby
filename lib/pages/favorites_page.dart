@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
 import '../widgets/glass_toast.dart';
+import '../widgets/empty_state.dart';
 import 'folder_page.dart';
 import 'person_page.dart';
 
@@ -21,10 +22,14 @@ class FavoritesPage extends StatefulWidget {
     super.key,
     required this.state,
     required this.onOpenDetail,
+    this.onSwitchTab,
   });
 
   final AppState state;
   final OpenDetail onOpenDetail;
+
+  /// v2.0.64 空态 CTA：切到媒体库 /「我的」Tab 的真实跳转。
+  final ValueChanged<int>? onSwitchTab;
 
   @override
   State<FavoritesPage> createState() => _FavoritesPageState();
@@ -387,37 +392,38 @@ class _FavoritesPageState extends State<FavoritesPage> {
     final state = widget.state;
     final list = state.favoritePersons;
     if (list.isEmpty) {
+      final connected = state.server != null;
       return Center(
         key: const ValueKey('actors-empty'),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (state.favPersonsLoading)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        child: state.favPersonsLoading
+            ? const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    '正在读取演员收藏…',
+                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  ),
+                ],
               )
-            else
-              Icon(
-                Icons.person_outline_rounded,
-                size: 44,
-                color: AppColors.muted.withOpacity(0.5),
+            : SizedBox(
+                // v2.0.64：空态给一个能立刻点的真实动作，不再只是「一句死话」。
+                height: 320,
+                child: EmptyState(
+                  icon: Icons.person_outline_rounded,
+                  title: '还没有收藏演员',
+                  reason: connected
+                      ? '进入影片详情，在演员头像右上角点 ♥ 即可收藏。'
+                      : '还没有连接服务器。先在「我的 → 我的服务器」连接，再回来收藏演员。',
+                  primaryLabel: connected ? '去影片详情收藏演员' : '去连接服务器',
+                  onPrimary: () => widget.onSwitchTab?.call(connected ? 1 : 4),
+                ),
               ),
-            const SizedBox(height: 14),
-            Text(
-              state.favPersonsLoading ? '正在读取演员收藏…' : '还没有收藏演员',
-              style: const TextStyle(fontSize: 13, color: AppColors.muted),
-            ),
-            if (!state.favPersonsLoading) ...[
-              const SizedBox(height: 6),
-              const Text(
-                '进入演员页点击右上角 ♥ 即可收藏',
-                style: TextStyle(fontSize: 11.5, color: AppColors.muted),
-              ),
-            ],
-          ],
-        ),
       );
     }
     return GridView.builder(

@@ -7,6 +7,7 @@ import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
 import '../widgets/glass_toast.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/library_index_segment.dart';
 import '../widgets/liquid_press.dart';
@@ -469,37 +470,60 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   }
 
   Widget _empty(String q) {
+    // v2.0.64：空态不再是一句死话。直接复用右上角的「同步合集」动作，
+    // 再给一个次入口讲清数据来源，用户不用去猜按钮和空态的关系。
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
       children: [
-        const SizedBox(height: 90),
-        Icon(Icons.collections_bookmark_outlined,
-            size: 40, color: AppColors.muted.withOpacity(0.5)),
-        const SizedBox(height: 12),
-        Center(
-          child: Text(
-            q.isEmpty ? '还没有识别到系列' : '没有匹配「${_query.trim()}」的系列',
-            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+        const SizedBox(height: 56),
+        SizedBox(
+          height: 330,
+          child: EmptyState(
+            icon: Icons.collections_bookmark_outlined,
+            title: q.isEmpty
+                ? '还没有识别到系列'
+                : '没有匹配「${_query.trim()}」的系列',
+            reason: q.isEmpty
+                ? '系列名取自服务端的「所属合集」（BoxSet）。同步一次即可出现在下方列表。'
+                : '换个关键词试试，或清空搜索查看全部系列。',
+            primaryLabel: q.isEmpty ? '同步合集' : '清空搜索',
+            onPrimary: q.isEmpty
+                ? _syncBoxSets
+                : () {
+                    _controller.clear();
+                    setState(() => _query = '');
+                  },
+            secondaryLabel: q.isEmpty ? '了解数据来源' : null,
+            onSecondary: q.isEmpty ? _showSourceInfo : null,
           ),
         ),
-        if (q.isEmpty) ...[
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              '系列名取自服务端的「所属合集」（BoxSet）。'
-              '点右上角「同步合集」可一次性扫描全库并回填。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11,
-                color: AppColors.muted.withOpacity(0.8),
-              ),
-            ),
+      ],
+    );
+  }
+
+  /// 空态次入口：说清「为什么读合集、怎么造合集」，避免又去改 NFO。
+  Future<void> _showSourceInfo() async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF171C29),
+        title: const Text('系列从哪里来',
+            style: TextStyle(fontSize: 15, color: Colors.white)),
+        content: const Text(
+          '「系列」读取的是服务端的「所属合集」（BoxSet），与 Emby 网页端影片详情页的「所属合集」一致。\n\n'
+          '如果服务端还没有合集，可在网页端新建合集并把影片加进去，再回到这里点「同步合集」。'
+          '只有服务端完全没有合集数据时，详情页才会退回直读 NFO 兜底。',
+          style: TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
           ),
         ],
-      ],
+      ),
     );
   }
 }

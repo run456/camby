@@ -2419,3 +2419,63 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 新增 `test/boxset_series_test.dart` 9 条：三个 API 端点的源码守卫（含 `ListItemIds` / `ParentId`）、`mergeMappings` 的先到优先与空值过滤、详情页「合集反查必须排在 NFO 之前」、系列页不再引用 `NfoSeriesBackfill`、同步服务不触碰 `loadNfoSeries`、`BoxSetSyncResult` 默认值。更新 `test/nfo_series_backfill_test.dart` 的按钮守卫为「同步合集」/ `BoxSetSeriesSync.run(`，并把该文件注释里「只能直读 .nfo」的旧结论改正。
 
 验证（v2.0.63）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **461 全过**（原 452 + 新增 9 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.63-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='263' versionName='2.0.63'`。
+
+---
+
+## §89 发布 v2.0.64（质感包：图片过渡 / 触觉 / token 收敛 / 空态 CTA）
+
+### 用户反馈与确认
+
+用户在 v2.0.63 后问「跟其他主流播放器相比还差一点点意思」，先交付了 `Camby体验差距看板.html` 与 `质感包前后对比稿.html`，随后以「按推荐的开始」确认六项推荐值：
+
+| 项 | 确认值 |
+| --- | --- |
+| 范围 | 只做 ① 质感包四条，不掺 ② 本地库秒开 |
+| 骨架视觉 | 低饱和渐变 + 慢速微光 |
+| 淡入时长 | 180ms |
+| 触觉 | 默认开 + 设置里可关 |
+| token 力度 | 只统一卡片标题 / 年份 / 胶囊 / 圆角四类高频，不做 337 处全量替换 |
+| 空态 | 13 处逐处给真实动作 |
+
+### 诊断依据（改动前）
+
+- `CachedImage` 的 `placeholder` 是 `SizedBox.shrink()`、`fadeInDuration: Duration.zero` → 海报「先空着、再啪地蹦出来」。
+- 全项目 `HapticFeedback` 0 命中；Shimmer / 骨架 0 命中；337 处手写 `fontSize`、约 20 种字号、12 种圆角。
+- 13 处「暂无数据」都是「灰色图标 + 一行字」，没有下一步动作。
+- 已有优点保留：`PosterHero`、`Anim`、播放手势、`RecoEngine`、`ErrorWidget.builder`。
+
+### 实现
+
+**图片链路**（`lib/widgets/cached_image.dart`）：改为 `StatefulWidget`，`initState` 里用 `DefaultCacheManager().getFileFromCache(imageCacheKey(url))` 探一次磁盘缓存；探测完成前只画骨架，完成后才构建 `CachedNetworkImage`，让 `fadeInDuration` 在整个生命周期里保持稳定（不会中途重建打断已开始的淡入）。命中缓存 → `Duration.zero` 直出；未命中 → `AppMotion.imageFade`(180ms) + `Anim.curve`。`placeholder` 与 `errorWidget` 都用 `SkeletonBox`，失败时叠 `fallbackLabel` 片名。`pubspec.yaml` 新增 `flutter_cache_manager: ^3.4.6`（与 lock 一致），避免 `depend_on_referenced_packages`。
+
+**骨架**（新增 `lib/widgets/skeleton.dart`）：`ShimmerScope` 用单个 `AnimationController.repeat()` 在父级画一条移动渐变带，`widget.child` 是同一实例不随帧重建，整体包 `RepaintBoundary`；`SkeletonCard` 用 `Expanded` 吃剩余高度，适配任意卡片高度。接入：媒体库首屏 / 切库（`LibrarySkeleton`）、首页媒体库行、详情页分集与推荐首帧（`ListSkeleton`）。页面首屏才挂扫光，行内 / 局部骨架用静态渐变，不给稳定滚动加动画。
+
+**触觉**（新增 `lib/widgets/haptics.dart`）：`AppHaptics.load()` 在 `main()` 里 `await`（`WidgetsFlutterBinding.ensureInitialized()` 之后、首个可交互帧之前），读 `set_haptics`；`setEnabled()` 立即改内存 + 持久化。三档调用都包了 `onError` 静默兜底，桌面 / 测试宿主无 vibrator 不影响业务。接入点：底部 Tab（`GlassNavBarState._onTap`）、设置页 `onTabChanged`、二级分段、排序 chip、海报按下（`_setDown(true)`）、`AppState.toggleFavorite` / `togglePersonFavorite`、删除服务器确认、断开连接。设置页新增 `_Toggle`，`_set('haptics', v)` 时调 `AppHaptics.setEnabled(v)`；`settings_effect_test.dart` 的「假开关」守卫由 `haptics.dart` 里的 `getBool('set_haptics')` 满足。
+
+**token**（`lib/theme.dart`）：新增 `AppRadii` / `AppType` / `AppMotion` / `SkeletonColors`，改 `TextTheme.bodySmall=11`、`labelSmall=10`；`media_poster.dart` 的海报内标题、卡片标题、推荐理由统一进 token；`ChipLabel` 圆角改 `AppRadii.pillBr`；`PosterBox` 片名用 `AppType.posterTitle`。圆角与字号只替换高频同类，其余手写值保留。
+
+**空态**（新增 `lib/widgets/empty_state.dart`）：`EmptyState`（玻璃图标 + 标题 + 原因 + 主 CTA + 次入口，内部用 `LayoutBuilder` 兼容无界高度）与 `EmptyHint`（卡片内一行原因 + 小动作）。逐处映射：系列总览、演员总览、收藏页演员档（含未连接服务器分支）、收藏夹内容页、标签聚合页、搜索页影片 / 演员两处、演员详情作品区、媒体库筛选无结果、首页媒体库行（已有重试动作保留）、统计页 9 处、字幕筛选页、收藏夹弹层。跨 Tab 的 CTA 由 `LibraryPage.onGoSettings` / `FavoritesPage.onSwitchTab` 接到 `AppShell._goTab(int)`，与底部 Tab 点击共用同一套过渡；系列页「同步合集」直接复用 `_syncBoxSets()`。
+
+### 设计取舍
+
+- **不做本地库持久化 / 增量同步**：属优先级 ②，要动 `AppState` 持久化与弱网验证，单独一个版本。
+- **不引入实时模糊**：骨架与空态图标全是纯渐变，`perf_audit.py` 对新文件 0 命中；不改 `Glass` 现有实现。
+- **不动播放页控件层**：避免碰视频逐帧合成的性能红线；播放页的锁定 / 解锁档位只在约定里，未接调用。
+- **不引第三方 shimmer**：单控制器 + `LinearGradient` 足够，也避免多一个动画依赖。
+- **统计页 CTA 用「了解统计口径」而非「去看一部影片」**：后者需要给 StatsPage 加跨 Tab 回调并改导航状态，与「不改导航结构」冲突；改为复用页内已有的玻璃说明弹窗，仍是真实可点动作，文案里说明了「去媒体库点开一部影片播放一会儿」。
+- **`fadeInDuration` 前置探测**：宁可多一帧骨架，也不让参数在 `CachedNetworkImage` 生命周期中途变化导致淡入被截断。
+
+### 回归与修复
+
+- `SkeletonCard` 初版用 `AspectRatio(1/1.45)` 按宽度反推高度，在详情页 150dp 矮卡里向下溢出 92px，连带 `tablet_layout_test.dart` 与收藏页 golden 报多处异常 → 改为 `Expanded` 吃剩余高度。
+- `ListSkeleton` 初版用 `ListView.builder(itemCount: 3)`，被 `detail_info_regression_test.dart` 的「横向 ListView childCount==3 即判定为制作信息混排」守卫误判 → 改为固定 `children`（骨架本来就是静态占位，也不给滚动路径加 itemBuilder）。
+- 两张 golden（`favorites_wall.png` / `favorites_actors.png`）随 UI 重做用 `--update-goldens` 更新，更新前已确认无布局溢出异常。
+- 注释里出现 `BackdropFilter` 字样会被 `perf_audit.py` 逐行正则误报，改写为「实时模糊 / 滤镜组件」后 0 命中。
+
+### 文件清单与测试
+
+新增：`lib/widgets/skeleton.dart`、`lib/widgets/haptics.dart`、`lib/widgets/empty_state.dart`、`test/quality_pack_test.dart`（19 条：token 档位、图片过渡源码守卫、骨架无模糊 / 走断点、widget 渲染、触感三档与开关、13 类空态源码守卫、CTA 可点行为、版本断言）。更新 golden 2 张、版本断言 `test/online_subtitle_test.dart`、版本号 5 处。
+
+**真机重点验收**：弱网首次进媒体库（先见 9 张带形状骨架，图片逐张淡入无硬切）、断网二次进入（磁盘缓存瞬间出现，看不到骨架与淡入）、图片 404（骨架 + 片名仍可点开详情）、快速来回滚动（无掉帧、无闪烁）、设置里关掉触感后全部震动消失、13 类空态 CTA 点击后确实跳到对应功能。
+
+验证（v2.0.64）：`flutter analyze` 0 error / 0 warning（439 项全为 info 级既有弃用）；`flutter test` **480 全过**（原 461 + 新增 19 条）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.64-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='264' versionName='2.0.64'`。

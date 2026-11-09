@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'emby_client.dart';
 import 'models.dart';
+import 'widgets/haptics.dart';
 
 /// 待上报进度（持久化队列用）
 class _PendingProgress {
@@ -992,6 +993,7 @@ class AppState extends ChangeNotifier {
     _favPersons = target
         ? [..._favPersons, p]
         : _favPersons.where((e) => e.id != id).toList();
+    AppHaptics.medium();
     notifyListeners();
     await _saveFolders();
   }
@@ -1021,6 +1023,7 @@ class AppState extends ChangeNotifier {
         .toList();
     if (!target) await _removeItemFromFolders(item.id);
     _invalidateDerived();
+    AppHaptics.medium();
     notifyListeners();
   }
 

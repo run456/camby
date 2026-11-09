@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'haptics.dart';
 import 'liquid_press.dart';
 
 /// 统一的排序选择行：年份 / 标题 / 评分 三个胶囊。
@@ -47,6 +48,7 @@ class SortChipRow extends StatelessWidget {
       radius: 999,
       scale: 0.95,
       onTap: () {
+        AppHaptics.light();
         // 已选中 → 翻转方向；未选中 → 默认倒序（更符合「先看新的/高分」）
         if (on) {
           onChanged(f, !ascending);

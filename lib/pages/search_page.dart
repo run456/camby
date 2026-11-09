@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/empty_state.dart';
 import 'person_page.dart';
 
 /// 搜索页：本地联想（片名 / 演员 / 标签）+ 热门关键词 + 热播榜 + 结果网格
@@ -51,6 +52,17 @@ class _SearchPageState extends State<SearchPage> {
   late final List<String> _hotTags;
   late final List<String> _hotCast;
   late final List<MediaItem> _hotPlayed;
+
+  /// v2.0.64：空态「清除搜索」与输入框的清空按钮共用同一个动作，
+  /// 清完回到热播榜，而不是留一片空白。
+  void _clearSearch() {
+    _ctl.clear();
+    setState(() {
+      _q = '';
+      _results = const [];
+      _actors = const [];
+    });
+  }
 
   @override
   void initState() {
@@ -337,14 +349,7 @@ class _SearchPageState extends State<SearchPage> {
                                 LiquidPress(
                                   radius: 10,
                                   semanticLabel: '清空',
-                                  onTap: () {
-                                    _ctl.clear();
-                                    setState(() {
-                                      _q = '';
-                                      _results = const [];
-                                      _actors = const [];
-                                    });
-                                  },
+                                  onTap: _clearSearch,
                                   child: const Icon(
                                     Icons.close_rounded,
                                     size: 16,
@@ -429,11 +434,12 @@ class _SearchPageState extends State<SearchPage> {
     }
     if (_mode == 1) {
       if (_actors.isEmpty) {
-        return Center(
-          child: Text(
-            '没有找到匹配「$_q」的演员',
-            style: const TextStyle(color: AppColors.muted, fontSize: 13),
-          ),
+        return EmptyState(
+          icon: Icons.person_search_rounded,
+          title: '没有找到匹配「$_q」的演员',
+          reason: '换个关键词，或切到「影片」模式看看。',
+          primaryLabel: '清除搜索',
+          onPrimary: _clearSearch,
         );
       }
       return _ActorGrid(
@@ -443,11 +449,12 @@ class _SearchPageState extends State<SearchPage> {
       );
     }
     if (_results.isEmpty) {
-      return Center(
-        child: Text(
-          '没有匹配「$_q」的影片',
-          style: const TextStyle(color: AppColors.muted, fontSize: 13),
-        ),
+      return EmptyState(
+        icon: Icons.search_off_rounded,
+        title: '没有匹配「$_q」的影片',
+        reason: '检查一下拼写，或清除搜索从热播榜重新挑一部。',
+        primaryLabel: '清除搜索',
+        onPrimary: _clearSearch,
       );
     }
     return _ResultGrid(results: _results, onOpenDetail: _open);
