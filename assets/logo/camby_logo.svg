@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Camby">
+  <defs>
+    <!-- 扁平对角渐变：teal → blue → violet，iOS 通透感 -->
+    <linearGradient id="bg" x1="0.08" y1="0.04" x2="0.92" y2="0.98">
+      <stop offset="0" stop-color="#15C2A8"/>
+      <stop offset="0.5" stop-color="#1E90E8"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <!-- 液态玻璃光晕：左上柔光折射，扁平、无阴影 -->
+    <radialGradient id="glass" cx="0.30" cy="0.20" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.26"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 背景超椭圆（iOS 连续曲率，约 22.6% 圆角） -->
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <!-- 液态玻璃光晕层 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#glass)"/>
+  <!-- 边缘玻璃高光（内描边，非投影） -->
+  <rect x="3" y="3" width="1018" height="1018" rx="229" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="3"/>
+
+  <!-- 液态镜头环 + 播放三角（扁平白色，无阴影） -->
+  <circle cx="512" cy="512" r="239" fill="none" stroke="#ffffff" stroke-width="48"/>
+  <path d="M456 392 L689 512 L456 633 Z" fill="#ffffff" stroke="#ffffff" stroke-width="46" stroke-linejoin="round"/>
+</svg>
