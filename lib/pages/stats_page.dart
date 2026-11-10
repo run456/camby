@@ -1456,7 +1456,7 @@ class _ContinueList extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFFFC55A), Color(0xFFFF8A4C)],
+                    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
                   ),
                   border: Border.all(
                     color: Colors.white.withOpacity(0.22),

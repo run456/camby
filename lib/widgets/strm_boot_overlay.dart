@@ -156,7 +156,7 @@ class _StrmBootOverlayState extends State<StrmBootOverlay> {
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        Color(0xFF6E8BFF),
+                        Color(0xFF19C7B0),
                       ),
                     ),
                   ),
@@ -304,7 +304,7 @@ class _StrmBootOverlayState extends State<StrmBootOverlay> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: i <= stage
-                      ? const Color(0xFF6E8BFF)
+                      ? const Color(0xFF19C7B0)
                       : Colors.white.withOpacity(0.18),
                 ),
               ),

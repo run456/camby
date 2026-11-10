@@ -622,7 +622,7 @@ class _SeriesTile extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFFFFA347),
+                      color: Color(0xFF3BE0C4),
                     ),
                   ),
                   const SizedBox(height: 5),

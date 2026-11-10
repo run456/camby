@@ -2774,7 +2774,7 @@ class _ProgressBarState extends State<_ProgressBar> {
                         pressed ? ui.barActiveH : ui.barTrackH,
                       ),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                        colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
                       ),
                       boxShadow: pressed
                           ? const [

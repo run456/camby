@@ -702,7 +702,7 @@ class _FolderRow extends StatelessWidget {
             Icon(
               selected ? Icons.folder_rounded : Icons.folder_open_rounded,
               size: 16,
-              color: selected ? const Color(0xFF9CC2FF) : AppColors.muted,
+              color: selected ? const Color(0xFF8FF5E2) : AppColors.muted,
             ),
             const SizedBox(width: 9),
             Expanded(

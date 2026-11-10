@@ -72,7 +72,7 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
                             const Icon(
                               Icons.subtitles_rounded,
                               size: 16,
-                              color: Color(0xFF9CC2FF),
+                              color: Color(0xFF8FF5E2),
                             ),
                             const SizedBox(width: 6),
                             const Text(

@@ -298,7 +298,7 @@ class LiquidPill extends StatelessWidget {
               Icon(
                 icon,
                 size: fontSize + 1,
-                color: accent ? const Color(0xFF9CC2FF) : fg,
+                color: accent ? const Color(0xFF8FF5E2) : fg,
               ),
               const SizedBox(width: 5),
             ],
@@ -315,7 +315,7 @@ class LiquidPill extends StatelessWidget {
               Icon(
                 trailing,
                 size: fontSize + 2,
-                color: accent ? const Color(0xFF9CC2FF) : AppColors.muted,
+                color: accent ? const Color(0xFF8FF5E2) : AppColors.muted,
               ),
             ],
           ],

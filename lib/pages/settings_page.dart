@@ -577,7 +577,7 @@ class _ServerCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   gradient: LinearGradient(
                     colors: p.kind == ServerKind.jellyfin
-                        ? const [Color(0xFF7B5CFF), Color(0xFF4F8CFF)]
+                        ? const [Color(0xFF19C7B0), Color(0xFF3BE0C4)]
                         : const [AppColors.accent, Color(0xFF159F88)],
                   ),
                 ),

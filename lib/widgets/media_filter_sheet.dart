@@ -625,7 +625,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                            colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
                           ),
                           boxShadow: const [
                             BoxShadow(
@@ -731,7 +731,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
                 color: on
-                    ? const Color(0xFFA9C4FF)
+                    ? const Color(0xFF8FF5E2)
                     : AppColors.muted.withOpacity(0.75),
               ),
             ),

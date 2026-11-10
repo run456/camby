@@ -489,7 +489,7 @@ class _PersonPageState extends State<PersonPage> {
               style: const TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
-                color: Color(0xFFFFA347),
+                color: Color(0xFF3BE0C4),
                 letterSpacing: -1,
               ),
             ),
@@ -667,7 +667,7 @@ class _PersonPageState extends State<PersonPage> {
             style: const TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w800,
-              color: Color(0xFFFFA347),
+              color: Color(0xFF3BE0C4),
             ),
           ),
         ],

@@ -13,18 +13,18 @@ class AppColors {
   static const surface = Color(0xFF101726);
   static const ink = Color(0xFFF2F7FF);
   static const muted = Color(0xFF8B9BB4);
-  static const primary = Color(0xFF4F8CFF); // 蓝紫主色
-  static const secondary = Color(0xFF7B5CFF);
-  static const accent = Color(0xFF5B8CFF); // 亮蓝强调
+  static const primary = Color(0xFF3BE0C4); // 青绿主色（v2.0.73 由蓝紫切换）
+  static const secondary = Color(0xFF19B3A6); // 深青（次色 / 渐变暗端）
+  static const accent = Color(0xFF5AF0D6); // 亮青绿强调
   static const cyan = Color(0xFF38E8C8);
   static const warn = Color(0xFFFFC55A);
   static const danger = Color(0xFFFF6B8A);
 
-  /// 主行动按钮渐变：蓝 → 紫
+  /// 主行动按钮渐变：深青 → 亮青绿
   static const ctaGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    colors: [Color(0xFF4F8CFF), Color(0xFF7B5CFF)],
+    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
   );
 }
 
@@ -296,15 +296,24 @@ class Glass extends StatelessWidget {
   /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。
   final bool blurEnabled;
 
-  /// L1 凝态色彩矩阵：近似 saturate 1.6 + contrast 1.1（GPU 采样不增）。
-  /// 矩阵已合并两步骤：先 saturate 再 contrast。把透出的背景「冻」住、提亮
-  /// 饱和，抵消灰白 tint 的发闷。纯 CPU 参数，经 ColorFiltered 应用。
+  /// 背景色彩矩阵：saturate 1.45 + contrast 1.06（标准亮度权重公式）。
+  ///
+  /// v2.0.73 修复：v2.0.70 那版系数是错的（R 行 -0.286/1.259/0.127），
+  /// 把主色 #4F8CFF 算成 #BA9246 —— 全站按钮/开关/进度条被染成金黄。
+  /// 现在用规范矩阵：sr=(1-s)*0.213、sg=(1-s)*0.715、sb=(1-s)*0.072。
+  ///
+  /// **只作用于 BackdropFilter 采样到的背景**，不碰玻璃内部内容
+  /// （内容若被调色，文字和品牌色会整体偏色）。
   static const List<double> _vibrancy = [
-    -0.286, 1.259, 0.127, 0, -0.05,
-     0.374, 0.599, 0.127, 0, -0.05,
-     0.374, 1.259, -0.533, 0, -0.05,
-     0,     0,     0,     1,  0,
+    1.4353, -0.3411, -0.0343, 0, -7.65,
+    -0.1017, 1.1959, -0.0343, 0, -7.65,
+    -0.1017, -0.3411, 1.5027, 0, -7.65,
+    0, 0, 0, 1, 0,
   ];
+
+  /// 玻璃底板色（v2.0.73）：真机反馈弹窗过于通透，背后文字直接透上来很乱。
+  /// 底板压住一层深色，模糊只负责边缘的「玻璃感」。
+  static const Color _base = Color(0xFF0B111C);
 
   /// 内发光：Flutter BoxShadow 无 inset，用边缘内渐变近似玻璃厚度。
   Widget _innerGlow(BorderRadius r, double a) => Positioned.fill(
@@ -399,6 +408,14 @@ class Glass extends StatelessWidget {
             : Border.all(color: Colors.white.withOpacity(0.22), width: 0.9))
         : null;
 
+    // v2.0.73：玻璃不再「全透」。底板压一层深色，模糊只做边缘玻璃感；
+    // 播放页（blurEnabled=false）没有真实模糊，底板让得更透以免糊住画面。
+    final baseAlpha = blurEnabled ? (soft ? 0.52 : 0.70) : 0.42;
+    Color fill(double whiteA) => Color.alphaBlend(
+          Colors.white.withOpacity(whiteA),
+          _base,
+        ).withOpacity(baseAlpha);
+
     final body = Container(
       width: width,
       height: height,
@@ -411,9 +428,9 @@ class Glass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(soft ? tintNow * 0.9 : tintNow * 1.6),
-                Colors.white.withOpacity(soft ? tintNow * 0.3 : tintNow * 0.5),
-                Colors.white.withOpacity(soft ? tintNow * 0.5 : tintNow * 0.9),
+                fill(soft ? tintNow * 0.9 : tintNow * 1.6),
+                fill(soft ? tintNow * 0.3 : tintNow * 0.5),
+                fill(soft ? tintNow * 0.5 : tintNow * 0.9),
               ],
               stops: const [0.0, 0.45, 1.0],
             ),
@@ -422,8 +439,11 @@ class Glass extends StatelessWidget {
       child: child,
     );
 
-    // 滤镜层：L2 = 先高斯模糊、再自定义 shader 沿法线偏移采样（真折射）；
-    // 否则 = 仅模糊（L1）。播放页 blurEnabled=false 时两者都不套滤镜。
+    // 滤镜层：两条路径都只处理「背后透出的背景」，内容原色不动。
+    //   L2 = 模糊 → shader 沿法线偏移采样（真折射 + 色散）
+    //   L1 = 模糊 → 色彩矩阵（saturate/contrast，纯 CPU 参数）
+    // v2.0.73 修复：矩阵以前套在 body 外层（ColorFiltered），连按钮、文字一起
+    // 调色，品牌蓝被算成金黄。现在塞进 BackdropFilter 的 filter 链。
     final ImageFilter? filter = !blurEnabled
         ? null
         : (useLiquid
@@ -438,7 +458,10 @@ class Glass extends StatelessWidget {
                   ),
                 ),
               )
-            : ImageFilter.blur(sigmaX: blur, sigmaY: blur));
+            : ImageFilter.compose(
+                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                outer: ColorFilter.matrix(_vibrancy),
+              ));
 
     final clipped = ClipRRect(
       borderRadius: r,
@@ -447,18 +470,10 @@ class Glass extends StatelessWidget {
           : BackdropFilter(filter: filter, child: body),
     );
 
-    // 色彩矩阵：「冻」住背景、提亮饱和。L2 由 shader 做色彩保真，跳过叠加。
-    final vibed = useLiquid
-        ? clipped
-        : ColorFiltered(
-            colorFilter: ColorFilter.matrix(_vibrancy),
-            child: clipped,
-          );
-
     // 厚度层：内发光 + 折射高光。L2 加强高光、补边缘菲涅尔体积感。
     Widget content = Stack(
       children: [
-        vibed,
+        clipped,
         _innerGlow(r, useLiquid ? 0.15 : 0.10),
         _specular(
           r,

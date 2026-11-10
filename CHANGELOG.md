@@ -1,6 +1,6 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.72 (272)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.73 (273)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
@@ -41,6 +41,29 @@
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.73 (273) 修复全站「金黄」偏色 + 主色转青绿 + 玻璃加实底
+
+**偏色根因（自 v2.0.70 引入的 bug）**：L1 的 `_vibrancy` 色彩矩阵系数写错，且被
+`ColorFiltered` 套在玻璃 body **外层**——连玻璃内的按钮、文字、进度条一起调色。
+把主色 `#4F8CFF` 代入错误矩阵算出 `#BA9246`，于是全站开关 / CTA 按钮 / 进度条 /
+徽章全部「染成金黄」。这就是「所有颜色变金黄」的全部原因，与设计无关。
+
+- **矩阵换成规范公式**：`saturate 1.45 + contrast 1.06`，按亮度权重
+  `0.213/0.715/0.072` 推导，不再产生色相偏移。
+- **只调背景，不调内容**：矩阵塞进 `BackdropFilter` 的 `ImageFilter.compose`
+  （`inner: blur, outer: ColorFilter.matrix`），玻璃内部文字与品牌色保持原色。
+- **主色切换青绿**：`primary 0xFF4F8CFF→0xFF3BE0C4`、`accent→0xFF5AF0D6`、
+  `secondary→0xFF19B3A6`，`ctaGradient` 改深青→亮青绿；按钮/选中态/标签/
+  进度条/徽章里的蓝紫与金色一并归到青绿族（`0xFF8FF5E2` / `0xFF19C7B0`）。
+  语义色保留：`warn` 暖金（连接失败提示）、性别蓝（person/gender badge）。
+- **玻璃加实底**：真机反馈弹窗过于通透，背后文字直接透上来影响阅读。新增
+  `_base 0xFF0B111C` 底板，`blurEnabled` 时 alpha 0.70（`soft` 0.52），播放页
+  0.42（无真实模糊，避免糊住画面）；模糊只负责边缘玻璃感。
+
+**验证**：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
+`perf_audit.py` 0 命中；`verify_release.sh --build` 出包
+`camby-2.0.73-release-arm64.apk`，aapt 确认 `versionCode=273 / versionName=2.0.73`。
 
 ### v2.0.72 (272) 玻璃材质 L2 液态真落地：Impeller + 自定义 shader 真折射
 

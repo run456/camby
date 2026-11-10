@@ -834,7 +834,7 @@ class _DetailPageState extends State<DetailPage> {
                 return _videoCard(
                   title: tr.name,
                   tag: '预告',
-                  tagColor: const Color(0xFF5B8CFF),
+                  tagColor: const Color(0xFF3BE0C4),
                   thumb: tr.posterUrl ?? tr.backdropUrl ?? item.backdropUrl,
                   onTap: () => widget.onPlay(tr, null, resume: false),
                 );
@@ -845,7 +845,7 @@ class _DetailPageState extends State<DetailPage> {
                 return _videoCard(
                   title: '远程预告片',
                   tag: '外链',
-                  tagColor: const Color(0xFF5B8CFF),
+                  tagColor: const Color(0xFF3BE0C4),
                   thumb: item.backdropUrl,
                   onTap: () => unawaited(
                     launchUrl(
@@ -1264,7 +1264,7 @@ class _DetailPageState extends State<DetailPage> {
               leading: const Icon(
                 Icons.videocam_outlined,
                 size: 11,
-                color: Color(0xFFA9C4FF),
+                color: Color(0xFF8FF5E2),
               ),
             ),
           if (v.audioLabel.isNotEmpty)
@@ -1929,7 +1929,7 @@ class _DetailPageState extends State<DetailPage> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
                   ),
                   borderRadius: BorderRadius.circular(3),
                 ),
@@ -2609,7 +2609,7 @@ class _BannerGhostBtn extends StatelessWidget {
             Icon(
               icon,
               size: 16,
-              color: active ? const Color(0xFF9CC2FF) : const Color(0xFFDFE7F5),
+              color: active ? const Color(0xFF8FF5E2) : const Color(0xFFDFE7F5),
             ),
             const SizedBox(width: 6),
             Text(
@@ -2819,7 +2819,7 @@ class _Badge extends StatelessWidget {
           Icon(
             icon,
             size: 11,
-            color: gold ? const Color(0xFFFFC55A) : const Color(0xFFCDD9EA),
+            color: gold ? const Color(0xFF3BE0C4) : const Color(0xFFCDD9EA),
           ),
           const SizedBox(width: 4),
           Text(
@@ -2827,7 +2827,7 @@ class _Badge extends StatelessWidget {
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: gold ? const Color(0xFFFFD79A) : Colors.white,
+              color: gold ? const Color(0xFFB9FFF2) : Colors.white,
             ),
           ),
         ],
@@ -2995,7 +2995,7 @@ class _ProgressPlayButton extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
-                          colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
+                          colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
                         ),
                       ),
                     ),

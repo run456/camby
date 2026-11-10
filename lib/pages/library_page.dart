@@ -589,7 +589,7 @@ class _FilterChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFFA9C4FF).withOpacity(0.55),
+                color: const Color(0xFF8FF5E2).withOpacity(0.55),
               ),
             ),
             const SizedBox(width: 4),
@@ -598,14 +598,14 @@ class _FilterChip extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFFA9C4FF),
+                color: Color(0xFF8FF5E2),
               ),
             ),
             const SizedBox(width: 5),
             Icon(
               Icons.close_rounded,
               size: 11,
-              color: const Color(0xFFA9C4FF).withOpacity(0.7),
+              color: const Color(0xFF8FF5E2).withOpacity(0.7),
             ),
           ],
         ),

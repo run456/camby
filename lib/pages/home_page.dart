@@ -1357,7 +1357,7 @@ class _Badge extends StatelessWidget {
           Icon(
             icon,
             size: 11,
-            color: gold ? const Color(0xFFFFC55A) : const Color(0xFFD5E0F0),
+            color: gold ? const Color(0xFF3BE0C4) : const Color(0xFFD5E0F0),
           ),
           const SizedBox(width: 4),
           Text(

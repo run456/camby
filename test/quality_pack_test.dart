@@ -268,8 +268,8 @@ void main() {
   });
 
   group('版本', () {
-    test('pubspec 版本号为 v2.0.72', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.72+272'), isTrue);
+    test('pubspec 版本号为 v2.0.73', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.73+273'), isTrue);
     });
   });
 }
