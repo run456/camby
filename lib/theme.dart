@@ -295,10 +295,92 @@ class Glass extends StatelessWidget {
   /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。
   final bool blurEnabled;
 
+  /// L1 凝态色彩矩阵：近似 saturate 1.6 + contrast 1.1（GPU 采样不增）。
+  /// 矩阵已合并两步骤：先 saturate 再 contrast。把透出的背景「冻」住、提亮
+  /// 饱和，抵消灰白 tint 的发闷。纯 CPU 参数，经 ColorFiltered 应用。
+  static const List<double> _vibrancy = [
+    -0.286, 1.259, 0.127, 0, -0.05,
+     0.374, 0.599, 0.127, 0, -0.05,
+     0.374, 1.259, -0.533, 0, -0.05,
+     0,     0,     0,     1,  0,
+  ];
+
+  /// 内发光：Flutter BoxShadow 无 inset，用边缘内渐变近似玻璃厚度。
+  Widget _innerGlow(BorderRadius r, double a) => Positioned.fill(
+        child: IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: r,
+              gradient: RadialGradient(
+                center: Alignment.center,
+                radius: 0.92,
+                colors: [
+                  Colors.white.withOpacity(0.0),
+                  Colors.white.withOpacity(a),
+                ],
+                stops: const [0.72, 1.0],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// 折射高光层：对角镜面光 + 顶部弧形柔光。L1 仅提亮高光，真折射留待 L2。
+  /// 用 Positioned.fill 包住内部 Stack，使其跟随父级尺寸（内部仅两个定位子，
+  /// 自身无法在无约束父级下确定尺寸）。
+  Widget _specular(BorderRadius r, {double diag = 0.32, double top = 0.18}) =>
+      Positioned.fill(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: r,
+                    gradient: LinearGradient(
+                      stops: const [0.0, 0.34, 0.66, 1.0],
+                      colors: [
+                        Colors.white.withOpacity(diag),
+                        Colors.white.withOpacity(0.0),
+                        Colors.white.withOpacity(0.0),
+                        Colors.white.withOpacity(diag * 0.5),
+                      ],
+                      begin: const Alignment(-1.2, -1.0),
+                      end: const Alignment(1.2, 1.0),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: r,
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.65, -1.25),
+                      radius: 1.4,
+                      colors: [
+                        Colors.white.withOpacity(top),
+                        Colors.white.withOpacity(0.0),
+                      ],
+                      stops: const [0.0, 0.55],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final r = BorderRadius.circular(radius);
-    Widget content = Container(
+    // tint 让出一档给色彩矩阵，避免叠加后过曝
+    final tintNow = tint * 0.7;
+
+    final body = Container(
       width: width,
       height: height,
       padding: padding,
@@ -310,71 +392,42 @@ class Glass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withOpacity(soft ? tint * 0.9 : tint * 1.6),
-                Colors.white.withOpacity(soft ? tint * 0.3 : tint * 0.5),
-                Colors.white.withOpacity(soft ? tint * 0.5 : tint * 0.9),
+                Colors.white.withOpacity(soft ? tintNow * 0.9 : tintNow * 1.6),
+                Colors.white.withOpacity(soft ? tintNow * 0.3 : tintNow * 0.5),
+                Colors.white.withOpacity(soft ? tintNow * 0.5 : tintNow * 0.9),
               ],
               stops: const [0.0, 0.45, 1.0],
             ),
+        // 亮边：更亮更细，制造玻璃边缘厚度
         border: border
-            ? Border.all(color: Colors.white.withOpacity(0.18), width: 1)
+            ? Border.all(color: Colors.white.withOpacity(0.22), width: 0.9)
             : null,
       ),
       child: child,
     );
 
-    if (blurEnabled) {
-      content = BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: content,
-      );
-    }
+    final clipped = ClipRRect(
+      borderRadius: r,
+      child: blurEnabled
+          ? BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+              child: body,
+            )
+          : body,
+    );
 
-    content = ClipRRect(borderRadius: r, child: content);
+    // L1 关键：模糊后过色彩矩阵（纯 CPU 参数，GPU 采样不增），背景被「冻」住
+    final vibed = ColorFiltered(
+      colorFilter: ColorFilter.matrix(_vibrancy),
+      child: clipped,
+    );
 
-    // 折射高光层：对角镜面光 + 顶部弧形柔光（液态玻璃）
-    content = Stack(
+    // 厚度层：内发光 + 折射高光（alpha 已提档；真折射留待 L2）
+    Widget content = Stack(
       children: [
-        content,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: r,
-                gradient: LinearGradient(
-                  stops: const [0.0, 0.34, 0.66, 1.0],
-                  colors: [
-                    Colors.white.withOpacity(0.26),
-                    Colors.white.withOpacity(0.0),
-                    Colors.white.withOpacity(0.0),
-                    Colors.white.withOpacity(0.12),
-                  ],
-                  begin: const Alignment(-1.2, -1.0),
-                  end: const Alignment(1.2, 1.0),
-                ),
-              ),
-            ),
-          ),
-        ),
-        // 顶部弧形柔光：像光线打在玻璃上表面
-        Positioned.fill(
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: r,
-                gradient: RadialGradient(
-                  center: const Alignment(-0.65, -1.25),
-                  radius: 1.4,
-                  colors: [
-                    Colors.white.withOpacity(0.14),
-                    Colors.white.withOpacity(0.0),
-                  ],
-                  stops: const [0.0, 0.55],
-                ),
-              ),
-            ),
-          ),
-        ),
+        vibed,
+        _innerGlow(r, 0.10),
+        _specular(r),
       ],
     );
 
@@ -385,7 +438,20 @@ class Glass extends StatelessWidget {
     if (margin != null) {
       content = Padding(padding: margin!, child: content);
     }
-    return content;
+    // 外阴影：托起体积，置于最外层避免被 ClipRRect 裁掉
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: r,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x59000000),
+            blurRadius: 30,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: content,
+    );
   }
 }
 

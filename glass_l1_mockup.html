@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>液态玻璃 L1 · 霜态 vs 凝态 可视化对比</title>
+<style>
+  :root{
+    --ink:#eaf0ff; --muted:#9fb0cc; --accent:#4f8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink); background:#0b0e16; padding:32px 20px 60px;
+  }
+  h1{font-size:22px;font-weight:700;letter-spacing:.5px}
+  .sub{color:var(--muted);font-size:13px;margin-top:6px;line-height:1.6}
+  .stage{
+    position:relative; margin:28px auto 0; max-width:1100px; border-radius:24px; overflow:hidden;
+    min-height:460px; padding:28px;
+    background:
+      radial-gradient(120% 90% at 12% 8%, #ff7a59 0%, transparent 42%),
+      radial-gradient(120% 90% at 88% 18%, #19c6ff 0%, transparent 45%),
+      radial-gradient(140% 120% at 50% 110%, #b15bff 0%, transparent 50%),
+      linear-gradient(135deg,#10243a,#2a1140 60%,#0c2b22);
+  }
+  .stage::before{
+    content:""; position:absolute; inset:0;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><text x='4' y='26' font-size='20' fill='white' opacity='.18'>A</text></svg>");
+    background-size:40px 40px; opacity:.5;
+  }
+  .row{position:relative; display:flex; gap:24px; flex-wrap:wrap; z-index:1}
+  .cell{flex:1 1 300px; min-width:280px}
+  .tag{font-size:12px;font-weight:700;letter-spacing:1px;margin-bottom:12px;display:inline-block;
+       padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2)}
+  .tag.frost{color:#ffd9c9} .tag.frozen{color:#cfe5ff}
+
+  /* 霜态：只有模糊 + 灰白tint + 细边 + 静态对角高光 */
+  .card{
+    position:relative; border-radius:22px; padding:26px 22px; color:#fff; min-height:240px;
+    backdrop-filter:blur(22px); -webkit-backdrop-filter:blur(22px);
+  }
+  .card .ttl{font-size:18px;font-weight:700;margin-bottom:8px}
+  .card .ln{height:11px;border-radius:6px;background:rgba(255,255,255,.85);margin:9px 0}
+  .card .ln.s{width:62%}
+
+  .frost{
+    background:rgba(255,255,255,.10);
+    border:1px solid rgba(255,255,255,.18);
+    box-shadow:0 16px 40px rgba(0,0,0,.35);
+  }
+  .frost::after{ /* 静态对角高光，弱 */
+    content:""; position:absolute; inset:0; border-radius:22px; pointer-events:none;
+    background:linear-gradient(135deg, rgba(255,255,255,.26), transparent 34%, transparent 66%, rgba(255,255,255,.12));
+  }
+
+  /* 凝态 L1：模糊 + 色彩矩阵(saturate/contrast) + 内发光 + 亮边 + 高光提档 */
+  .frozen{
+    background:rgba(255,255,255,.06);
+    /* 关键：色彩矩阵近似 —— 提饱和、加对比，背景色块“冻”住 */
+    backdrop-filter:blur(22px) saturate(1.6) contrast(1.1);
+    -webkit-backdrop-filter:blur(22px) saturate(1.6) contrast(1.1);
+    border:0.9px solid rgba(255,255,255,.22);
+    box-shadow:
+      inset 0 0 24px rgba(255,255,255,.10),   /* 内发光：厚度 */
+      0 14px 34px rgba(0,0,0,.40);            /* 外阴影：托起体积 */
+  }
+  .frozen::after{ /* 高光提档 .32 */
+    content:""; position:absolute; inset:0; border-radius:22px; pointer-events:none;
+    background:linear-gradient(135deg, rgba(255,255,255,.34), transparent 30%, transparent 62%, rgba(255,255,255,.16));
+  }
+  .frozen::before{ /* 顶部弧光 .18 */
+    content:""; position:absolute; left:-20%; right:-20%; top:-30%; height:60%;
+    border-radius:50%; pointer-events:none;
+    background:radial-gradient(closest-side, rgba(255,255,255,.18), transparent 70%);
+  }
+
+  .note{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.7}
+  .legend{max-width:1100px;margin:26px auto 0;display:flex;gap:18px;flex-wrap:wrap}
+  .legend .k{flex:1 1 320px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+            border-radius:16px;padding:16px 18px;font-size:13px;line-height:1.7}
+  .legend b{color:#fff} .legend .x{color:#7fe0a0} .legend .y{color:#ffd27a}
+  .foot{max-width:1100px;margin:22px auto 0;color:var(--muted);font-size:12px;line-height:1.7}
+  code{background:rgba(255,255,255,.1);padding:1px 6px;border-radius:6px;font-size:12px}
+</style>
+</head>
+<body>
+  <h1>液态玻璃 L1 设计稿 · 可视化对比</h1>
+  <div class="sub">
+    左：现状 <b>霜态（Frost）</b> —— 仅高斯模糊 + 灰白 tint，色彩发闷、边缘无厚度。<br>
+    右：L1 <b>凝态（Frozen）</b> —— 模糊 + 色彩矩阵(saturate 1.6 / contrast 1.1) + 内发光 + 亮边，背景色块被「冻住」、边缘有厚度。<br>
+    同一张彩色背景之上，对比色彩鲜活度与边缘厚度差异。
+  </div>
+
+  <div class="stage">
+    <div class="row">
+      <div class="cell">
+        <span class="tag frost">现状 · 霜态 FROST</span>
+        <div class="card frost">
+          <div class="ttl">影片详情</div>
+          <div class="ln"></div>
+          <div class="ln s"></div>
+          <div class="ln"></div>
+          <div class="ln s"></div>
+        </div>
+        <div class="note">模糊 + 灰白 tint（0.10）稀释背景 → 发闷发灰；1px 细边无厚度；静态对角高光偏弱。</div>
+      </div>
+      <div class="cell">
+        <span class="tag frozen">L1 · 凝态 FROZEN</span>
+        <div class="card frozen">
+          <div class="ttl">影片详情</div>
+          <div class="ln"></div>
+          <div class="ln s"></div>
+          <div class="ln"></div>
+          <div class="ln s"></div>
+        </div>
+        <div class="note"><code>backdrop-filter: blur(22px) saturate(1.6) contrast(1.1)</code> + 内发光 <code>inset 0 0 24px</code> + 亮边 <code>.22/0.9px</code> + 高光提档 → 颜色鲜活、边缘有厚度。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="k">
+      <b>色彩透传</b><br>
+      <span class="x">●</span> 凝态：saturate 1.5–1.8 + contrast 1.1，颜色「冻」在玻璃里。<br>
+      <span class="y">●</span> 霜态：低饱和 + 灰白 tint，发闷发灰。
+    </div>
+    <div class="k">
+      <b>边缘光学 / 体积</b><br>
+      <span class="x">●</span> 凝态：内发光 + 亮边 + 外阴影 = 两层厚度感。<br>
+      <span class="y">●</span> 霜态：平切边、一层平面，背景与卡片两张皮。
+    </div>
+    <div class="k">
+      <b>性能 / 改动</b><br>
+      <span class="x">●</span> 凝态：色彩矩阵走 CPU(ColorFiltered)，GPU 采样不增；仅改 <code>Glass.build</code> 一处，可独立回滚。<br>
+      <span class="y">●</span> 霜态：1 次模糊采样。
+    </div>
+  </div>
+
+  <div class="foot">
+    说明：本页用浏览器 <code>backdrop-filter</code> 近似还原（色彩矩阵以 <code>saturate/contrast</code> 叠加、内发光以 <code>inset</code> 阴影近似），用于方案评审；
+    真机实现以 <code>GLASS_L1_DESIGN.md</code> 的 <code>ColorFiltered</code> + 内渐变/自定义 painter 配方为准。L2 液态（真折射 shader）不在本次范围。
+  </div>
+</body>
+</html>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>液态玻璃 L1 · 前后效果对比</title>
+<style>
+  :root{ --ink:#eaf0ff; --muted:#9fb0cc; --accent:#4f8cff; --card-radius:22px; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#080b12;color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;}
+  body{padding:34px 18px 70px; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  h1{font-size:23px;font-weight:800;letter-spacing:.4px}
+  .sub{color:var(--muted);font-size:13.5px;margin-top:8px;line-height:1.7}
+  .badge{display:inline-block;margin-top:12px;font-size:11px;letter-spacing:1px;font-weight:700;
+    padding:4px 11px;border-radius:999px;background:rgba(79,140,255,.16);color:#bcd4ff;
+    border:1px solid rgba(79,140,255,.4)}
+
+  /* ---------- 主对比滑块 ---------- */
+  .hero{margin-top:30px;border-radius:26px;overflow:hidden;position:relative;
+    box-shadow:0 30px 70px rgba(0,0,0,.5);user-select:none;touch-action:none}
+  .scene{position:relative;height:440px;
+    background:
+      radial-gradient(120% 100% at 10% 0%, #ff7a59 0%, transparent 40%),
+      radial-gradient(120% 100% at 90% 12%, #19c6ff 0%, transparent 44%),
+      radial-gradient(150% 130% at 55% 115%, #b15bff 0%, transparent 50%),
+      linear-gradient(135deg,#10243a,#2a1140 60%,#0c2b22);}
+  .scene::before{content:"";position:absolute;inset:0;opacity:.45;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='46' height='46'><text x='5' y='30' font-size='22' fill='white' opacity='.22'>A</text></svg>");
+    background-size:46px 46px}
+  /* 两层：霜态在底，凝态在上被裁剪 */
+  .layer{position:absolute;inset:0}
+  .layer .glass{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(420px,72%);min-height:230px;border-radius:var(--card-radius);
+    padding:26px 24px;color:#fff;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);}
+  .glass .ttl{font-size:19px;font-weight:800;margin-bottom:10px}
+  .glass .ln{height:11px;border-radius:6px;background:rgba(255,255,255,.88);margin:10px 0}
+  .glass .ln.s{width:64%}
+
+  /* 霜态 */
+  .frost .glass{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);
+    box-shadow:0 16px 40px rgba(0,0,0,.35)}
+  .frost .glass::after{content:"";position:absolute;inset:0;border-radius:var(--card-radius);pointer-events:none;
+    background:linear-gradient(135deg,rgba(255,255,255,.26),transparent 34%,transparent 66%,rgba(255,255,255,.12))}
+
+  /* 凝态 L1 */
+  .frozen{clip-path:inset(0 0 0 50%);}  /* 由 JS 改 */
+  .frozen .glass{background:rgba(255,255,255,.06);
+    backdrop-filter:blur(22px) saturate(1.6) contrast(1.1);
+    -webkit-backdrop-filter:blur(22px) saturate(1.6) contrast(1.1);
+    border:0.9px solid rgba(255,255,255,.22);
+    box-shadow:inset 0 0 24px rgba(255,255,255,.10),0 14px 34px rgba(0,0,0,.42)}
+  .frozen .glass::after{content:"";position:absolute;inset:0;border-radius:var(--card-radius);pointer-events:none;
+    background:linear-gradient(135deg,rgba(255,255,255,.34),transparent 30%,transparent 62%,rgba(255,255,255,.16))}
+  .frozen .glass::before{content:"";position:absolute;left:-20%;right:-20%;top:-30%;height:60%;border-radius:50%;pointer-events:none;
+    background:radial-gradient(closest-side,rgba(255,255,255,.18),transparent 70%)}
+
+  .handle{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;cursor:ew-resize;z-index:5;
+    box-shadow:0 0 12px rgba(255,255,255,.7)}
+  .handle::after{content:"⇆";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    width:40px;height:40px;border-radius:50%;background:#0b0e16;color:#fff;display:grid;place-items:center;
+    font-size:18px;border:2px solid #fff;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .corner{position:absolute;top:14px;font-size:11px;font-weight:800;letter-spacing:1.5px;padding:5px 12px;border-radius:999px;z-index:4}
+  .corner.l{left:14px;background:rgba(255,200,170,.18);color:#ffd9c9;border:1px solid rgba(255,200,170,.4)}
+  .corner.r{right:14px;background:rgba(170,210,255,.18);color:#cfe5ff;border:1px solid rgba(170,210,255,.4)}
+  .hint{margin-top:10px;color:var(--muted);font-size:12px;text-align:center}
+
+  /* ---------- 组件画廊 ---------- */
+  .sec-title{margin:46px 0 6px;font-size:16px;font-weight:700}
+  .sec-sub{color:var(--muted);font-size:12.5px;margin-bottom:18px;line-height:1.6}
+  .grid{display:flex;gap:18px;flex-wrap:wrap}
+  .col{flex:1 1 330px;min-width:300px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);
+    border-radius:20px;padding:18px}
+  .col h3{font-size:13px;font-weight:800;letter-spacing:.5px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.f{background:#ff9e7a}.dot.z{background:#7fb6ff}
+
+  .mini{position:relative;height:200px;border-radius:16px;overflow:hidden;margin-bottom:12px;
+    background:
+      radial-gradient(120% 100% at 15% 10%, #ff5d8f 0%, transparent 45%),
+      radial-gradient(120% 100% at 85% 20%, #2bd6c0 0%, transparent 45%),
+      linear-gradient(135deg,#1a2740,#241043);}
+  .mini::before{content:"";position:absolute;inset:0;opacity:.4;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='38' height='38'><text x='4' y='26' font-size='18' fill='white' opacity='.25'>B</text></svg>");background-size:38px 38px}
+  .mini .g{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:80%;height:78%;
+    border-radius:14px;color:#fff;padding:14px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font-size:12px}
+  .mini .g .row{height:8px;border-radius:5px;background:rgba(255,255,255,.85);margin:7px 0}
+  .mini .g .row.s{width:60%}
+  /* frost mini */
+  .mini.f .g{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18);
+    box-shadow:0 12px 30px rgba(0,0,0,.35)}
+  .mini.f .g::after{content:"";position:absolute;inset:0;border-radius:14px;pointer-events:none;
+    background:linear-gradient(135deg,rgba(255,255,255,.24),transparent 40%,transparent 60%,rgba(255,255,255,.1))}
+  /* frozen mini */
+  .mini.z .g{background:rgba(255,255,255,.06);
+    backdrop-filter:blur(18px) saturate(1.6) contrast(1.1);
+    -webkit-backdrop-filter:blur(18px) saturate(1.6) contrast(1.1);
+    border:0.9px solid rgba(255,255,255,.22);
+    box-shadow:inset 0 0 18px rgba(255,255,255,.10),0 10px 26px rgba(0,0,0,.4)}
+  .mini.z .g::after{content:"";position:absolute;inset:0;border-radius:14px;pointer-events:none;
+    background:linear-gradient(135deg,rgba(255,255,255,.32),transparent 32%,transparent 60%,rgba(255,255,255,.14))}
+
+  /* 导航条对比 */
+  .nav{position:relative;height:74px;border-radius:18px;overflow:hidden;margin-top:4px;
+    background:linear-gradient(135deg,#13243b,#2c133f,#0e2a24)}
+  .nav::before{content:"";position:absolute;inset:0;opacity:.5;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='34' height='34'><text x='4' y='24' font-size='16' fill='white' opacity='.3'>C</text></svg>");background-size:34px 34px}
+  .nav .bar{position:absolute;left:8%;right:8%;bottom:8px;height:46px;border-radius:16px;
+    display:flex;align-items:center;justify-content:space-around;color:#fff;font-size:11px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+  .nav.f .bar{background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.18)}
+  .nav.z .bar{background:rgba(255,255,255,.06);
+    backdrop-filter:blur(20px) saturate(1.6) contrast(1.1);
+    -webkit-backdrop-filter:blur(20px) saturate(1.6) contrast(1.1);
+    border:0.9px solid rgba(255,255,255,.22);
+    box-shadow:inset 0 0 18px rgba(255,255,255,.10),0 8px 22px rgba(0,0,0,.4)}
+
+  .param{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.8}
+  .param b{color:#fff;font-weight:700}
+  code{background:rgba(255,255,255,.1);padding:1px 6px;border-radius:6px;font-size:11.5px;color:#cfe5ff}
+
+  .legend{margin-top:42px;display:flex;gap:16px;flex-wrap:wrap}
+  .k{flex:1 1 300px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:16px 18px;font-size:13px;line-height:1.8}
+  .k b{color:#fff}
+  .foot{margin-top:26px;color:var(--muted);font-size:12px;line-height:1.8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>液态玻璃 L1 · 前后效果对比</h1>
+  <div class="sub">
+    左 <b>霜态（现状）</b>：仅高斯模糊 + 灰白 tint，色彩发闷、边缘无厚度。<br>
+    右 <b>凝态（L1 目标）</b>：模糊 + 色彩矩阵(saturate 1.6 / contrast 1.1) + 内发光 + 亮边，背景色块被「冻住」、边缘有厚度。
+  </div>
+  <span class="badge">L1 · 凝态 FROZEN · 零新增依赖</span>
+
+  <!-- 主对比滑块 -->
+  <div class="hero" id="hero">
+    <div class="scene">
+      <div class="layer frost">
+        <div class="glass"><div class="ttl">影片详情</div><div class="ln"></div><div class="ln s"></div><div class="ln"></div><div class="ln s"></div></div>
+      </div>
+      <div class="layer frozen" id="frozen">
+        <div class="glass"><div class="ttl">影片详情</div><div class="ln"></div><div class="ln s"></div><div class="ln"></div><div class="ln s"></div></div>
+      </div>
+      <span class="corner l">霜态 · 现状</span>
+      <span class="corner r">凝态 · L1</span>
+      <div class="handle" id="handle"></div>
+    </div>
+  </div>
+  <div class="hint">← 拖动中间滑块，对比同一背景下的玻璃质感差异 →</div>
+
+  <!-- 组件画廊 -->
+  <div class="sec-title">多组件并排对比</div>
+  <div class="sec-sub">同一套 <code>Glass</code> 组件改造后，弹窗、底部抽屉、导航条、图标按钮会整体从霜态跳到凝态。下方每组左为现状、右为 L1。</div>
+  <div class="grid">
+    <div class="col">
+      <h3><span class="dot f"></span>弹窗 / 详情卡（现状·霜态）</h3>
+      <div class="mini f"><div class="g"><div class="row"></div><div class="row s"></div><div class="row"></div></div></div>
+      <div class="param">
+        <b>模糊</b> blur(22px) 仅此一项<br>
+        <b>tint</b> <code>white .10</code> 灰白稀释<br>
+        <b>边</b> <code>white .18 / 1px</code> 平切、无厚度<br>
+        <b>高光</b> 静态对角 .26，偏弱
+      </div>
+    </div>
+    <div class="col">
+      <h3><span class="dot z"></span>弹窗 / 详情卡（L1·凝态）</h3>
+      <div class="mini z"><div class="g"><div class="row"></div><div class="row s"></div><div class="row"></div></div></div>
+      <div class="param">
+        <b>模糊+色彩矩阵</b> <code>blur(22px) saturate(1.6) contrast(1.1)</code><br>
+        <b>tint</b> <code>white .06</code> 让位色彩矩阵<br>
+        <b>边</b> <code>white .22 / 0.9px</code> 亮边<br>
+        <b>厚度</b> 内发光 <code>inset 0 0 24px</code> + 外阴影
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:18px">
+    <div class="col">
+      <h3><span class="dot f"></span>底部导航条（现状·霜态）</h3>
+      <div class="nav f"><div class="bar"><span>首页</span><span>搜索</span><span>我的</span></div></div>
+      <div class="param"><b>背景</b> 半透白 <code>.10</code> + 细边 <code>.18</code>，压在彩色页上时发闷、无浮起感。</div>
+    </div>
+    <div class="col">
+      <h3><span class="dot z"></span>底部导航条（L1·凝态）</h3>
+      <div class="nav z"><div class="bar"><span>首页</span><span>搜索</span><span>我的</span></div></div>
+      <div class="param"><b>背景</b> 半透白 <code>.06</code> + 饱和度/对比 + 内发光 + 亮边，彩色页透出更鲜活、条体更「实」。</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="k"><b>色彩透传</b><br>凝态：saturate 1.5–1.8 + contrast 1.1，颜色「冻」在玻璃里；霜态：低饱和 + 灰白 tint，发闷发灰。</div>
+    <div class="k"><b>边缘光学 / 体积</b><br>凝态：内发光 + 亮边 + 外阴影 = 两层厚度感；霜态：平切边、一层平面，两张皮。</div>
+    <div class="k"><b>性能 / 改动</b><br>凝态：色彩矩阵走 CPU(ColorFiltered)，GPU 采样不增；仅改 <code>Glass.build</code> 一处，可独立回滚。</div>
+  </div>
+
+  <div class="foot">
+    说明：本页用浏览器 <code>backdrop-filter</code> 近似还原（色彩矩阵以 <code>saturate/contrast</code> 叠加、内发光以 <code>inset</code> 阴影近似），用于方案评审；
+    真机实现以 <code>GLASS_L1_DESIGN.md</code> 的 <code>ColorFiltered</code> + 内渐变/自定义 painter 配方为准。L2 液态（真折射 shader）不在本次范围。
+  </div>
+</div>
+
+<script>
+  const hero=document.getElementById('hero');
+  const frozen=document.getElementById('frozen');
+  const handle=document.getElementById('handle');
+  let dragging=false;
+  function setPos(clientX){
+    const r=hero.getBoundingClientRect();
+    let p=(clientX-r.left)/r.width; p=Math.max(0.04,Math.min(0.96,p));
+    const pct=(p*100).toFixed(2)+'%';
+    frozen.style.clipPath='inset(0 0 0 '+pct+')';
+    handle.style.left=pct;
+  }
+  handle.addEventListener('pointerdown',e=>{dragging=true;handle.setPointerCapture(e.pointerId);});
+  window.addEventListener('pointerup',()=>dragging=false);
+  hero.addEventListener('pointermove',e=>{if(dragging)setPos(e.clientX);});
+  hero.addEventListener('click',e=>{if(!dragging)setPos(e.clientX);});
+  setPos(hero.getBoundingClientRect().left+hero.getBoundingClientRect().width/2);
+</script>
+</body>
+</html>

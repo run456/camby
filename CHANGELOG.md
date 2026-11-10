@@ -1,6 +1,6 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.69 (269)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.70 (270)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
@@ -41,6 +41,19 @@
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.70 (270) 玻璃材质 L1 凝态升级：色彩矩阵 + 内发光 + 亮边
+
+按《玻璃材质升级可行性研究》的分级路线（L1 凝态 → L2 液态 → L3 原生）落地 **L1**。当前 `Glass` 之前是报告定义的「霜态」——只有高斯模糊 + 灰白 tint + 静态高光，背景被灰白稀释发闷、卡片与背景两张皮。L1 在对 `theme.dart` 单一组件改动内补齐三项光学，零新增依赖、约半天投入、可独立回滚：
+
+- **色彩矩阵（核心）**：模糊后过 `ColorFiltered(ColorFilter.matrix(_vibrancy))`，矩阵合并 saturate 1.6 + contrast 1.1，把透出的背景「冻」住、提亮饱和，抵消灰白 tint 发闷。纯 CPU 参数，GPU 采样次数不增。
+- **内发光（厚度）**：Flutter `BoxShadow` 无 `inset`，用边缘内渐变（`RadialGradient` 中心透明、边缘 `white .10`）近似玻璃内壁散射，制造厚度感。
+- **亮边 + 高光提档**：边由 `white .18 / 1px` 改为更亮更细的 `white .22 / 0.9px`；对角高光 `.26 → .32`、顶部弧光 `.14 → .18`；tint 让出一档（×0.7）防过曝；外加深色投影托起体积。
+- **保留降级**：`blurEnabled` 与滚动掉帧降级原样保留，播放页 `blurEnabled:false` 不受影响（仅保留半透明质感）；`GlassPanel` / `LiquidPress` / 各 `GlassIconButton` 等自动受益，全仓 ~26 处 `Glass` 调用整体从霜态跳到凝态。
+
+设计稿与霜态/凝态对比可视化见 `GLASS_L1_DESIGN.md` 与 `glass_l1_compare.html`（仓库根）。L2 液态（真折射 shader，限详情页/弹窗）预留 `isShaderFilterSupported` 降级，本次未做。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **509 全过**（修正 `_specular` 内部 Stack 仅含定位子、无约束父级下断言崩溃的布局问题）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.70-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='270' versionName='2.0.70'`。
 
 ### v2.0.69 (269) 真机回归修复：键盘 / 导航条 / 弹窗玻璃 / 4K 版本联动
 
