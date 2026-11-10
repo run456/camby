@@ -11,7 +11,6 @@ import '../layout.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
-import '../liquid_glass.dart';
 import '../models.dart';
 import '../theme.dart';
 
@@ -64,8 +63,6 @@ class _SettingsPageState extends State<SettingsPage> {
         'record_history': prefs.getBool('set_record_history') ?? true,
         // v2.0.64 质感包：默认开，系统层面是否震动仍由 Android 决定。
         'haptics': prefs.getBool('set_haptics') ?? true,
-        // v2.0.72 液态玻璃：默认开（L2 真折射）；关掉退回 L1 凝态。
-        'liquid_glass': prefs.getBool('set_liquid_glass') ?? true,
       };
     });
   }
@@ -81,10 +78,6 @@ class _SettingsPageState extends State<SettingsPage> {
       // 关闭时什么都不会震，AppHaptics 内部直接 return。
       unawaited(AppHaptics.setEnabled(value));
       if (value) AppHaptics.light();
-    }
-    if (key == 'liquid_glass' && value is bool) {
-      // 立即切换材质档位：L2 液态 ↔ L1 凝态，下一帧即生效。
-      GlassConfig.liquidEnabled = value;
     }
   }
 
@@ -128,6 +121,96 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       );
     }
+    // v2.0.81 P2：主列表改「懒构造」。原先 children: [...] 在首帧就会把
+    // 服务器区、Lara 区等重型子树全部建一遍；builder 只在 item 进入视口时
+    // 才调用对应的 WidgetBuilder，滚动物理、间距、内容顺序完全不变。
+    final cells = <WidgetBuilder>[
+      (_) => const Row(
+        children: [
+          Icon(Icons.person_rounded, size: 20, color: AppColors.ink),
+          SizedBox(width: 10),
+          Text(
+            '我的',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+            ),
+          ),
+          // v2.0.68：右上角搜索按钮已移除（搜索是一级 Tab，无需重复入口）。
+        ],
+      ),
+      (_) => const SizedBox(height: 14),
+      (_) => _ServersSection(state: widget.state),
+      (_) => const SizedBox(height: 12),
+      (_) => _Group(
+        children: [
+          _RowItem(
+            title: '默认播放内核',
+            desc: _s['play_engine'] == 0 ? 'ExoPlayer · 兼容性最佳' : 'MPV · 硬解更强',
+            trailing: _Segment(
+              items: const ['Exo', 'MPV'],
+              value: _s['play_engine'],
+              onSelect: (i) => _set('play_engine', i),
+            ),
+          ),
+          _RowItem(
+            title: '硬件解码优先',
+            desc: '关闭则走软解',
+            trailing: _Toggle(
+              value: _s['hw_decode'],
+              onChanged: (v) => _set('hw_decode', v),
+            ),
+          ),
+          _RowItem(
+            title: '缓存大小',
+            desc: _caches[_s['cache_size']],
+            trailing: _Value(
+              _caches[_s['cache_size']],
+              onTap: () => _set(
+                'cache_size',
+                ((_s['cache_size'] as int) + 1) % _caches.length,
+              ),
+            ),
+            last: true,
+          ),
+        ],
+      ),
+      (_) => const SizedBox(height: 12),
+      (_) => _Group(
+        children: [
+          _RowItem(
+            title: '记录观看明细',
+            desc: '用于时段热力图与趋势',
+            trailing: _Toggle(
+              value: _s['record_history'],
+              onChanged: (v) => _set('record_history', v),
+            ),
+          ),
+          _RowItem(
+            title: '触感反馈',
+            desc: '点按、收藏等状态变化时的轻震动 · 跟随系统触感设置',
+            trailing: _Toggle(
+              value: _s['haptics'],
+              onChanged: (v) => _set('haptics', v),
+            ),
+          ),
+          _RowItem(
+            title: '导出统计数据',
+            desc: 'JSON · 复制到剪贴板',
+            trailing: _Value('导出', onTap: _exportStats),
+            last: true,
+          ),
+        ],
+      ),
+      (_) => const SizedBox(height: 12),
+      (_) => const _LaraSection(),
+      (_) => const SizedBox(height: 18),
+      // v1.7.60：版本号改为运行时从包信息读取，不再手改硬编码
+      // （以前每次发版都得记得同步这一行，漏一次就显示旧版本）
+      (_) => const _VersionLine(),
+    ];
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -136,7 +219,7 @@ class _SettingsPageState extends State<SettingsPage> {
           colors: [Color(0xFF0B1120), AppColors.bg],
         ),
       ),
-      child: ListView(
+      child: ListView.builder(
         physics: const BouncingScrollPhysics(),
         // 平板（≥840）：内容限宽 720 居中，设置行不被拉到 1000+dp
         padding: EdgeInsets.fromLTRB(
@@ -145,106 +228,8 @@ class _SettingsPageState extends State<SettingsPage> {
           _horizontalPad(context),
           110,
         ),
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.person_rounded, size: 20, color: AppColors.ink),
-              const SizedBox(width: 10),
-              const Text(
-                '我的',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              // v2.0.68：右上角搜索按钮已移除（搜索是一级 Tab，无需重复入口）。
-            ],
-          ),
-          const SizedBox(height: 14),
-          _ServersSection(state: widget.state),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
-                title: '默认播放内核',
-                desc: _s['play_engine'] == 0
-                    ? 'ExoPlayer · 兼容性最佳'
-                    : 'MPV · 硬解更强',
-                trailing: _Segment(
-                  items: const ['Exo', 'MPV'],
-                  value: _s['play_engine'],
-                  onSelect: (i) => _set('play_engine', i),
-                ),
-              ),
-              _RowItem(
-                title: '硬件解码优先',
-                desc: '关闭则走软解',
-                trailing: _Toggle(
-                  value: _s['hw_decode'],
-                  onChanged: (v) => _set('hw_decode', v),
-                ),
-              ),
-              _RowItem(
-                title: '缓存大小',
-                desc: _caches[_s['cache_size']],
-                trailing: _Value(
-                  _caches[_s['cache_size']],
-                  onTap: () => _set(
-                    'cache_size',
-                    ((_s['cache_size'] as int) + 1) % _caches.length,
-                  ),
-                ),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _Group(
-            children: [
-              _RowItem(
-                title: '记录观看明细',
-                desc: '用于时段热力图与趋势',
-                trailing: _Toggle(
-                  value: _s['record_history'],
-                  onChanged: (v) => _set('record_history', v),
-                ),
-              ),
-              _RowItem(
-                title: '触感反馈',
-                desc: '点按、收藏等状态变化时的轻震动 · 跟随系统触感设置',
-                trailing: _Toggle(
-                  value: _s['haptics'],
-                  onChanged: (v) => _set('haptics', v),
-                ),
-              ),
-              _RowItem(
-                title: '液态玻璃',
-                // v2.0.76：直接回显当前档位。以前开关拨了但页面看不出变化，
-                // 分不清是「没生效」还是「两档都这样」。
-                desc: _s['liquid_glass'] == true
-                    ? '当前：液态（真折射）· 立即生效'
-                    : '当前：凝态（柔和模糊）· 立即生效',
-                trailing: _Toggle(
-                  value: _s['liquid_glass'],
-                  onChanged: (v) => _set('liquid_glass', v),
-                ),
-              ),
-              _RowItem(
-                title: '导出统计数据',
-                desc: 'JSON · 复制到剪贴板',
-                trailing: _Value('导出', onTap: _exportStats),
-                last: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _LaraSection(),
-          const SizedBox(height: 18),
-          // v1.7.60：版本号改为运行时从包信息读取，不再手改硬编码
-          // （以前每次发版都得记得同步这一行，漏一次就显示旧版本）
-          const _VersionLine(),
-        ],
+        itemCount: cells.length,
+        itemBuilder: (ctx, i) => cells[i](ctx),
       ),
     );
   }
@@ -390,7 +375,10 @@ class _ServersSection extends StatelessWidget {
       );
     } else {
       final raw = state.error ?? '连接失败';
-      final msg = raw.replaceFirst(RegExp(r'^(EmbyException|Exception):\s*'), '');
+      final msg = raw.replaceFirst(
+        RegExp(r'^(EmbyException|Exception):\s*'),
+        '',
+      );
       showToast(context, msg, icon: Icons.error_outline_rounded);
     }
   }
@@ -567,7 +555,10 @@ class _ServerCard extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(24),
           border: active
-              ? Border.all(color: AppColors.accent.withOpacity(0.55), width: 1.3)
+              ? Border.all(
+                  color: AppColors.accent.withOpacity(0.55),
+                  width: 1.3,
+                )
               : null,
         ),
         child: Padding(
@@ -1055,7 +1046,9 @@ class _Field extends StatelessWidget {
               child: TextField(
                 controller: controller,
                 obscureText: obscure,
-                keyboardType: numeric ? TextInputType.number : TextInputType.text,
+                keyboardType: numeric
+                    ? TextInputType.number
+                    : TextInputType.text,
                 style: const TextStyle(fontSize: 13, color: AppColors.ink),
                 decoration: InputDecoration(
                   hintText: hint,
@@ -1071,8 +1064,9 @@ class _Field extends StatelessWidget {
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        BorderSide(color: Colors.white.withOpacity(0.12)),
+                    borderSide: BorderSide(
+                      color: Colors.white.withOpacity(0.12),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -1385,7 +1379,8 @@ class _LaraSectionState extends State<_LaraSection> {
     }
     setState(() => _testing = true);
     try {
-      await LaraClient(LaraCredentials(id: id, secret: secret)).testConnection();
+      await LaraClient(LaraCredentials(id: id, secret: secret))
+          .testConnection();
       if (!mounted) return;
       showToast(context, '连接成功，凭证有效', icon: Icons.check_circle_outline_rounded);
     } on LaraAuthError catch (e) {

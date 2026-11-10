@@ -1,10 +1,39 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.76 (276)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.81 (281)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.81 (281) 全站统一毛玻璃 + 移除液态玻璃链路 + P0/P1/P2 性能优化
+
+承接 v2.0.80（回滚到 76 代码基线、更换启动图标）。真机反馈 80 版卡片
+「四周泛白」，且「液态玻璃」开关拨了没有变化，确认放弃真折射方向。
+
+**P0 · 视觉与链路收敛**：删除 `lib/liquid_glass.dart`、`shaders/liquid_glass.frag`、
+`GlassConfig` / `LiquidGlass.ensureLoaded()` / `set_liquid_glass` 偏好、设置页开关，
+以及 `_vibrancy` 色彩矩阵、`_innerGlow`、`_specular` 三层白色高光与青品红分色边。
+`Glass` 重写为单层 `ImageFilter.blur` + 深色半透底 + 白 9% 极细边 + 弱化阴影；
+`ImageFilter` 按 sigma 缓存复用，每块卡从约 5 个合成层降到 1 个。
+
+**P1 · 降低逐帧开销（动效不变）**：数据页 4 个光晕 blob 提为只构建一次的静态子树
+并各自 `RepaintBoundary`（26s 公转周期与 sin/cos 轨迹不变）；导航条模糊 20 → 14、
+静态 `_barBlur`、内层 `RepaintBoundary`；`StatusBarBlur` 评估后保持不动。
+
+**P2 · 列表懒构造**：设置页、统计页两个页面级长列表改 `ListView.builder`，
+把重型 `Glass` 卡片的构造延后到进入视口；统计页平板双栏改由 `_StatCell`
+显式标记 `isCard` / `spacer` 分栏，不再依赖提前建好的 `_SectionCard` 类型。
+其余 8 处非 builder 列表（空态、骨架、横向摘要、`shrinkWrap` 面板、
+已有 `cacheExtent` + `RepaintBoundary` 的详情页）按实测收益保持原样。
+
+**明确不动**：260ms 导航动画、90ms `LiquidPress` 按压、26s 背景光晕、
+`Anim.fast/base/slow/exit`、页面转场与 `StatusBarBlur` 滚动降级。
+
+**验证**：`flutter analyze` 0 error / 0 warning（411 项全为 info 级既有弃用）；
+`flutter test` 全过；`perf_audit.py` 0 命中；`aapt` 复核
+`versionCode=281 / versionName=2.0.81`。本地提交，不推 GitHub。
+
 
 ### v2.0.76 (276) 修「液态玻璃开关无效」+ 玻璃去脏（收回整面白纱）
 

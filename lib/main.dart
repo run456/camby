@@ -5,13 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:gbk_codec/gbk_codec.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'subtitles/online_subtitle.dart';
 import 'app_state.dart';
 import 'models.dart';
 import 'theme.dart';
-import 'liquid_glass.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
 import 'widgets/haptics.dart';
@@ -57,15 +55,6 @@ Future<void> main() async {
       ..maximumSizeBytes = 192 << 20;
   });
   _guard('MediaKit', MediaKit.ensureInitialized);
-  // L2 液态玻璃：启动期预加载 fragment shader（失败静默降级 L1），并读取用户开关。
-  // ensureLoaded 内部自带 try/catch，不会阻断启动；shader 未就绪时首帧先用 L1。
-  await LiquidGlass.ensureLoaded();
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    GlassConfig.liquidEnabled = prefs.getBool('set_liquid_glass') ?? true;
-  } catch (_) {
-    // 偏好读取失败不影响启动，保持默认开液态。
-  }
   runApp(const CambyApp());
 }
 
@@ -196,19 +185,16 @@ class _AppShellState extends State<AppShell>
           // v2.0.65：版本下拉选中的非主版本，带 MediaSourceId 起播。
           // 字幕传 null 让播放页按该源自动挑轨（item 级字幕 index
           // 属于主版本，硬套到另一文件可能对不上）。
-          onPlayVersion: (
-            it, {
-            required MediaExtraPart version,
-            resume = true,
-          }) =>
-              _openPlayer(
-                it,
-                null,
-                resume: resume,
-                mediaSourceId: version.id,
-                sourceLabel: version.name,
-                version: version,
-              ),
+          onPlayVersion:
+              (it, {required MediaExtraPart version, resume = true}) =>
+                  _openPlayer(
+                    it,
+                    null,
+                    resume: resume,
+                    mediaSourceId: version.id,
+                    sourceLabel: version.name,
+                    version: version,
+                  ),
           onPlayPart: _openExtraPart,
           state: _state,
           onOpenDetail: _openDetail,
@@ -366,10 +352,7 @@ class _AppShellState extends State<AppShell>
             onGoSettings: () => _goTab(4),
           ),
           // v2.0.69：搜索页不再自动聚焦，切走再切回保留上次查询且键盘不弹。
-          SearchPage(
-            state: _state,
-            onOpenDetail: _openDetail,
-          ),
+          SearchPage(state: _state, onOpenDetail: _openDetail),
           StatsPage(state: _state),
           SettingsPage(
             onTabChanged: (i) {
@@ -501,10 +484,7 @@ class _AppShellState extends State<AppShell>
 /// 描边、白雾面选中项、无彩色渐变 / 无发光 / 无镜面高光线。
 /// v2.0.67 的 260ms 胶囊展开动画、LiquidPress 按压与轻触感原样保留。
 class GlassNavBar extends StatefulWidget {
-  const GlassNavBar({
-    required this.index,
-    required this.onChanged,
-  });
+  const GlassNavBar({required this.index, required this.onChanged});
   final int index;
   final ValueChanged<int> onChanged;
 
@@ -530,39 +510,47 @@ class GlassNavBarState extends State<GlassNavBar> {
     widget.onChanged(i);
   }
 
+  /// v2.0.81 P1：整条 bar 只创建一次模糊滤镜实例，避免每次 build 重建。
+  static final ImageFilter _barBlur = ImageFilter.blur(sigmaX: 14, sigmaY: 14);
+
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppNav.barRadius),
       child: BackdropFilter(
-        // 整条 bar 只模糊一次（v2.0.68 由 30 调到 20，弱化存在感）；
-        // 胶囊内一律用渐变 + 内描边表达厚度，不给 5 个格子各挂滤镜。
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: AppNav.barHeight,
-          padding: const EdgeInsets.all(AppNav.barInset),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppNav.barRadius),
-            // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
-            color: Colors.white.withValues(alpha: 0.06),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.10),
-              width: 1,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x47000000),
-                blurRadius: 20,
-                offset: Offset(0, 8),
+        // 整条 bar 只模糊一次（v2.0.68 由 30 → 20，v2.0.81 再 → 14，
+        // 弱化存在感并降低回读成本）；胶囊内一律用渐变 + 内描边表达厚度，
+        // 不给 5 个格子各挂滤镜。
+        filter: _barBlur,
+        // RepaintBoundary 放在 BackdropFilter 的 child 层（不能包在 filter
+        // 外层，否则采样不到背景）；隔离 5 个胶囊的重绘不扩散到整条 bar。
+        child: RepaintBoundary(
+          child: Container(
+            height: AppNav.barHeight,
+            padding: const EdgeInsets.all(AppNav.barInset),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppNav.barRadius),
+              // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
+              color: Colors.white.withValues(alpha: 0.06),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.10),
+                width: 1,
               ),
-            ],
-          ),
-          // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
-          // 112 + 4×48，定宽 Row 不会挤出像素。
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(GlassNavBar._items.length, _navItem),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x47000000),
+                  blurRadius: 20,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
+            // 112 + 4×48，定宽 Row 不会挤出像素。
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(GlassNavBar._items.length, _navItem),
+            ),
           ),
         ),
       ),

@@ -80,8 +80,8 @@ void main() {
         1,
         reason: '5 个格子各挂滤镜会让列表滚动时触发 5 次背景重采样',
       );
-      expect(main.contains('sigmaX: 20'), isTrue,
-          reason: 'v2.0.68 模糊由 30 降到 20，弱化存在感');
+      expect(main.contains('sigmaX: 14'), isTrue,
+          reason: 'v2.0.68 由 30 降到 20，v2.0.81 P1 再降到 14（静态滤镜复用）');
       expect(main.contains('0x47000000'), isTrue,
           reason: '投影从黑 40% / blur36 降为黑 28% / blur20');
       expect(main.contains('0x66000000'), isFalse);

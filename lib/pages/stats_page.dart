@@ -156,190 +156,247 @@ class _StatsPageState extends State<StatsPage> {
       if (histHours.fold<int>(0, (a, b) => a + b) > 0) hourBuckets = histHours;
     }
 
+    // v2.0.81 P2：卡片改成「延迟构造」描述，主列表用 ListView.builder。
+    // 原先 children: [...] 首帧就要把 12+ 张重型 Glass 卡片全部建好；
+    // 现在每项只在进入视口时才 build，平板双栏仍由 _tabletColumns 统一排布。
+    final cells = <_StatCell>[
+      _StatCell(
+        (_) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Text('数据总结', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.state.demoMode
+                      ? '演示数据 · 连接 Emby 后显示真实统计'
+                      : widget.state.sourceLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+
+      // ── 概览 ──
+      _StatCell((_) => const _SectionHead('概览 · 一屏看全局')),
+      _StatCell(
+        (_) =>
+            _OverviewGrid(stats: stats, playback: playback, activity: activity),
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 完成率 + 最近播放 10 部
+      // v2.0.21：库存覆盖率与完成率高度重复，覆盖率数据（已看/库内/未看）
+      // 并入观看完成率卡片，独立卡片移除
+      _StatCell(
+        (_) => _SectionCard(
+          title: '观看完成率',
+          child: _CompletionCard(
+            stats: stats,
+            recent: widget.state.recentPlayedItems,
+            total: items.length,
+          ),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 偏好演员
+      _StatCell(
+        (_) => _SectionCard(
+          title: '偏好演员',
+          badge: const _ExplainButton(
+            title: '偏好演员 · 计算说明',
+            message: _kActorExplain,
+          ),
+          child: _TopPeople(people: stats.topPeople, unit: '次'),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 演员影片 Top（紧随偏好演员）
+      _StatCell(
+        (_) => _SectionCard(
+          title: '演员影片 Top',
+          badge: const _SourceBadge(text: '按参演影片数'),
+          child: _TopPeople(people: stats.topCast, unit: '部'),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 偏好影片：服务器 + 本机播放次数取前 10 部（仅电影）
+      _StatCell(
+        (_) => _SectionCard(
+          title: '偏好影片',
+          badge: const _SourceBadge(text: '服务器+本机次数'),
+          child: _TopMovies(movies: stats.topMovies),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 标签
+      _StatCell(
+        (_) => _SectionCard(
+          title: '标签分布',
+          badge: _SourceBadge(text: '${stats.tagSource} 字段'),
+          child: _TagBars(dist: stats.tagDistribution),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+      _StatCell(
+        (_) => _SectionCard(
+          title: '热门标签',
+          child: _TagCloud(tags: stats.tagCounts),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // 画质规格：8 项双排
+      _StatCell(
+        (_) => _SectionCard(
+          title: '画质规格构成',
+          child: _QualityChips(
+            res4k: stats.res4kPct,
+            res1080: stats.res1080Pct,
+            res720: stats.res720Pct,
+            res480: stats.res480Pct,
+            hdr: stats.hdrPct,
+            dv: stats.dvPct,
+            atmos: stats.atmosPct,
+            hevc: stats.hevcPct,
+          ),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      _StatCell(
+        (_) => _SectionCard(
+          title: '入库时间趋势（近 12 月）',
+          child: _TrendBars(trend: stats.addedTrend),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 12), spacer: true),
+
+      // ── 观看行为（无分区标题）──
+      _StatCell(
+        (_) => _SectionCard(
+          title: '每日观看时长（近 30 天）',
+          badge: _SourceBadge(
+            text: playback != null
+                ? 'B 插件'
+                : (activity != null
+                      ? '活动日志'
+                      : (widget.state.playedHistory.isNotEmpty
+                            ? '已看历史近似'
+                            : '无数据')),
+            ab:
+                playback != null ||
+                activity != null ||
+                widget.state.playedHistory.isNotEmpty,
+          ),
+          child: _DailyBars(
+            daily: _buildDaily(playback, activity, widget.state.playedHistory),
+            playsOverride: playback?.totalPlays ?? activity?.total,
+            hint: diag,
+          ),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+      _StatCell(
+        (_) => _SectionCard(
+          title: '播放时段统计',
+          badge: _SourceBadge(
+            text: activity != null
+                ? '活动日志'
+                : (widget.state.playedHistory.isNotEmpty ? '已看历史近似' : '本地近似'),
+          ),
+          child: _HourBars(buckets: hourBuckets, hint: diag),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+      _StatCell(
+        (_) => _SectionCard(
+          title: '最常看作品 Top',
+          badge: _SourceBadge(text: activity != null ? '活动日志' : '播放次数'),
+          child: _TopItems(entries: topWatched, hint: diag),
+        ),
+        isCard: true,
+      ),
+      _StatCell((_) => const SizedBox(height: 12), spacer: true),
+
+      // ── 续看清单（无分区标题）──
+      if (widget.state.continueWatching.isNotEmpty)
+        _StatCell(
+          (_) => _SectionCard(
+            title: '续看未完成清单',
+            child: _ContinueList(
+              items: widget.state.continueWatching.take(5).toList(),
+            ),
+          ),
+          isCard: true,
+        ),
+      _StatCell((_) => const SizedBox(height: 10), spacer: true),
+
+      // ── 数据质量（最后）──
+      _StatCell(
+        (_) => _SectionCard(
+          title: '数据质量',
+          child: _QualityRow(
+            missingPoster: stats.missingPoster,
+            missingOverview: stats.missingOverview,
+            posterTitles: stats.missingPosterTitles,
+            overviewTitles: stats.missingOverviewTitles,
+          ),
+        ),
+        isCard: true,
+      ),
+    ];
+    final rows = _tabletColumns(wide, cells);
+
     return Stack(
       children: [
         const Positioned.fill(child: _LiquidBackground()),
         // v2.0.76：压一层更重的黑，光球只当「玻璃后面有点东西」，
         // 不再是整屏彩色雾——那是卡片显脏的源头。
         Container(color: Colors.black.withOpacity(0.34)),
-        ListView(
+        ListView.builder(
           padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
           // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
-          children: _tabletColumns(wide, [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  Text('数据总结', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      widget.state.demoMode
-                          ? '演示数据 · 连接 Emby 后显示真实统计'
-                          : widget.state.sourceLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── 概览 ──
-            const _SectionHead('概览 · 一屏看全局'),
-            _OverviewGrid(stats: stats, playback: playback, activity: activity),
-            const SizedBox(height: 10),
-
-            // 完成率 + 最近播放 10 部
-            // v2.0.21：库存覆盖率与完成率高度重复，覆盖率数据（已看/库内/未看）
-            // 并入观看完成率卡片，独立卡片移除
-            _SectionCard(
-              title: '观看完成率',
-              child: _CompletionCard(
-                stats: stats,
-                recent: widget.state.recentPlayedItems,
-                total: items.length,
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // 偏好演员
-            _SectionCard(
-              title: '偏好演员',
-              badge: const _ExplainButton(
-                title: '偏好演员 · 计算说明',
-                message: _kActorExplain,
-              ),
-              child: _TopPeople(people: stats.topPeople, unit: '次'),
-            ),
-            const SizedBox(height: 10),
-
-            // 演员影片 Top（紧随偏好演员）
-            _SectionCard(
-              title: '演员影片 Top',
-              badge: const _SourceBadge(text: '按参演影片数'),
-              child: _TopPeople(people: stats.topCast, unit: '部'),
-            ),
-            const SizedBox(height: 10),
-
-            // 偏好影片：服务器 + 本机播放次数取前 10 部（仅电影）
-            _SectionCard(
-              title: '偏好影片',
-              badge: const _SourceBadge(text: '服务器+本机次数'),
-              child: _TopMovies(movies: stats.topMovies),
-            ),
-            const SizedBox(height: 10),
-
-            // 标签
-            _SectionCard(
-              title: '标签分布',
-              badge: _SourceBadge(text: '${stats.tagSource} 字段'),
-              child: _TagBars(dist: stats.tagDistribution),
-            ),
-            const SizedBox(height: 10),
-            _SectionCard(
-              title: '热门标签',
-              child: _TagCloud(tags: stats.tagCounts),
-            ),
-            const SizedBox(height: 10),
-
-            // 画质规格：8 项双排
-            _SectionCard(
-              title: '画质规格构成',
-              child: _QualityChips(
-                res4k: stats.res4kPct,
-                res1080: stats.res1080Pct,
-                res720: stats.res720Pct,
-                res480: stats.res480Pct,
-                hdr: stats.hdrPct,
-                dv: stats.dvPct,
-                atmos: stats.atmosPct,
-                hevc: stats.hevcPct,
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            _SectionCard(
-              title: '入库时间趋势（近 12 月）',
-              child: _TrendBars(trend: stats.addedTrend),
-            ),
-            const SizedBox(height: 12),
-
-            // ── 观看行为（无分区标题）──
-            _SectionCard(
-              title: '每日观看时长（近 30 天）',
-              badge: _SourceBadge(
-                text: playback != null
-                    ? 'B 插件'
-                    : (activity != null
-                          ? '活动日志'
-                          : (widget.state.playedHistory.isNotEmpty
-                                ? '已看历史近似'
-                                : '无数据')),
-                ab:
-                    playback != null ||
-                    activity != null ||
-                    widget.state.playedHistory.isNotEmpty,
-              ),
-              child: _DailyBars(
-                daily: _buildDaily(
-                  playback,
-                  activity,
-                  widget.state.playedHistory,
-                ),
-                playsOverride: playback?.totalPlays ?? activity?.total,
-                hint: diag,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _SectionCard(
-              title: '播放时段统计',
-              badge: _SourceBadge(
-                text: activity != null
-                    ? '活动日志'
-                    : (widget.state.playedHistory.isNotEmpty
-                          ? '已看历史近似'
-                          : '本地近似'),
-              ),
-              child: _HourBars(buckets: hourBuckets, hint: diag),
-            ),
-            const SizedBox(height: 10),
-            _SectionCard(
-              title: '最常看作品 Top',
-              badge: _SourceBadge(text: activity != null ? '活动日志' : '播放次数'),
-              child: _TopItems(entries: topWatched, hint: diag),
-            ),
-            const SizedBox(height: 12),
-
-            // ── 续看清单（无分区标题）──
-            if (widget.state.continueWatching.isNotEmpty)
-              _SectionCard(
-                title: '续看未完成清单',
-                child: _ContinueList(
-                  items: widget.state.continueWatching.take(5).toList(),
-                ),
-              ),
-            const SizedBox(height: 10),
-
-            // ── 数据质量（最后）──
-            _SectionCard(
-              title: '数据质量',
-              child: _QualityRow(
-                missingPoster: stats.missingPoster,
-                missingOverview: stats.missingOverview,
-                posterTitles: stats.missingPosterTitles,
-                overviewTitles: stats.missingOverviewTitles,
-              ),
-            ),
-          ]),
+          itemCount: rows.length,
+          itemBuilder: (ctx, i) => rows[i](ctx),
         ),
       ],
     );
   }
+}
+
+/// v2.0.81 P2：统计页列表单元的「延迟构造」描述。
+/// [build] 只在 item 真正进入视口时调用；[isCard] 供平板双栏分栏使用，
+/// 代替原先对 `_SectionCard` 类型的运行时判断（那要求先把 Widget 建出来）。
+/// [spacer] 是纯竖向间距：双栏模式下由栏内 gap 接管，需要跳过。
+class _StatCell {
+  const _StatCell(this.build, {this.isCard = false, this.spacer = false});
+
+  final WidgetBuilder build;
+  final bool isCard;
+  final bool spacer;
 }
 
 /// 平板双栏布局（v2.0.9 重写）：两条**独立流式**纵列，不再两两强制同行。
@@ -348,45 +405,48 @@ class _StatsPageState extends State<StatsPage> {
 /// 矮的那张下面留洞，左右列相互错位（实测反馈 #2）。
 /// 新规则：页头/分区标题/概览网格保持整行；`_SectionCard` 按顺序
 /// 左右交替进两条独立 Column，各列内部自然流式排布，高度互不影响。
-List<Widget> _tabletColumns(bool wide, List<Widget> children) {
-  if (!wide) return children;
+List<WidgetBuilder> _tabletColumns(bool wide, List<_StatCell> cells) {
+  // 手机：每项（含间距）原样交给 ListView.builder，只在进入视口时构造。
+  if (!wide) return [for (final c in cells) c.build];
+
   const gap = 14.0;
-  final head = <Widget>[];
-  final left = <Widget>[];
-  final right = <Widget>[];
+  final head = <WidgetBuilder>[];
+  final left = <WidgetBuilder>[];
+  final right = <WidgetBuilder>[];
   var putLeft = true;
 
-  for (final w in children) {
-    if (w is SizedBox) continue; // 竖向间距由栏内 gap 接管
-    if (w is _SectionCard) {
-      (putLeft ? left : right).add(w);
+  for (final c in cells) {
+    if (c.spacer) continue; // 竖向间距由栏内 gap 接管
+    if (c.isCard) {
+      (putLeft ? left : right).add(c.build);
       putLeft = !putLeft;
     } else {
       // 页头（数据总结 + 来源）、分区标题、概览网格 → 整行
-      head.add(w);
-      head.add(const SizedBox(height: gap));
+      head.add(c.build);
+      head.add((_) => const SizedBox(height: gap));
     }
   }
 
-  Widget col(List<Widget> list) => Column(
+  Widget col(BuildContext context, List<WidgetBuilder> list) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       for (var i = 0; i < list.length; i++) ...[
         if (i > 0) const SizedBox(height: 12),
-        list[i],
+        list[i](context),
       ],
     ],
   );
 
-  if (head.isNotEmpty) head.add(const SizedBox(height: 4));
+  if (head.isNotEmpty) head.add((_) => const SizedBox(height: 4));
   return [
     ...head,
-    Row(
+    // 双栏整体作为一个 item：只有滚到这里时才一次性建两列卡片。
+    (context) => Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: col(left)),
+        Expanded(child: col(context, left)),
         const SizedBox(width: gap),
-        Expanded(child: col(right)),
+        Expanded(child: col(context, right)),
       ],
     ),
   ];
@@ -409,10 +469,7 @@ class _ExplainButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white.withOpacity(0.45),
-              width: 1,
-            ),
+            border: Border.all(color: Colors.white.withOpacity(0.45), width: 1),
           ),
           child: const Text(
             '?',
@@ -445,11 +502,10 @@ const String _kStatsEmptyExplain = '''
 /// 统计页空态：保留原本的原因说明，再给一个能点的「了解统计口径」入口。
 /// 弹窗复用页面上已有的玻璃说明组件，不是摆设按钮。
 Widget _statsEmpty(BuildContext context, String message) => EmptyHint(
-      message: message,
-      actionLabel: '了解统计口径',
-      onAction: () =>
-          _showExplainDialog(context, '统计口径', _kStatsEmptyExplain),
-    );
+  message: message,
+  actionLabel: '了解统计口径',
+  onAction: () => _showExplainDialog(context, '统计口径', _kStatsEmptyExplain),
+);
 
 /// 计算说明弹窗：液态玻璃（Glass 自带实时模糊 + 折射高光），
 /// 比旧版纯色 AlertDialog 更贴合全局玻璃质感。
@@ -589,6 +645,13 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
+  /// v2.0.81 P1：4 个径向渐变圆提为「只构建一次」的静态子树，各自
+  /// RepaintBoundary 隔离成独立 layer。AnimatedBuilder 每帧只重排
+  /// Positioned 的 left/top —— 移动独立 layer 只做合成，不再每帧重建
+  /// 4 份 BoxDecoration / RadialGradient（原来一帧重建 4 个大渐变）。
+  /// 动画控制器（26s repeat）、sin/cos 轨迹与周期完全不变，动效零改动。
+  late final List<Widget> _blobLayers;
+
   static const _blobs = [
     (
       Color(0xFF2F6BFF),
@@ -629,6 +692,22 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
     super.initState();
     _c = AnimationController(vsync: this, duration: const Duration(seconds: 26))
       ..repeat();
+    _blobLayers = [
+      for (final b in _blobs)
+        RepaintBoundary(
+          child: Container(
+            width: b.$4,
+            height: b.$4,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [b.$1.withOpacity(0.32), b.$2.withOpacity(0.0)],
+                stops: const [0.0, 1.0],
+              ),
+            ),
+          ),
+        ),
+    ];
   }
 
   @override
@@ -648,27 +727,17 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
           final t = _c.value * 2 * math.pi;
           return Stack(
             children: [
-              for (final b in _blobs)
+              for (int i = 0; i < _blobs.length; i++)
                 Positioned(
                   left:
-                      b.$3.dx * size.width -
-                      b.$4 / 2 +
-                      math.sin(t + b.$5) * b.$6,
+                      _blobs[i].$3.dx * size.width -
+                      _blobs[i].$4 / 2 +
+                      math.sin(t + _blobs[i].$5) * _blobs[i].$6,
                   top:
-                      b.$3.dy * size.height -
-                      b.$4 / 2 +
-                      math.cos(t * 0.8 + b.$5) * b.$6 * 0.7,
-                  child: Container(
-                    width: b.$4,
-                    height: b.$4,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [b.$1.withOpacity(0.32), b.$2.withOpacity(0.0)],
-                        stops: const [0.0, 1.0],
-                      ),
-                    ),
-                  ),
+                      _blobs[i].$3.dy * size.height -
+                      _blobs[i].$4 / 2 +
+                      math.cos(t * 0.8 + _blobs[i].$5) * _blobs[i].$6 * 0.7,
+                  child: _blobLayers[i],
                 ),
             ],
           );
@@ -930,8 +999,7 @@ class _TagBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (dist.isEmpty)
-      return _statsEmpty(context, '暂无标签数据');
+    if (dist.isEmpty) return _statsEmpty(context, '暂无标签数据');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: dist.entries.map((e) {
@@ -987,8 +1055,7 @@ class _TagCloud extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (tags.isEmpty)
-      return _statsEmpty(context, '暂无标签数据');
+    if (tags.isEmpty) return _statsEmpty(context, '暂无标签数据');
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -1377,10 +1444,7 @@ class _TopItems extends StatelessWidget {
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
       final suffix = hint.isEmpty ? '' : '（$hint）';
-      return _statsEmpty(
-        context,
-        '暂无播放记录（服务端活动日志里没有本账号的播放$suffix）',
-      );
+      return _statsEmpty(context, '暂无播放记录（服务端活动日志里没有本账号的播放$suffix）');
     }
     return Column(
       children: entries.map((e) {
@@ -1511,10 +1575,7 @@ class _DailyBars extends StatelessWidget {
   Widget build(BuildContext context) {
     if (daily.isEmpty) {
       final suffix = hint.isEmpty ? '' : '；$hint';
-      return _statsEmpty(
-        context,
-        '暂无每日观看数据（数据来自服务器活动日志$suffix）',
-      );
+      return _statsEmpty(context, '暂无每日观看数据（数据来自服务器活动日志$suffix）');
     }
     final maxMin = daily.fold<double>(
       1,
@@ -1587,10 +1648,7 @@ class _HourBars extends StatelessWidget {
     final total = buckets.fold<int>(0, (a, b) => a + b);
     if (total == 0) {
       final suffix = hint.isEmpty ? '' : '；$hint';
-      return _statsEmpty(
-        context,
-        '暂无播放时段数据（数据来自服务器活动日志$suffix）',
-      );
+      return _statsEmpty(context, '暂无播放时段数据（数据来自服务器活动日志$suffix）');
     }
     final max = buckets.fold<int>(1, (a, b) => b > a ? b : a);
     final peak = buckets.indexOf(max);

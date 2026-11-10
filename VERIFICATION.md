@@ -2666,3 +2666,27 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 **真机重点验收**：所有页面都不会自动弹键盘，只有点搜索框等输入框才弹；底部导航条明显更大更稳，选中项仍是低调白雾面药丸；设置删除确认、详情诊断弹窗、系列说明、字幕/版本选择弹层都带玻璃磨砂质感；选 4K 版本后详情页与播放页顶栏正确显示 4K（不再误显 1080p）。
 
 验证（v2.0.69）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包 `releases/camby-2.0.69-release-arm64.apk`，`aapt dump badging` 确认 `versionCode='269' versionName='2.0.69'`。
+
+## §95 发布 v2.0.81（全站毛玻璃 + 性能优化）
+
+用户确认三点后实施：全站修改、P0/P1/P2 全做、版本号 81；前置约束「动效不变」。
+
+- P0：`Glass` 收敛为单层模糊 + 深底 + 白 9% 细边，`ImageFilter` 按 sigma 缓存；
+  删除液态玻璃整套链路（shader / 配置 / 开关 / 偏好键 / 三层高光 / 色彩矩阵 / 分色边），
+  解决真机「四周泛白」与「开关无效」。
+- P1：数据页 4 个光晕 blob 静态子树化 + `RepaintBoundary`；导航条 blur 20→14、
+  静态滤镜、内层 `RepaintBoundary`（260ms 动画与 26s 公转周期均不变）。
+- P2：设置页 / 统计页主列表 `ListView.builder` 化，卡片闭包延迟构造；
+  平板双栏分栏逻辑改基于 `_StatCell` 显式标记。其余 8 处按实测收益保留。
+- `StatusBarBlur` 已有 `RepaintBoundary` + 滚动降级 + 260ms 短动画，评估后不动。
+
+修改：`lib/theme.dart`、`lib/main.dart`、`lib/pages/settings_page.dart`、
+`lib/pages/stats_page.dart`、`pubspec.yaml`、`README.md`、`CHANGELOG.md`、
+`test/glass_frosted_test.dart`（由 `glass_l2_test.dart` 改名重写）、
+`test/nav_redesign_test.dart`、`test/quality_pack_test.dart`、
+`test/online_subtitle_test.dart`；删除 `lib/liquid_glass.dart` 与
+`shaders/liquid_glass.frag`。`lib/widgets/liquid_press.dart` 与全部动效参数零改动。
+
+验证（v2.0.81）：`flutter analyze` 0 error / 0 warning（411 项全为 info 级既有弃用）；
+`flutter test` 全过；`perf_audit.py` 0 命中；`aapt dump badging` 确认
+`versionCode='281' versionName='2.0.81'`。本地提交 + tag `v2.0.81`，未推 GitHub。

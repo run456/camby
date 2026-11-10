@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'dart:ui';
 
-import 'liquid_glass.dart';
 import 'widgets/liquid_press.dart';
 
 /// Camby 设计系统
-/// Material 3 Expressive + 液态玻璃 Liquid Glass
+/// Material 3 Expressive + 毛玻璃 Frosted Glass（v2.0.81 起，液态玻璃已移除）
 class AppColors {
   static const bg = Color(0xFF06080E);
   static const bgTop = Color(0xFF0A0F1A);
@@ -260,7 +259,14 @@ class AppTheme {
   }
 }
 
-/// 液态玻璃容器：背景模糊 + 饱和提升 + 边缘折射高光
+/// 毛玻璃容器：单层背景模糊 + 深色半透底 + 极细冷白边。
+///
+/// v2.0.81：移除「液态玻璃」整套链路（自定义 shader 折射 / 青品红分色描边 /
+/// 对角镜面高光 / 内发光 / 色彩矩阵 / 材质档位开关）。真机上 shader 从未
+/// 生效，叠在深色卡上的那几层白色高光正是「四周泛白」的根源，而开关因
+/// 真机上 shader 滤镜恒不可用也完全没有作用 —— 整套开关遂一并删除。
+/// 现在全站统一为干净的 iOS 式保守毛玻璃：只保留一次 BackdropFilter，
+/// 其余靠底色与一道细边表达厚度。
 class Glass extends StatelessWidget {
   const Glass({
     super.key,
@@ -293,149 +299,32 @@ class Glass extends StatelessWidget {
   final VoidCallback? onTap;
 
   /// 是否启用实时 BackdropFilter 模糊。播放页控件压在逐帧更新的视频之上，
-  /// 开启模糊时每一帧都要重采样，中低端 GPU 会被拖垮（表现为唤出控件时
-  /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。
+  /// 开启模糊时每一帧都要重采样，中低端 GPU 会被拖垮。播放控件层传 false，
+  /// 仅保留半透明玻璃质感。
   final bool blurEnabled;
 
-  /// 背景色彩矩阵：saturate 1.18 + contrast 1.03（标准亮度权重公式）。
-  ///
-  /// v2.0.73 修复：v2.0.70 那版系数是错的（R 行 -0.286/1.259/0.127），
-  /// 把主色 #4F8CFF 算成 #BA9246 —— 全站按钮/开关/进度条被染成金黄。
-  /// 现在用规范矩阵：sr=(1-s)*0.213、sg=(1-s)*0.715、sb=(1-s)*0.072。
-  ///
-  /// v2.0.76：1.45 的饱和度对深色界面太猛——数据页那几团彩色光晕被放大后，
-  /// 透过玻璃混成一锅灰紫雾，观感「脏」。降到 1.18 / 1.03，背景该沉的沉下去，
-  /// 玻璃里只剩下淡淡的色相过渡。仍是规范矩阵，主色不会被算偏。
-  ///
-  /// **只作用于 BackdropFilter 采样到的背景**，不碰玻璃内部内容
-  /// （内容若被调色，文字和品牌色会整体偏色）。
-  static const List<double> _vibrancy = [
-    1.17591, -0.13256, -0.01335, 0, -3.84,
-    -0.03949, 1.08284, -0.01335, 0, -3.84,
-    -0.03949, -0.13256, 1.20205, 0, -3.84,
-    0, 0, 0, 1, 0,
-  ];
+  /// 同 sigma 的模糊滤镜复用同一实例：避免每块玻璃每次 build 都新建引擎侧
+  /// ImageFilter（P0）。ImageFilter 不可变，跨实例共享安全。
+  static ImageFilter _blurFilter(double sigma) => _blurCache.putIfAbsent(
+    sigma,
+    () => ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+  );
+  static final Map<double, ImageFilter> _blurCache = <double, ImageFilter>{};
 
-  /// 玻璃底板色（v2.0.76）：比 v2.0.73 再深一档，压住背后的彩色光斑。
-  /// 玻璃的「净」来自底板足够深，模糊只负责边缘那一点流动感。
-  static const Color _base = Color(0xFF070C15);
-
-  /// 内发光：Flutter BoxShadow 无 inset，用边缘内渐变近似玻璃厚度。
-  /// v2.0.76：起亮位置从 0.72 推到 0.88，只在最外一圈留厚度，
-  /// 不再把整块卡面洗白。
-  Widget _innerGlow(BorderRadius r, double a) => Positioned.fill(
-        child: IgnorePointer(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: r,
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 0.92,
-                colors: [
-                  Colors.white.withOpacity(0.0),
-                  Colors.white.withOpacity(a),
-                ],
-                stops: const [0.88, 1.0],
-              ),
-            ),
-          ),
-        ),
-      );
-
-  /// 折射高光层：对角镜面光 + 顶部弧形柔光。L1 仅提亮高光，真折射留待 L2。
-  /// 用 Positioned.fill 包住内部 Stack，使其跟随父级尺寸（内部仅两个定位子，
-  /// 自身无法在无约束父级下确定尺寸）。
-  ///
-  /// v2.0.76：v2.0.72 的 diag 0.42 是沿整块对角铺开的白，等于给每张卡蒙了层
-  /// 白纱——这是「玻璃变脏」的主因。现在把白光压成贴着边缘的一道窄光，
-  /// 中间完全透明，卡面恢复深色，只有转折处反光。
-  Widget _specular(BorderRadius r, {double diag = 0.16, double top = 0.10}) =>
-      Positioned.fill(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: r,
-                    gradient: LinearGradient(
-                      stops: const [0.0, 0.07, 0.30, 0.70, 0.93, 1.0],
-                      colors: [
-                        Colors.white.withOpacity(diag),
-                        Colors.white.withOpacity(0.0),
-                        Colors.white.withOpacity(0.0),
-                        Colors.white.withOpacity(0.0),
-                        Colors.white.withOpacity(diag * 0.45),
-                        Colors.white.withOpacity(diag * 0.8),
-                      ],
-                      begin: const Alignment(-1.2, -1.0),
-                      end: const Alignment(1.2, 1.0),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: r,
-                    gradient: RadialGradient(
-                      center: const Alignment(-0.65, -1.25),
-                      radius: 0.95,
-                      colors: [
-                        Colors.white.withOpacity(top),
-                        Colors.white.withOpacity(0.0),
-                      ],
-                      stops: const [0.0, 0.22],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
+  /// 深色半透底板：单色、无渐变、无白纱。
+  static const Color _base = Color(0xFF0B1220);
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-        // v2.0.76：监听材质档位。开关一拨，每块玻璃自己重绘，
-        // 不依赖父页面 setState（页面被 IndexedStack 缓存时也能立即生效）。
-        valueListenable: GlassConfig.liquid,
-        builder: (context, _, __) => _build(context),
-      );
-
-  Widget _build(BuildContext context) {
+  Widget build(BuildContext context) {
     final r = BorderRadius.circular(radius);
-    // tint 让出一档给色彩矩阵，避免叠加后过曝
-    final tintNow = tint * 0.7;
 
-    // L2 液态：开启 + 后端支持 shader + 非播放页（blurEnabled=false 已排除）
-    final useLiquid =
-        blurEnabled && GlassConfig.liquidEnabled && LiquidGlass.supported;
-    final dpr = MediaQuery.of(context).devicePixelRatio;
-
-    // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散。
-    // v2.0.76：原来 0x55/0x3A 的强度在深色卡面上会显出一圈绿粉脏边，
-    // 收到几乎只剩一道冷光，只在近看时才看得出分色。
-    final Border? glassBorder = border
-        ? (useLiquid
-            ? const Border(
-                top: BorderSide(color: Color(0x2E38E8C8), width: 0.9),
-                left: BorderSide(color: Color(0x1F38E8C8), width: 0.9),
-                right: BorderSide(color: Color(0x1FFF6BD6), width: 0.9),
-                bottom: BorderSide(color: Color(0x2EFF6BD6), width: 0.9),
-              )
-            : Border.all(color: Colors.white.withOpacity(0.20), width: 0.9))
-        : null;
-
-    // v2.0.76：底板更实。玻璃的干净来自「深底 + 边缘微光」，
-    // 底太透时背后的彩色光斑会糊成灰雾（真机反馈的「脏」）。
-    final baseAlpha = blurEnabled ? (soft ? 0.62 : 0.78) : 0.42;
-    Color fill(double whiteA) => Color.alphaBlend(
-          Colors.white.withOpacity(whiteA),
-          _base,
-        ).withOpacity(baseAlpha);
+    // tint 保留给旧调用点：只极轻微调亮底板，不铺渐变、不产生白边。
+    final tintNow = tint * 0.7 * 0.25;
+    final baseAlpha = blurEnabled ? (soft ? 0.55 : 0.66) : 0.42;
+    final fillColor = Color.alphaBlend(
+      Colors.white.withValues(alpha: tintNow),
+      _base,
+    ).withValues(alpha: baseAlpha);
 
     final body = Container(
       width: width,
@@ -443,84 +332,45 @@ class Glass extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         borderRadius: r,
-        gradient:
-            gradient ??
-            LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                fill(soft ? tintNow * 0.55 : tintNow * 1.0),
-                fill(soft ? tintNow * 0.20 : tintNow * 0.30),
-                fill(soft ? tintNow * 0.32 : tintNow * 0.55),
-              ],
-              stops: const [0.0, 0.45, 1.0],
-            ),
-        border: glassBorder,
+        color: gradient == null ? fillColor : null,
+        gradient: gradient,
+        border: border
+            ? Border.all(
+                color: Colors.white.withValues(alpha: 0.09),
+                width: 0.8,
+              )
+            : null,
       ),
       child: child,
     );
 
-    // 滤镜层：两条路径都只处理「背后透出的背景」，内容原色不动。
-    //   L2 = 模糊 → shader 沿法线偏移采样（真折射 + 色散）
-    //   L1 = 模糊 → 色彩矩阵（saturate/contrast，纯 CPU 参数）
-    // v2.0.73 修复：矩阵以前套在 body 外层（ColorFiltered），连按钮、文字一起
-    // 调色，品牌蓝被算成金黄。现在塞进 BackdropFilter 的 filter 链。
-    final ImageFilter? filter = !blurEnabled
-        ? null
-        : (useLiquid
-            ? ImageFilter.compose(
-                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                outer: ImageFilter.shader(
-                  LiquidGlass.shader(
-                    radius: radius * dpr,
-                    refraction: 10 * dpr,
-                    dispersion: 0.22,
-                    specular: 0.35,
-                  ),
-                ),
-              )
-            : ImageFilter.compose(
-                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                outer: ColorFilter.matrix(_vibrancy),
-              ));
-
+    // RepaintBoundary 必须放在 BackdropFilter 的 child 层：包在 filter 外层会
+    // 新建 layer，导致 BackdropFilter 采样不到背后的内容（模糊失效）。
     final clipped = ClipRRect(
       borderRadius: r,
-      child: filter == null
-          ? body
-          : BackdropFilter(filter: filter, child: body),
+      child: blurEnabled
+          ? BackdropFilter(
+              filter: _blurFilter(blur),
+              child: RepaintBoundary(child: body),
+            )
+          : RepaintBoundary(child: body),
     );
 
-    // 厚度层：内发光 + 折射高光。L2 的高光只在边缘收口，不做整面提亮。
-    Widget content = Stack(
-      children: [
-        clipped,
-        _innerGlow(r, useLiquid ? 0.07 : 0.05),
-        _specular(
-          r,
-          diag: useLiquid ? 0.18 : 0.13,
-          top: useLiquid ? 0.11 : 0.08,
-        ),
-      ],
-    );
-
+    Widget content = clipped;
     if (onTap != null) {
-      // 液态按下态：下沉 + 内部散射提亮 + 手指处镜面光晕
       content = LiquidPress(onTap: onTap, radius: radius, child: content);
     }
     if (margin != null) {
       content = Padding(padding: margin!, child: content);
     }
-    // 外阴影：托起体积，置于最外层避免被 ClipRRect 裁掉。
-    // v2.0.76：多卡连续排布时 0x59 的黑影会互相叠成灰带，收到 0x42。
     return Container(
       decoration: BoxDecoration(
         borderRadius: r,
         boxShadow: const [
           BoxShadow(
-            color: Color(0x42000000),
-            blurRadius: 26,
-            offset: Offset(0, 10),
+            color: Color(0x24000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
           ),
         ],
       ),
