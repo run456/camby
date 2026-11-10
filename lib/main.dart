@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:gbk_codec/gbk_codec.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'subtitles/online_subtitle.dart';
 import 'app_state.dart';
 import 'models.dart';
 import 'theme.dart';
+import 'liquid_glass.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
 import 'widgets/haptics.dart';
@@ -55,6 +57,15 @@ Future<void> main() async {
       ..maximumSizeBytes = 192 << 20;
   });
   _guard('MediaKit', MediaKit.ensureInitialized);
+  // L2 液态玻璃：启动期预加载 fragment shader（失败静默降级 L1），并读取用户开关。
+  // ensureLoaded 内部自带 try/catch，不会阻断启动；shader 未就绪时首帧先用 L1。
+  await LiquidGlass.ensureLoaded();
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    GlassConfig.liquidEnabled = prefs.getBool('set_liquid_glass') ?? true;
+  } catch (_) {
+    // 偏好读取失败不影响启动，保持默认开液态。
+  }
   runApp(const CambyApp());
 }
 

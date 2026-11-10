@@ -1,6 +1,6 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.70 (270)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.72 (272)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
@@ -41,6 +41,25 @@
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
 `online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+
+### v2.0.72 (272) 玻璃材质 L2 液态真落地：Impeller + 自定义 shader 真折射
+
+v2.0.71 的 L2 上线后「看不出变化」，根因是 **Impeller 被关闭**——`ImageFilter.shader`
+只在 Impeller 下可用（Skia 下 `isShaderFilterSupported=false`，直接抛 `UnsupportedError`），
+于是每一处都静默降级回 L1。本次把 L2 真正跑起来，并补一层不依赖 shader 的可见保底。
+
+| 项 | 实现 |
+|---|---|
+| 开启 Impeller | `AndroidManifest` 的 `EnableImpeller` 由 `false` 改回 `true`；Flutter 3.47 引擎已内置 GPU 黑名单自动回落 Skia |
+| 真折射 shader | `shaders/liquid_glass.frag`：圆角矩形 SDF → 表面法线 → 边缘采样坐标偏移（真折射）→ RGB 不同折射率（色散）→ 固定光源 Fresnel 高光；严格遵循 `ImageFilter.shader` 契约（首个 uniform 为 vec2 由引擎注入、至少一个 sampler2D、GLES Y 轴翻转） |
+| 修掉 71 的尺寸 bug | 71 把「整屏宽」当玻璃尺寸传给 shader，SDF 全算错位；现由引擎注入纹理尺寸，几何量统一用物理像素 |
+| 可见保底层 | 即使某机型回退 Skia（shader 不可用），`Glass` 仍用**青/品红分色细边**模拟色散 + 加强内发光/斜向高光，保证肉眼可见地区别于 L1 |
+| 开关 | 设置页新增「液态玻璃」开关（`set_liquid_glass`，默认开），一键退回 L1 凝态 |
+| 降级链 | 非 Impeller / shader 加载失败 / 开关关闭 → 全回 L1；播放页 `blurEnabled:false` 天然不进滤镜 |
+
+**关于主色调**：设置页/我的页的「金黄色」是**既有设计**（`AppColors.warn=0xFFFFC55A` 徽章 +
+服务器卡片渐变），主强调色一直是蓝紫 `0xFF4F8CFF` / 亮蓝 `0xFF5B8CFF`，青绿 `0xFF38E8C8`
+仅作局部点缀，70 / 71 / 72 均未改动主色。
 
 ### v2.0.70 (270) 玻璃材质 L1 凝态升级：色彩矩阵 + 内发光 + 亮边
 

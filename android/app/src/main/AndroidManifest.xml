@@ -30,16 +30,16 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-            <!-- v1.7.45：Impeller 改为 **false**（回退 Skia）。
-                 v1.7.39 曾显式开启以消除首次转场的着色器首编掉帧，但 Impeller 在
-                 部分机型/驱动组合上（尤其老 GPU、部分国产 ROM 的 GLES 驱动）
-                 会导致整屏黑屏或直接闪退 —— 症状就是「点开 App 一片黑，进不去」。
-                 本项目用了大量 BackdropFilter（全站液态玻璃）+ Hero + 自定义转场，
-                 这些恰好是 Impeller 兼容问题的高发场景。
-                 关掉后仍是官方支持的渲染后端，视觉差异只有个别模糊边缘的细腻度。 -->
+            <!-- v2.0.72：重新开启 Impeller（**true**）。
+                 L2 液态玻璃的真折射走 ImageFilter.shader，该 API 仅在 Impeller
+                 下可用（Skia 下直接抛 UnsupportedError），不开则 L2 永远降级 L1。
+                 v1.7.45 曾因部分老 GPU / 国产 ROM GLES 驱动黑屏而关闭；当前
+                 Flutter 3.47 引擎已内置 GPU 黑名单自动回落 Skia，且主流机型对
+                 Impeller 支持成熟。若仍有极个别机型异常，可在设置页关「液态玻璃」
+                 退回 L1（纯 Skia 友好），或整包回退到 v2.0.70。 -->
             <meta-data
               android:name="io.flutter.embedding.android.EnableImpeller"
-              android:value="false"
+              android:value="true"
               />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

@@ -11,6 +11,7 @@ import '../layout.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
+import '../liquid_glass.dart';
 import '../models.dart';
 import '../theme.dart';
 
@@ -63,6 +64,8 @@ class _SettingsPageState extends State<SettingsPage> {
         'record_history': prefs.getBool('set_record_history') ?? true,
         // v2.0.64 质感包：默认开，系统层面是否震动仍由 Android 决定。
         'haptics': prefs.getBool('set_haptics') ?? true,
+        // v2.0.72 液态玻璃：默认开（L2 真折射）；关掉退回 L1 凝态。
+        'liquid_glass': prefs.getBool('set_liquid_glass') ?? true,
       };
     });
   }
@@ -78,6 +81,10 @@ class _SettingsPageState extends State<SettingsPage> {
       // 关闭时什么都不会震，AppHaptics 内部直接 return。
       unawaited(AppHaptics.setEnabled(value));
       if (value) AppHaptics.light();
+    }
+    if (key == 'liquid_glass' && value is bool) {
+      // 立即切换材质档位：L2 液态 ↔ L1 凝态，下一帧即生效。
+      GlassConfig.liquidEnabled = value;
     }
   }
 
@@ -209,6 +216,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 trailing: _Toggle(
                   value: _s['haptics'],
                   onChanged: (v) => _set('haptics', v),
+                ),
+              ),
+              _RowItem(
+                title: '液态玻璃',
+                desc: '弹窗 / 导航条使用真折射液态质感 · 关闭退回凝态',
+                trailing: _Toggle(
+                  value: _s['liquid_glass'],
+                  onChanged: (v) => _set('liquid_glass', v),
                 ),
               ),
               _RowItem(

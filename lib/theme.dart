@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'dart:ui';
 
+import 'liquid_glass.dart';
 import 'widgets/liquid_press.dart';
 
 /// Camby 设计系统
@@ -380,6 +381,24 @@ class Glass extends StatelessWidget {
     // tint 让出一档给色彩矩阵，避免叠加后过曝
     final tintNow = tint * 0.7;
 
+    // L2 液态：开启 + 后端支持 shader + 非播放页（blurEnabled=false 已排除）
+    final useLiquid =
+        blurEnabled && GlassConfig.liquidEnabled && LiquidGlass.supported;
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+
+    // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散（不依赖 shader 也可见，
+    // 是「真的生效」的可见保底层）；L1 保持白色亮边。
+    final Border? glassBorder = border
+        ? (useLiquid
+            ? const Border(
+                top: BorderSide(color: Color(0x5538E8C8), width: 1.0),
+                left: BorderSide(color: Color(0x3A38E8C8), width: 1.0),
+                right: BorderSide(color: Color(0x3AFF6BD6), width: 1.0),
+                bottom: BorderSide(color: Color(0x55FF6BD6), width: 1.0),
+              )
+            : Border.all(color: Colors.white.withOpacity(0.22), width: 0.9))
+        : null;
+
     final body = Container(
       width: width,
       height: height,
@@ -398,36 +417,54 @@ class Glass extends StatelessWidget {
               ],
               stops: const [0.0, 0.45, 1.0],
             ),
-        // 亮边：更亮更细，制造玻璃边缘厚度
-        border: border
-            ? Border.all(color: Colors.white.withOpacity(0.22), width: 0.9)
-            : null,
+        border: glassBorder,
       ),
       child: child,
     );
 
+    // 滤镜层：L2 = 先高斯模糊、再自定义 shader 沿法线偏移采样（真折射）；
+    // 否则 = 仅模糊（L1）。播放页 blurEnabled=false 时两者都不套滤镜。
+    final ImageFilter? filter = !blurEnabled
+        ? null
+        : (useLiquid
+            ? ImageFilter.compose(
+                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                outer: ImageFilter.shader(
+                  LiquidGlass.shader(
+                    radius: radius * dpr,
+                    refraction: 10 * dpr,
+                    dispersion: 0.22,
+                    specular: 0.5,
+                  ),
+                ),
+              )
+            : ImageFilter.blur(sigmaX: blur, sigmaY: blur));
+
     final clipped = ClipRRect(
       borderRadius: r,
-      child: blurEnabled
-          ? BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-              child: body,
-            )
-          : body,
+      child: filter == null
+          ? body
+          : BackdropFilter(filter: filter, child: body),
     );
 
-    // L1 关键：模糊后过色彩矩阵（纯 CPU 参数，GPU 采样不增），背景被「冻」住
-    final vibed = ColorFiltered(
-      colorFilter: ColorFilter.matrix(_vibrancy),
-      child: clipped,
-    );
+    // 色彩矩阵：「冻」住背景、提亮饱和。L2 由 shader 做色彩保真，跳过叠加。
+    final vibed = useLiquid
+        ? clipped
+        : ColorFiltered(
+            colorFilter: ColorFilter.matrix(_vibrancy),
+            child: clipped,
+          );
 
-    // 厚度层：内发光 + 折射高光（alpha 已提档；真折射留待 L2）
+    // 厚度层：内发光 + 折射高光。L2 加强高光、补边缘菲涅尔体积感。
     Widget content = Stack(
       children: [
         vibed,
-        _innerGlow(r, 0.10),
-        _specular(r),
+        _innerGlow(r, useLiquid ? 0.15 : 0.10),
+        _specular(
+          r,
+          diag: useLiquid ? 0.42 : 0.32,
+          top: useLiquid ? 0.24 : 0.18,
+        ),
       ],
     );
 
