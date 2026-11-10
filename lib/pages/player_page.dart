@@ -2438,7 +2438,7 @@ class PlayerPageState extends State<PlayerPage>
             scale: 0.92,
             shadows: const [
               BoxShadow(
-                color: Color(0x804F8CFF),
+                color: Color(0x8035E0C4),
                 blurRadius: 26,
                 offset: Offset(0, 10),
               ),
@@ -2449,7 +2449,7 @@ class PlayerPageState extends State<PlayerPage>
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: [Color(0xF24F8CFF), Color(0xF27B5CFF)],
+                  colors: [Color(0xF235E0C4), Color(0xF27B6BF0)],
                 ),
               ),
               child: Icon(
@@ -2847,7 +2847,7 @@ class _SpeedChip extends StatelessWidget {
         // 非 1 倍速时整体偏冷色调，作为「已加速」的视觉标记
         gradient: boosted
             ? const LinearGradient(
-                colors: [Color(0x384F8CFF), Color(0x1E4F8CFF)],
+                colors: [Color(0x3835E0C4), Color(0x1E35E0C4)],
               )
             : null,
         onTap: onTap,

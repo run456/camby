@@ -1842,7 +1842,7 @@ class _DetailPageState extends State<DetailPage> {
               ),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x664F8CFF),
+                  color: Color(0x6635E0C4),
                   blurRadius: 24,
                   offset: Offset(0, 8),
                 ),
@@ -2373,7 +2373,7 @@ class _DetailPageState extends State<DetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   gradient: cur
                       ? const LinearGradient(
-                          colors: [Color(0x334F8CFF), Color(0x1A7B5CFF)],
+                          colors: [Color(0x3335E0C4), Color(0x1A7B6BF0)],
                         )
                       : LinearGradient(
                           colors: [
@@ -2383,7 +2383,7 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                   border: Border.all(
                     color: cur
-                        ? const Color(0x664F8CFF)
+                        ? const Color(0x6635E0C4)
                         : Colors.white.withOpacity(0.10),
                   ),
                 ),
@@ -2599,7 +2599,7 @@ class _BannerGhostBtn extends StatelessWidget {
           ),
           border: Border.all(
             color: active
-                ? const Color(0x884F8CFF)
+                ? const Color(0x8835E0C4)
                 : Colors.white.withOpacity(0.16),
           ),
         ),

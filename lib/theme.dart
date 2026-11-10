@@ -20,11 +20,12 @@ class AppColors {
   static const warn = Color(0xFFFFC55A);
   static const danger = Color(0xFFFF6B8A);
 
-  /// 主行动按钮渐变：深青 → 亮青绿
+  /// 主行动按钮渐变：青绿 → 紫蓝（v2.0.74 定稿，与「翻译」按钮同一配方）。
+  /// v2.0.73 曾把两端都改成青绿，导致 CTA 变成纯绿色块；现在保留紫蓝尾端。
   static const ctaGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+    colors: [Color(0xFF35E0C4), Color(0xFF7B6BF0)],
   );
 }
 
@@ -595,7 +596,7 @@ class _PrimaryButtonState extends State<PrimaryButton>
                 gradient: AppColors.ctaGradient,
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x594F8CFF),
+                    color: Color(0x5935E0C4),
                     blurRadius: 24,
                     offset: Offset(0, 10),
                   ),

@@ -207,7 +207,7 @@ class LiquidIconButton extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: active
-                ? const [Color(0x594F8CFF), Color(0x332E6FE0)]
+                ? const [Color(0x5935E0C4), Color(0x3319B3A6)]
                 : [
                     Colors.white.withOpacity(0.20),
                     Colors.white.withOpacity(0.06),
@@ -215,7 +215,7 @@ class LiquidIconButton extends StatelessWidget {
           ),
           border: Border.all(
             color: active
-                ? const Color(0x8C4F8CFF)
+                ? const Color(0x8C35E0C4)
                 : Colors.white.withOpacity(0.24),
           ),
           boxShadow: const [
@@ -266,12 +266,12 @@ class LiquidPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = accent
-        ? const [Color(0x334F8CFF), Color(0x142E6FE0)]
+        ? const [Color(0x3335E0C4), Color(0x1419B3A6)]
         : active
         ? const [Color(0x3DFFFFFF), Color(0x1AFFFFFF)]
         : [Colors.white.withOpacity(0.12), Colors.white.withOpacity(0.06)];
     final bd = accent
-        ? const Color(0x664F8CFF)
+        ? const Color(0x6635E0C4)
         : Colors.white.withOpacity(active ? 0.32 : 0.18);
     final fg = accent
         ? const Color(0xFFCFE0FF)

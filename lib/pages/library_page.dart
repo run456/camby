@@ -578,8 +578,8 @@ class _FilterChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(13),
-          color: const Color(0x334F8CFF),
-          border: Border.all(color: const Color(0x874F8CFF)),
+          color: const Color(0x3335E0C4),
+          border: Border.all(color: const Color(0x8735E0C4)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

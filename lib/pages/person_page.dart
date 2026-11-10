@@ -915,7 +915,7 @@ class _Seg extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
                   gradient: const LinearGradient(
-                    colors: [Color(0x384F8CFF), Color(0x247B5CFF)],
+                    colors: [Color(0x3835E0C4), Color(0x247B6BF0)],
                   ),
                   border: Border.all(
                     color: AppColors.primary.withOpacity(0.55),

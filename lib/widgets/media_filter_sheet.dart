@@ -625,7 +625,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
                           gradient: const LinearGradient(
-                            colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+                            colors: [Color(0xFF35E0C4), Color(0xFF7B6BF0)],
                           ),
                           boxShadow: const [
                             BoxShadow(
@@ -706,10 +706,10 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(15),
-          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
+          color: on ? const Color(0x3335E0C4) : Colors.white.withOpacity(0.06),
           border: Border.all(
             color: on
-                ? const Color(0x874F8CFF)
+                ? const Color(0x8735E0C4)
                 : Colors.white.withOpacity(0.10),
           ),
         ),
@@ -818,11 +818,11 @@ class _SortRow extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
             color: active
-                ? const Color(0x264F8CFF)
+                ? const Color(0x2635E0C4)
                 : Colors.white.withOpacity(0.04),
             border: Border.all(
               color: active
-                  ? const Color(0x874F8CFF)
+                  ? const Color(0x8735E0C4)
                   : Colors.white.withOpacity(0.10),
             ),
           ),
@@ -858,7 +858,7 @@ class _SortRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 11),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(11),
-          color: on ? const Color(0x4D4F8CFF) : Colors.white.withOpacity(0.05),
+          color: on ? const Color(0x4D35E0C4) : Colors.white.withOpacity(0.05),
         ),
         child: Center(
           child: Text(

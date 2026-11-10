@@ -1305,7 +1305,7 @@ class _ProtocolToggle extends StatelessWidget {
             boxShadow: on
                 ? const [
                     BoxShadow(
-                      color: Color(0x554F8CFF),
+                      color: Color(0x5535E0C4),
                       blurRadius: 12,
                       offset: Offset(0, 4),
                     ),

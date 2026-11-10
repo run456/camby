@@ -1,46 +1,28 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.73 (273)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.74 (274)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
 
-### v2.0.45 (245) 在线字幕搜索（迅雷 + SubtitleCat）
+### v2.0.74 (274) 主色定稿：青绿 → 紫蓝渐变（不再是纯绿）
 
-播放页字幕弹窗新增「**在线搜索字幕…**」，按文件名并行搜索两个公开字幕源，选中后
-下载 → 解码 → 解析成 `SubtitleCue` 写入播放页叠加层。**不重建播放器、不丢进度、
-不占用 Emby 服务端字幕轨、不写临时文件**。没有外挂字幕、又不想去 Emby 装插件时，
-在 App 里直接搜一条就能用。
+v2.0.73 把 CTA 渐变两端都换成了青绿（`#19C7B0 → #3BE0C4`），真机看着像一整块绿色。
+本次按「Lara 翻译」按钮的既有配方定稿：**左端青绿、右端紫蓝**，保留渐变过渡。
 
-| 项 | 实现 |
-|---|---|
-| 中文主力 | 迅雷 `oracle/subtitle` JSON 接口，读真实 `languages` 字段；返回字幕实测为 **GBK** 且带 `<font>` 内联标签 |
-| 补充源 | SubtitleCat 搜索页 → 限并发 4 抓最多 8 个详情页 → 解析静态 `.srt` + `-orig.srt` 兜底。该站「中文」是页面 JS 实时机翻，`-zh-CN.srt` 静态链接实测 404，因此不硬找 |
-| 容错 | 两源 `Future.wait` 并行、各自 25s 整体超时 / 8s 单请求超时，单源失败静默降级为空列表，不拖累另一源；按 url 去重、中文优先排序 |
-| 关键词 | `cleanTitle()` 去站点前缀 / 方括号 / 扩展名 / 画质编码标签，提取 JAV 番号；剧集拼 `S01E02`（文件名已带则不重复拼）；弹层里可手动改关键词重搜 |
-| 编码 | BOM → 严格 UTF-8 → 注入的 `gbkDecoder`（`gbk_codec`）→ `latin1` 兜底；解码后 `stripInlineTags()` 去掉 `<font>/<b>/<i>/<u>` 等标签 |
-| 挂载 | SRT/VTT 一律走 App 叠加层 `_cues`（先 `setSubtitle(null)` 摘掉 MPV 内核轨避免重叠）；ASS/SSA + MPV 交给内核原生渲染保住特效 |
+- `AppColors.ctaGradient` → `#35E0C4 → #7B6BF0`（与 `translate_sheet.dart` 里
+  `[primary, 0xFF7B6BF0]` 完全同一条配方）。
+- 各处独立渐变（媒体筛选「应用」、字幕样式选中胶囊）同步为同一对端色。
+- 旧蓝色系发光 / 按下态 / 选中底色（`4F8CFF`、`7B5CFF`、`5F8CFF`、`2E6FE0`）
+  统一迁移为 `35E0C4` / `7B6BF0` / `19B3A6`，消除青绿按钮背后冒蓝光。
+- 单色场景仍保留青绿：开关轨道、选中标签、状态点（渐变在 48dp 小件上会发糊）。
+- 顺手修正 `CHANGELOG.md` 结构：`v2.0.45` 之前被放在文件最顶部，已归位到
+  `v2.0.46` 与 `v2.0.44` 之间。
 
-**状态同步**：在线字幕不是 `SubtitleTrackInfo`，项目里有 3 处用 `_subtitle == null` 判断
-「字幕关闭」。新增 `_onlineSubtitle` 单独记录，底栏显示「字幕 · 在线」、播放信息面板显示
-「在线 · 迅雷 / SubtitleCat」，选回服务端轨道或关闭字幕时清掉。已挂载时字幕菜单里会多出
-一条带选中态的当前项，点它可重新搜索。
-
-**UI**：把播放页原先私有的玻璃面板 / 居中路由 / 行组件抽成
-`lib/widgets/glass_sheet.dart`，在线字幕搜索面板复用同一套外观 —— 居中卡片、同样的
-底色边框与入场动画，按屏幕短边限宽（手机 470 / 平板 620），不再是拉满整屏的底部抽屉；
-横屏也用可用高度自适应，输入框不会被键盘遮住。结果行带「迅雷 / SubtitleCat」来源角标、
-语言与格式。
-
-**合规**：上游思路来自 MIT 项目 `PotplayerJavChineseSubs_subtitlecat` 3.0，用 Dart 重写；
-许可全文随附于 `licenses/LICENSE-UPSTREAM.txt`，版权人 `Exhen & Contributors` 原样保留。
-两个数据源均为第三方未文档化端点 / HTML 结构，随时可能变更，故设计为**显式点击触发**
-而非起播自动搜索。
-
-验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
-`online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
-`verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
+**验证**：`flutter analyze` 0 error / 0 warning；`flutter test` 全过（golden 按新配色
+重建）；`perf_audit.py` 0 命中；`verify_release.sh --build` 出包
+`camby-2.0.74-release-arm64.apk`，aapt 确认 `versionCode=274 / versionName=2.0.74`。
 
 ### v2.0.73 (273) 修复全站「金黄」偏色 + 主色转青绿 + 玻璃加实底
 
@@ -417,6 +399,42 @@ v2.0.71 的 L2 上线后「看不出变化」，根因是 **Impeller 被关闭**
 验证：`flutter analyze` 0 error / 0 warning；`flutter test` **332 全过**（新增 `subtitle_cache_test.dart`
 9 条存取/导出/边界、`release_2_0_46_test.dart` 4 条交付守卫）；`perf_audit.py` 0 命中；
 `verify_release.sh --build` 出包 `releases/camby-2.0.46-release-arm64.apk`。
+
+### v2.0.45 (245) 在线字幕搜索（迅雷 + SubtitleCat）
+
+播放页字幕弹窗新增「**在线搜索字幕…**」，按文件名并行搜索两个公开字幕源，选中后
+下载 → 解码 → 解析成 `SubtitleCue` 写入播放页叠加层。**不重建播放器、不丢进度、
+不占用 Emby 服务端字幕轨、不写临时文件**。没有外挂字幕、又不想去 Emby 装插件时，
+在 App 里直接搜一条就能用。
+
+| 项 | 实现 |
+|---|---|
+| 中文主力 | 迅雷 `oracle/subtitle` JSON 接口，读真实 `languages` 字段；返回字幕实测为 **GBK** 且带 `<font>` 内联标签 |
+| 补充源 | SubtitleCat 搜索页 → 限并发 4 抓最多 8 个详情页 → 解析静态 `.srt` + `-orig.srt` 兜底。该站「中文」是页面 JS 实时机翻，`-zh-CN.srt` 静态链接实测 404，因此不硬找 |
+| 容错 | 两源 `Future.wait` 并行、各自 25s 整体超时 / 8s 单请求超时，单源失败静默降级为空列表，不拖累另一源；按 url 去重、中文优先排序 |
+| 关键词 | `cleanTitle()` 去站点前缀 / 方括号 / 扩展名 / 画质编码标签，提取 JAV 番号；剧集拼 `S01E02`（文件名已带则不重复拼）；弹层里可手动改关键词重搜 |
+| 编码 | BOM → 严格 UTF-8 → 注入的 `gbkDecoder`（`gbk_codec`）→ `latin1` 兜底；解码后 `stripInlineTags()` 去掉 `<font>/<b>/<i>/<u>` 等标签 |
+| 挂载 | SRT/VTT 一律走 App 叠加层 `_cues`（先 `setSubtitle(null)` 摘掉 MPV 内核轨避免重叠）；ASS/SSA + MPV 交给内核原生渲染保住特效 |
+
+**状态同步**：在线字幕不是 `SubtitleTrackInfo`，项目里有 3 处用 `_subtitle == null` 判断
+「字幕关闭」。新增 `_onlineSubtitle` 单独记录，底栏显示「字幕 · 在线」、播放信息面板显示
+「在线 · 迅雷 / SubtitleCat」，选回服务端轨道或关闭字幕时清掉。已挂载时字幕菜单里会多出
+一条带选中态的当前项，点它可重新搜索。
+
+**UI**：把播放页原先私有的玻璃面板 / 居中路由 / 行组件抽成
+`lib/widgets/glass_sheet.dart`，在线字幕搜索面板复用同一套外观 —— 居中卡片、同样的
+底色边框与入场动画，按屏幕短边限宽（手机 470 / 平板 620），不再是拉满整屏的底部抽屉；
+横屏也用可用高度自适应，输入框不会被键盘遮住。结果行带「迅雷 / SubtitleCat」来源角标、
+语言与格式。
+
+**合规**：上游思路来自 MIT 项目 `PotplayerJavChineseSubs_subtitlecat` 3.0，用 Dart 重写；
+许可全文随附于 `licenses/LICENSE-UPSTREAM.txt`，版权人 `Exhen & Contributors` 原样保留。
+两个数据源均为第三方未文档化端点 / HTML 结构，随时可能变更，故设计为**显式点击触发**
+而非起播自动搜索。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` **319 全过**（新增
+`online_subtitle_test.dart` 16 条，含手机/平板限宽的 widget 测试）；`perf_audit.py` 0 命中；
+`verify_release.sh --build` 出包 `releases/camby-2.0.45-release-arm64.apk`。
 
 ### v2.0.44 (244) 状态栏模糊与首页对齐（取消降级、sigma 恢复 30）
 

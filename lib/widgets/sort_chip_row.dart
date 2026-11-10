@@ -65,13 +65,13 @@ class SortChipRow extends StatelessWidget {
               ? const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0x3D4F8CFF), Color(0x1A5F8CFF)],
+                  colors: [Color(0x3D35E0C4), Color(0x1A35E0C4)],
                 )
               : null,
           color: on ? null : Colors.white.withOpacity(0.05),
           border: Border.all(
             color: on
-                ? const Color(0x884F8CFF)
+                ? const Color(0x8835E0C4)
                 : Colors.white.withOpacity(0.12),
           ),
         ),
