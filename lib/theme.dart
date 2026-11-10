@@ -49,6 +49,30 @@ class AppNav {
     colors: [Color(0x38FFFFFF), Color(0x14FFFFFF)],
   );
 
+  /// 选中项玻璃泡：相对普通项的竖向凸起量，让它探出导航条上下沿。
+  /// v2.0.79：仿用户截图的「选中态凸起玻璃泡」（半透磨砂 + 冷白亮边 + 浮起投影）。
+  static const double bubbleLift = 16;
+
+  /// 玻璃泡半透磨砂填充：上亮下暗，模拟顶部光源下的玻璃厚度。
+  static const bubbleGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0x30FFFFFF), Color(0x0EFFFFFF)],
+  );
+
+  /// 玻璃泡冷白亮边：替代早期脏脏的青/品红分色边（那版会触发圆角 paint 断言），
+  /// 也对齐截图里那道干净的冷色高光边。
+  static const bubbleEdge = Color(0x4DE8F4FF);
+
+  /// 玻璃泡浮起投影：让它像从条上「鼓」出来。
+  static const bubbleShadow = <BoxShadow>[
+    BoxShadow(
+      color: Color(0x40000000),
+      blurRadius: 14,
+      offset: Offset(0, 6),
+    ),
+  ];
+
   /// 待更新红点配色（设计稿默认关，本版未接更新源，只保留色值）。
   static const badgeColor = Color(0xFFFF5A5F);
 

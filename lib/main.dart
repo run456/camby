@@ -538,13 +538,11 @@ class GlassNavBarState extends State<GlassNavBar> {
     // v2.0.78：档位只由用户开关决定，`LiquidGlass.supported` 仅决定是否
     // 额外叠加 shader 折射。这样即使设备回退 Skia、shader 不可用，L2 的
     // 非 shader 外观（顶部高光 + 清亮细边）依然生效，开关绝不再「死了」。
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppNav.barRadius),
-      child: ValueListenableBuilder<bool>(
+    return ValueListenableBuilder<bool>(
         valueListenable: GlassConfig.liquid,
         builder: (_, liquid, __) {
           final canShader = liquid && LiquidGlass.supported;
-          final filter = !liquid
+          final barFilter = !liquid
               ? ImageFilter.blur(sigmaX: 20, sigmaY: 20) // L1：纯磨砂
               : (canShader
                   ? ImageFilter.compose(
@@ -562,14 +560,21 @@ class GlassNavBarState extends State<GlassNavBar> {
                       outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     )
                   : ImageFilter.blur(sigmaX: 14, sigmaY: 14)); // L2 非 shader 保底
-          return BackdropFilter(
-            filter: filter,
+          return SizedBox(
+            height: AppNav.barHeight,
             child: Stack(
+              // 选中泡要探出条外，整条不裁切；条底与高光层各自裁圆角。
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
               children: [
-                Container(
-                  height: AppNav.barHeight,
-                  padding: const EdgeInsets.all(AppNav.barInset),
-                  decoration: BoxDecoration(
+                // 1) 磨砂底条（圆角裁切 + 自身投影）
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppNav.barRadius),
+                  child: BackdropFilter(
+                    filter: barFilter,
+                    child: Container(
+                      height: AppNav.barHeight,
+                      decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(AppNav.barRadius),
                     // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
                     color: Colors.white.withValues(alpha: 0.06),
@@ -587,18 +592,13 @@ class GlassNavBarState extends State<GlassNavBar> {
                   ),
                   // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
                   // 112 + 4×48，定宽 Row 不会挤出像素。
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                        GlassNavBar._items.length, _navItem),
+                      ),
+                    ),
                   ),
-                ),
-                // L2 非 shader 保底外观：顶部一道柔和高光 + 清亮细边。
-                // 纯 DecoratedBox，不依赖 shader，开关一拨立刻可见差异；
-                // 对齐用户截图的「干净毛玻璃」观感（无脏色边）。
+                // 2) L2 高光叠层（裁在条内，置于选中泡之下）
                 if (liquid)
-                  Positioned.fill(
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppNav.barRadius),
                     child: IgnorePointer(
                       child: DecoratedBox(
                         decoration: BoxDecoration(
@@ -621,12 +621,22 @@ class GlassNavBarState extends State<GlassNavBar> {
                       ),
                     ),
                   ),
+                // 3) 导航项（不裁切，选中泡可探出条外）
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppNav.barInset),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children:
+                        List.generate(GlassNavBar._items.length, _navItem),
+                  ),
+                ),
               ],
             ),
           );
         },
-      ),
-    );
+      );
   }
 
   /// 单项：选中 = 96dp 白雾面药丸（图标 + 文字），未选中 = 44dp 纯图标。
@@ -636,7 +646,7 @@ class GlassNavBarState extends State<GlassNavBar> {
     return LiquidPress(
       onTap: () => _onTap(i),
       radius: AppNav.itemRadius,
-      scale: 0.94,
+      scale: sel ? 0.97 : 0.94,
       glow: 0.30,
       // 未选中项没有文字，语义标签保证读屏与自动化测试仍能定位每个 Tab
       semanticLabel: item.$2,
@@ -644,19 +654,21 @@ class GlassNavBarState extends State<GlassNavBar> {
         duration: AppNav.duration,
         curve: AppNav.curve,
         width: sel ? AppNav.selectedWidth : AppNav.idleWidth,
-        height: AppNav.itemHeight,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppNav.itemRadius),
-          // v2.0.68：选中态换成媒体库分段同款白雾面渐变，
-          // 彩色投影与青色发光全部清空，只留 1px 白 26% 内描边。
-          gradient: sel ? AppNav.capsuleGradient : null,
-          border: sel
-              ? Border.all(
-                  color: Colors.white.withValues(alpha: 0.26),
+        // v2.0.79：选中项 = 凸起玻璃泡，竖向多出 bubbleLift 探出条外。
+        height: sel ? AppNav.itemHeight + AppNav.bubbleLift : AppNav.itemHeight,
+        // 半透磨砂填充 + 冷白亮边 + 浮起投影；边框走内描边不增尺寸，
+        // 避免 Row 溢出，也绕开早期青/品红分色边在圆角下的 paint 断言。
+        decoration: sel
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(AppNav.itemRadius),
+                gradient: AppNav.bubbleGradient,
+                border: Border.all(
+                  color: AppNav.bubbleEdge,
                   width: 1,
-                )
-              : null,
-        ),
+                ),
+                boxShadow: AppNav.bubbleShadow,
+              )
+            : const BoxDecoration(),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppNav.itemRadius),
           child: Center(
