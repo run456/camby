@@ -59,3 +59,6 @@ app.*.map.json
 
 # 构建产物不入库（真机安装包在 releases/ 单独分发）
 *.apk
+
+# 崩溃转储（v2.0.70 曾误提交 122MB core dump，GitHub 拒收）
+core.*
