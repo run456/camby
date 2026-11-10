@@ -66,11 +66,13 @@ void main() {
   float bc = texture(u6_tex, clamp(uv + off * (1.0 - u1_dispersion), 0.0, 1.0)).b;
   vec3 col = vec3(rc, gc, bc);
 
-  // Fresnel + 固定光源镜面，集中在边缘强化玻璃厚度与体积
+  // Fresnel + 固定光源镜面，集中在边缘强化玻璃厚度与体积。
+  // v2.0.76：fres 0.32 → 0.18。原来边缘能叠到 0.8 的白，在深色卡面上
+  // 会显出一圈发灰的亮边，像积了水垢；收一档只留冷光。
   float ny = clamp(abs(n.y), 0.0, 1.0);
   float fres = pow(1.0 - ny, 3.0);
   float spec = max(0.0, dot(n, normalize(u2_light)));
-  col += vec3(1.0) * (fres * 0.32 + spec * u5_spec) * edge;
+  col += vec3(1.0) * (fres * 0.18 + spec * u5_spec * 0.8) * edge;
 
   fragColor = vec4(col, 1.0);
 }

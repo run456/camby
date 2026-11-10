@@ -159,7 +159,9 @@ class _StatsPageState extends State<StatsPage> {
     return Stack(
       children: [
         const Positioned.fill(child: _LiquidBackground()),
-        Container(color: Colors.black.withOpacity(0.2)),
+        // v2.0.76：压一层更重的黑，光球只当「玻璃后面有点东西」，
+        // 不再是整屏彩色雾——那是卡片显脏的源头。
+        Container(color: Colors.black.withOpacity(0.34)),
         ListView(
           padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
           // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
@@ -662,7 +664,7 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: RadialGradient(
-                        colors: [b.$1.withOpacity(0.5), b.$2.withOpacity(0.0)],
+                        colors: [b.$1.withOpacity(0.32), b.$2.withOpacity(0.0)],
                         stops: const [0.0, 1.0],
                       ),
                     ),

@@ -265,7 +265,7 @@ class Glass extends StatelessWidget {
   const Glass({
     super.key,
     required this.child,
-    this.blur = 26,
+    this.blur = 20,
     this.radius = 24,
     this.padding = const EdgeInsets.all(16),
     this.tint = 0.10,
@@ -297,26 +297,32 @@ class Glass extends StatelessWidget {
   /// 视频卡顿/像暂停了 1 秒）。播放控件层传 false，仅保留半透明玻璃质感。
   final bool blurEnabled;
 
-  /// 背景色彩矩阵：saturate 1.45 + contrast 1.06（标准亮度权重公式）。
+  /// 背景色彩矩阵：saturate 1.18 + contrast 1.03（标准亮度权重公式）。
   ///
   /// v2.0.73 修复：v2.0.70 那版系数是错的（R 行 -0.286/1.259/0.127），
   /// 把主色 #4F8CFF 算成 #BA9246 —— 全站按钮/开关/进度条被染成金黄。
   /// 现在用规范矩阵：sr=(1-s)*0.213、sg=(1-s)*0.715、sb=(1-s)*0.072。
   ///
+  /// v2.0.76：1.45 的饱和度对深色界面太猛——数据页那几团彩色光晕被放大后，
+  /// 透过玻璃混成一锅灰紫雾，观感「脏」。降到 1.18 / 1.03，背景该沉的沉下去，
+  /// 玻璃里只剩下淡淡的色相过渡。仍是规范矩阵，主色不会被算偏。
+  ///
   /// **只作用于 BackdropFilter 采样到的背景**，不碰玻璃内部内容
   /// （内容若被调色，文字和品牌色会整体偏色）。
   static const List<double> _vibrancy = [
-    1.4353, -0.3411, -0.0343, 0, -7.65,
-    -0.1017, 1.1959, -0.0343, 0, -7.65,
-    -0.1017, -0.3411, 1.5027, 0, -7.65,
+    1.17591, -0.13256, -0.01335, 0, -3.84,
+    -0.03949, 1.08284, -0.01335, 0, -3.84,
+    -0.03949, -0.13256, 1.20205, 0, -3.84,
     0, 0, 0, 1, 0,
   ];
 
-  /// 玻璃底板色（v2.0.73）：真机反馈弹窗过于通透，背后文字直接透上来很乱。
-  /// 底板压住一层深色，模糊只负责边缘的「玻璃感」。
-  static const Color _base = Color(0xFF0B111C);
+  /// 玻璃底板色（v2.0.76）：比 v2.0.73 再深一档，压住背后的彩色光斑。
+  /// 玻璃的「净」来自底板足够深，模糊只负责边缘那一点流动感。
+  static const Color _base = Color(0xFF070C15);
 
   /// 内发光：Flutter BoxShadow 无 inset，用边缘内渐变近似玻璃厚度。
+  /// v2.0.76：起亮位置从 0.72 推到 0.88，只在最外一圈留厚度，
+  /// 不再把整块卡面洗白。
   Widget _innerGlow(BorderRadius r, double a) => Positioned.fill(
         child: IgnorePointer(
           child: DecoratedBox(
@@ -329,7 +335,7 @@ class Glass extends StatelessWidget {
                   Colors.white.withOpacity(0.0),
                   Colors.white.withOpacity(a),
                 ],
-                stops: const [0.72, 1.0],
+                stops: const [0.88, 1.0],
               ),
             ),
           ),
@@ -339,7 +345,11 @@ class Glass extends StatelessWidget {
   /// 折射高光层：对角镜面光 + 顶部弧形柔光。L1 仅提亮高光，真折射留待 L2。
   /// 用 Positioned.fill 包住内部 Stack，使其跟随父级尺寸（内部仅两个定位子，
   /// 自身无法在无约束父级下确定尺寸）。
-  Widget _specular(BorderRadius r, {double diag = 0.32, double top = 0.18}) =>
+  ///
+  /// v2.0.76：v2.0.72 的 diag 0.42 是沿整块对角铺开的白，等于给每张卡蒙了层
+  /// 白纱——这是「玻璃变脏」的主因。现在把白光压成贴着边缘的一道窄光，
+  /// 中间完全透明，卡面恢复深色，只有转折处反光。
+  Widget _specular(BorderRadius r, {double diag = 0.16, double top = 0.10}) =>
       Positioned.fill(
         child: Stack(
           children: [
@@ -349,12 +359,14 @@ class Glass extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: r,
                     gradient: LinearGradient(
-                      stops: const [0.0, 0.34, 0.66, 1.0],
+                      stops: const [0.0, 0.07, 0.30, 0.70, 0.93, 1.0],
                       colors: [
                         Colors.white.withOpacity(diag),
                         Colors.white.withOpacity(0.0),
                         Colors.white.withOpacity(0.0),
-                        Colors.white.withOpacity(diag * 0.5),
+                        Colors.white.withOpacity(0.0),
+                        Colors.white.withOpacity(diag * 0.45),
+                        Colors.white.withOpacity(diag * 0.8),
                       ],
                       begin: const Alignment(-1.2, -1.0),
                       end: const Alignment(1.2, 1.0),
@@ -370,12 +382,12 @@ class Glass extends StatelessWidget {
                     borderRadius: r,
                     gradient: RadialGradient(
                       center: const Alignment(-0.65, -1.25),
-                      radius: 1.4,
+                      radius: 0.95,
                       colors: [
                         Colors.white.withOpacity(top),
                         Colors.white.withOpacity(0.0),
                       ],
-                      stops: const [0.0, 0.55],
+                      stops: const [0.0, 0.22],
                     ),
                   ),
                 ),
@@ -386,7 +398,14 @@ class Glass extends StatelessWidget {
       );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+        // v2.0.76：监听材质档位。开关一拨，每块玻璃自己重绘，
+        // 不依赖父页面 setState（页面被 IndexedStack 缓存时也能立即生效）。
+        valueListenable: GlassConfig.liquid,
+        builder: (context, _, __) => _build(context),
+      );
+
+  Widget _build(BuildContext context) {
     final r = BorderRadius.circular(radius);
     // tint 让出一档给色彩矩阵，避免叠加后过曝
     final tintNow = tint * 0.7;
@@ -396,22 +415,23 @@ class Glass extends StatelessWidget {
         blurEnabled && GlassConfig.liquidEnabled && LiquidGlass.supported;
     final dpr = MediaQuery.of(context).devicePixelRatio;
 
-    // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散（不依赖 shader 也可见，
-    // 是「真的生效」的可见保底层）；L1 保持白色亮边。
+    // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散。
+    // v2.0.76：原来 0x55/0x3A 的强度在深色卡面上会显出一圈绿粉脏边，
+    // 收到几乎只剩一道冷光，只在近看时才看得出分色。
     final Border? glassBorder = border
         ? (useLiquid
             ? const Border(
-                top: BorderSide(color: Color(0x5538E8C8), width: 1.0),
-                left: BorderSide(color: Color(0x3A38E8C8), width: 1.0),
-                right: BorderSide(color: Color(0x3AFF6BD6), width: 1.0),
-                bottom: BorderSide(color: Color(0x55FF6BD6), width: 1.0),
+                top: BorderSide(color: Color(0x2E38E8C8), width: 0.9),
+                left: BorderSide(color: Color(0x1F38E8C8), width: 0.9),
+                right: BorderSide(color: Color(0x1FFF6BD6), width: 0.9),
+                bottom: BorderSide(color: Color(0x2EFF6BD6), width: 0.9),
               )
-            : Border.all(color: Colors.white.withOpacity(0.22), width: 0.9))
+            : Border.all(color: Colors.white.withOpacity(0.20), width: 0.9))
         : null;
 
-    // v2.0.73：玻璃不再「全透」。底板压一层深色，模糊只做边缘玻璃感；
-    // 播放页（blurEnabled=false）没有真实模糊，底板让得更透以免糊住画面。
-    final baseAlpha = blurEnabled ? (soft ? 0.52 : 0.70) : 0.42;
+    // v2.0.76：底板更实。玻璃的干净来自「深底 + 边缘微光」，
+    // 底太透时背后的彩色光斑会糊成灰雾（真机反馈的「脏」）。
+    final baseAlpha = blurEnabled ? (soft ? 0.62 : 0.78) : 0.42;
     Color fill(double whiteA) => Color.alphaBlend(
           Colors.white.withOpacity(whiteA),
           _base,
@@ -429,9 +449,9 @@ class Glass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                fill(soft ? tintNow * 0.9 : tintNow * 1.6),
-                fill(soft ? tintNow * 0.3 : tintNow * 0.5),
-                fill(soft ? tintNow * 0.5 : tintNow * 0.9),
+                fill(soft ? tintNow * 0.55 : tintNow * 1.0),
+                fill(soft ? tintNow * 0.20 : tintNow * 0.30),
+                fill(soft ? tintNow * 0.32 : tintNow * 0.55),
               ],
               stops: const [0.0, 0.45, 1.0],
             ),
@@ -455,7 +475,7 @@ class Glass extends StatelessWidget {
                     radius: radius * dpr,
                     refraction: 10 * dpr,
                     dispersion: 0.22,
-                    specular: 0.5,
+                    specular: 0.35,
                   ),
                 ),
               )
@@ -471,15 +491,15 @@ class Glass extends StatelessWidget {
           : BackdropFilter(filter: filter, child: body),
     );
 
-    // 厚度层：内发光 + 折射高光。L2 加强高光、补边缘菲涅尔体积感。
+    // 厚度层：内发光 + 折射高光。L2 的高光只在边缘收口，不做整面提亮。
     Widget content = Stack(
       children: [
         clipped,
-        _innerGlow(r, useLiquid ? 0.15 : 0.10),
+        _innerGlow(r, useLiquid ? 0.07 : 0.05),
         _specular(
           r,
-          diag: useLiquid ? 0.42 : 0.32,
-          top: useLiquid ? 0.24 : 0.18,
+          diag: useLiquid ? 0.18 : 0.13,
+          top: useLiquid ? 0.11 : 0.08,
         ),
       ],
     );
@@ -491,15 +511,16 @@ class Glass extends StatelessWidget {
     if (margin != null) {
       content = Padding(padding: margin!, child: content);
     }
-    // 外阴影：托起体积，置于最外层避免被 ClipRRect 裁掉
+    // 外阴影：托起体积，置于最外层避免被 ClipRRect 裁掉。
+    // v2.0.76：多卡连续排布时 0x59 的黑影会互相叠成灰带，收到 0x42。
     return Container(
       decoration: BoxDecoration(
         borderRadius: r,
         boxShadow: const [
           BoxShadow(
-            color: Color(0x59000000),
-            blurRadius: 30,
-            offset: Offset(0, 12),
+            color: Color(0x42000000),
+            blurRadius: 26,
+            offset: Offset(0, 10),
           ),
         ],
       ),

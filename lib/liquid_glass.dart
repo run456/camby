@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
+
 /// 玻璃材质档位开关与 L2 液态 shader 持有器。
 ///
 /// 设计原则：
@@ -11,9 +13,17 @@ import 'dart:ui';
 /// - **无并发串扰**：[shader] 每次返回独立的 [FragmentShader]，多实例同帧 paint
 ///   时参数不会串味。
 class GlassConfig {
+  /// v2.0.76 修复：以前是裸 static bool，设置页 setState 只重建设置页自身，
+  /// 已被 IndexedStack / 路由缓存的其它页面不会 rebuild，于是「开关点了没反应」。
+  /// 现在改成 ValueNotifier：每个 [Glass] 自己监听，切换瞬间全场玻璃重绘。
+  static final ValueNotifier<bool> liquid = ValueNotifier<bool>(true);
+
   /// 用户开关：true = 液态玻璃(L2)，false = 凝态玻璃(L1)。默认开。
   /// 由设置页「液态玻璃」持久化为 `set_liquid_glass`；启动时从 SharedPreferences 读入。
-  static bool liquidEnabled = true;
+  static bool get liquidEnabled => liquid.value;
+  static set liquidEnabled(bool v) {
+    if (liquid.value != v) liquid.value = v;
+  }
 }
 
 /// L2 液态玻璃的 shader 资源加载与实例工厂。

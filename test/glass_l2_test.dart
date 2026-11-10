@@ -16,6 +16,63 @@ void main() {
       GlassConfig.liquidEnabled = true; // 还原
     });
 
+    // v2.0.76 真机 bug：设置页开关拨了，玻璃毫无变化。
+    // 原因是裸 static bool 只在设置页 setState 里改，被 IndexedStack
+    // 缓存的其它页面不会重建。改成 ValueNotifier 后由每块 Glass 自己监听。
+    test('材质档位是 ValueNotifier：切换必通知、同值不重复通知', () {
+      var hits = 0;
+      void onChanged() => hits++;
+      GlassConfig.liquid.addListener(onChanged);
+      addTearDown(() {
+        GlassConfig.liquid.removeListener(onChanged);
+        GlassConfig.liquidEnabled = true;
+      });
+
+      GlassConfig.liquidEnabled = true; // 已是 true，不应通知
+      expect(hits, 0);
+      GlassConfig.liquidEnabled = false;
+      expect(hits, 1);
+      GlassConfig.liquidEnabled = false; // 同值，不应重复通知
+      expect(hits, 1);
+      GlassConfig.liquidEnabled = true;
+      expect(hits, 2);
+      expect(GlassConfig.liquid, isA<ValueNotifier<bool>>());
+    });
+
+    testWidgets('Glass 自己监听档位：切换后无需父级 setState 即重建', (tester) async {
+      GlassConfig.liquidEnabled = true;
+      var parentBuilds = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                parentBuilds++;
+                return const Center(
+                  child: Glass(
+                    width: 180,
+                    height: 100,
+                    child: Text('t', style: TextStyle(color: Colors.white)),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      expect(parentBuilds, 1);
+
+      GlassConfig.liquidEnabled = false;
+      await tester.pump();
+      // 父 Builder 没重建，说明是 Glass 内部（ValueListenableBuilder）自己刷的
+      expect(parentBuilds, 1);
+      expect(tester.takeException(), isNull);
+
+      GlassConfig.liquidEnabled = true;
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
     test('LiquidGlass.ensureLoaded 不抛错（失败则静默降级）', () async {
       await LiquidGlass.ensureLoaded();
       expect(LiquidGlass.supported, isA<bool>());

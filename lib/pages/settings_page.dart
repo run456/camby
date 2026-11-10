@@ -220,7 +220,11 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               _RowItem(
                 title: '液态玻璃',
-                desc: '弹窗 / 导航条使用真折射液态质感 · 关闭退回凝态',
+                // v2.0.76：直接回显当前档位。以前开关拨了但页面看不出变化，
+                // 分不清是「没生效」还是「两档都这样」。
+                desc: _s['liquid_glass'] == true
+                    ? '当前：液态（真折射）· 立即生效'
+                    : '当前：凝态（柔和模糊）· 立即生效',
                 trailing: _Toggle(
                   value: _s['liquid_glass'],
                   onChanged: (v) => _set('liquid_glass', v),
