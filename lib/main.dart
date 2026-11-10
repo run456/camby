@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -536,60 +535,93 @@ class GlassNavBarState extends State<GlassNavBar> {
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.of(context).devicePixelRatio;
-    final useLiquid =
-        GlassConfig.liquidEnabled && LiquidGlass.supported;
+    // v2.0.78：档位只由用户开关决定，`LiquidGlass.supported` 仅决定是否
+    // 额外叠加 shader 折射。这样即使设备回退 Skia、shader 不可用，L2 的
+    // 非 shader 外观（顶部高光 + 清亮细边）依然生效，开关绝不再「死了」。
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppNav.barRadius),
-      // 动态镜面：光源匀速公转，仅导航条这一块大玻璃订阅，性能可控。
-      child: ValueListenableBuilder<double>(
-        valueListenable: LiquidLightSource.angle,
-        builder: (_, a, __) {
-          final light = Offset(cos(a), sin(a));
-          final filter = useLiquid
-              ? ImageFilter.compose(
-                  // 整面折射作用于清晰背景，再轻模糊柔化 → 真实透镜弯曲
-                  inner: ImageFilter.shader(
-                    LiquidGlass.shader(
-                      radius: AppNav.barRadius * dpr,
-                      refraction: 16 * dpr,
-                      dispersion: 0.30,
-                      specular: 0.6,
-                      full: true,
-                      light: light,
-                    ),
-                  ),
-                  outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                )
-              : ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+      child: ValueListenableBuilder<bool>(
+        valueListenable: GlassConfig.liquid,
+        builder: (_, liquid, __) {
+          final canShader = liquid && LiquidGlass.supported;
+          final filter = !liquid
+              ? ImageFilter.blur(sigmaX: 20, sigmaY: 20) // L1：纯磨砂
+              : (canShader
+                  ? ImageFilter.compose(
+                      // 整面折射作用于清晰背景，再轻模糊柔化 → 真实透镜弯曲
+                      inner: ImageFilter.shader(
+                        LiquidGlass.shader(
+                          radius: AppNav.barRadius * dpr,
+                          refraction: 16 * dpr,
+                          dispersion: 0.30,
+                          specular: 0.6,
+                          full: true,
+                          light: const Offset(0.45, -1.0),
+                        ),
+                      ),
+                      outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    )
+                  : ImageFilter.blur(sigmaX: 14, sigmaY: 14)); // L2 非 shader 保底
           return BackdropFilter(
             filter: filter,
-            child: Container(
-              height: AppNav.barHeight,
-              padding: const EdgeInsets.all(AppNav.barInset),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppNav.barRadius),
-                // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
-                color: Colors.white.withValues(alpha: 0.06),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.10),
-                  width: 1,
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x47000000),
-                    blurRadius: 20,
-                    offset: Offset(0, 8),
+            child: Stack(
+              children: [
+                Container(
+                  height: AppNav.barHeight,
+                  padding: const EdgeInsets.all(AppNav.barInset),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppNav.barRadius),
+                    // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
+                    color: Colors.white.withValues(alpha: 0.06),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.10),
+                      width: 1,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x47000000),
+                        blurRadius: 20,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
-              // 112 + 4×48，定宽 Row 不会挤出像素。
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children:
-                    List.generate(GlassNavBar._items.length, _navItem),
-              ),
+                  // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
+                  // 112 + 4×48，定宽 Row 不会挤出像素。
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                        GlassNavBar._items.length, _navItem),
+                  ),
+                ),
+                // L2 非 shader 保底外观：顶部一道柔和高光 + 清亮细边。
+                // 纯 DecoratedBox，不依赖 shader，开关一拨立刻可见差异；
+                // 对齐用户截图的「干净毛玻璃」观感（无脏色边）。
+                if (liquid)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(AppNav.barRadius),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.center,
+                            colors: [
+                              Color(0x1FFFFFFF),
+                              Color(0x00000000),
+                            ],
+                            stops: [0.0, 0.55],
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           );
         },

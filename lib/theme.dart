@@ -408,41 +408,49 @@ class Glass extends StatelessWidget {
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
         // v2.0.76：监听材质档位。开关一拨，每块玻璃自己重绘，
         // 不依赖父页面 setState（页面被 IndexedStack 缓存时也能立即生效）。
+        // v2.0.78：外观档位只由用户开关决定，shader 仅作「锦上添花」叠加层；
+        // 即使设备不支持 shader（Impeller 回退 Skia），L2 的非 shader 外观
+        // （高光 + 细边 + 内发光）依然生效，开关不再形同虚设。
         valueListenable: GlassConfig.liquid,
-        builder: (context, _, __) {
-          final useLiquid =
-              GlassConfig.liquidEnabled && LiquidGlass.supported;
-          if (fullRefraction && useLiquid) {
+        builder: (context, liquid, __) {
+          final canShader = liquid && LiquidGlass.supported;
+          if (fullRefraction && canShader) {
             // 整面折射 + 动态镜面：光源匀速公转，仅大玻璃订阅此帧驱动。
             return ValueListenableBuilder<double>(
               valueListenable: LiquidLightSource.angle,
               builder: (ctx, a, ___) =>
-                  _assemble(ctx, Offset(cos(a), sin(a)), useLiquid),
+                  _assemble(ctx, Offset(cos(a), sin(a)), liquid, true),
             );
           }
-          return _assemble(context, const Offset(0.45, -1.0), useLiquid);
+          return _assemble(context, const Offset(0.45, -1.0), liquid, false);
         },
       );
 
-  Widget _assemble(BuildContext context, Offset light, bool useLiquid) {
+  Widget _assemble(
+    BuildContext context,
+    Offset light,
+    bool liquid,
+    bool canShader,
+  ) {
     final r = BorderRadius.circular(radius);
     // tint 让出一档给色彩矩阵，避免叠加后过曝
     final tintNow = tint * 0.7;
 
-    // useLiquid 由 build 顶层计算后作为参数传入（见 _assemble 签名）。
+    // `liquid` / `canShader` 由 build 顶层计算后作为参数传入（见 _assemble 签名）。
     final dpr = MediaQuery.of(context).devicePixelRatio;
 
-    // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散。
-    // v2.0.76：原来 0x55/0x3A 的强度在深色卡面上会显出一圈绿粉脏边，
-    // 收到几乎只剩一道冷光，只在近看时才看得出分色。
+    // 磨砂基底：模糊 + 轻量色彩矩阵（只作用于背景、不碰内容）。
+    // 让磨砂玻璃在深色界面上更通透有质感，而非死灰一团；同时用掉 _vibrancy。
+    ImageFilter _frost(double b) => ImageFilter.compose(
+          inner: ImageFilter.blur(sigmaX: b, sigmaY: b),
+          outer: ColorFilter.matrix(_vibrancy),
+        );
+
+    // 边缘描边：L2 用比 L1 更亮一档的冷白细边（圆角要求边框同色，故不再做
+    // 青/品红分色——之前那圈分色边在深色卡面上显脏，也与用户截图的干净毛玻璃不符）。
     final Border? glassBorder = border
-        ? (useLiquid
-            ? const Border(
-                top: BorderSide(color: Color(0x2E38E8C8), width: 0.9),
-                left: BorderSide(color: Color(0x1F38E8C8), width: 0.9),
-                right: BorderSide(color: Color(0x1FFF6BD6), width: 0.9),
-                bottom: BorderSide(color: Color(0x2EFF6BD6), width: 0.9),
-              )
+        ? (liquid
+            ? Border.all(color: Colors.white.withOpacity(0.28), width: 0.9)
             : Border.all(color: Colors.white.withOpacity(0.20), width: 0.9))
         : null;
 
@@ -478,17 +486,18 @@ class Glass extends StatelessWidget {
     );
 
     // 滤镜层：所有路径都只处理「背后透出的背景」，内容原色不动。
-    //   L2 整面（fullRefraction）：先 shader 对清晰背景整面折射，再轻模糊柔化
-    //       → 真实透镜弯曲（背景在玻璃内被放大/扭曲），模糊收窄到 ~10
-    //   L2 边缘（小卡片）：先模糊，再 shader 仅在边缘带做色散/菲涅尔高光
-    //   L1：模糊 → 色彩矩阵（saturate/contrast，纯 CPU 参数）
-    //   播放页（blurEnabled=false 且 L2）：纯 shader 折射，背后是逐帧视频
-    // v2.0.73 修复：矩阵以前套在 body 外层（ColorFiltered），连按钮、文字一起
-    // 调色，品牌蓝被算成金黄。现在塞进 BackdropFilter 的 filter 链。
-    final ImageFilter? filter = !useLiquid
-        ? (blurEnabled ? ImageFilter.blur(sigmaX: blur, sigmaY: blur) : null)
+    // v2.0.78：外观档位 = 用户开关 `liquid`；`canShader` 仅决定是否额外叠加
+    // shader 折射。这样 shader 不可用时，L2 仍靠下面的高光/细边层呈现差异，
+    // 开关永远有反应。
+    //   L1（关）：纯模糊
+    //   L2 整面（大玻璃 + shader 可用）：先 shader 对清晰背景整面折射，后轻模糊
+    //   L2 边缘（小卡片 + shader 可用）：先模糊，再 shader 仅边缘带做色散/高光
+    //   L2 但 shader 不可用：纯模糊（差异由下方高光/细边层提供）
+    //   播放页（blurEnabled=false + L2 + shader 可用）：纯 shader 折射（视频背景）
+    final ImageFilter? filter = !liquid
+        ? (blurEnabled ? _frost(blur) : null)
         : (blurEnabled
-            ? (fullRefraction
+            ? (fullRefraction && canShader
                 ? ImageFilter.compose(
                     // 先折射（作用于清晰背景），后轻模糊
                     inner: ImageFilter.shader(
@@ -503,29 +512,33 @@ class Glass extends StatelessWidget {
                     ),
                     outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                   )
-                : ImageFilter.compose(
-                    inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                    outer: ImageFilter.shader(
-                      LiquidGlass.shader(
-                        radius: radius * dpr,
-                        refraction: 10 * dpr,
-                        dispersion: 0.22,
-                        specular: 0.35,
-                        full: false,
-                        light: light,
-                      ),
+                : (canShader
+                    ? ImageFilter.compose(
+                        inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                        outer: ImageFilter.shader(
+                          LiquidGlass.shader(
+                            radius: radius * dpr,
+                            refraction: 10 * dpr,
+                            dispersion: 0.22,
+                            specular: 0.35,
+                            full: false,
+                            light: light,
+                          ),
+                        ),
+                      )
+                    : _frost(blur)))
+            : (canShader
+                ? ImageFilter.shader(
+                    LiquidGlass.shader(
+                      radius: radius * dpr,
+                      refraction: 10 * dpr,
+                      dispersion: 0.22,
+                      specular: 0.35,
+                      full: false,
+                      light: light,
                     ),
-                  ))
-            : ImageFilter.shader(
-                LiquidGlass.shader(
-                  radius: radius * dpr,
-                  refraction: 10 * dpr,
-                  dispersion: 0.22,
-                  specular: 0.35,
-                  full: false,
-                  light: light,
-                ),
-              ));
+                  )
+                : null));
 
     final clipped = ClipRRect(
       borderRadius: r,
@@ -538,11 +551,11 @@ class Glass extends StatelessWidget {
     Widget content = Stack(
       children: [
         clipped,
-        _innerGlow(r, useLiquid ? 0.07 : 0.05),
+        _innerGlow(r, liquid ? 0.07 : 0.05),
         _specular(
           r,
-          diag: useLiquid ? 0.18 : 0.13,
-          top: useLiquid ? 0.11 : 0.08,
+          diag: liquid ? 0.18 : 0.13,
+          top: liquid ? 0.11 : 0.08,
         ),
       ],
     );
