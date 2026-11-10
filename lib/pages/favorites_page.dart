@@ -77,7 +77,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
-                  colors: [Color(0x3335E0C4), Color(0x0035E0C4)],
+                  colors: [Color(0x334F8CFF), Color(0x004F8CFF)],
                 ),
               ),
             ),
@@ -91,7 +91,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
-                  colors: [Color(0x2E7B6BF0), Color(0x007B6BF0)],
+                  colors: [Color(0x2E7B5CFF), Color(0x007B5CFF)],
                 ),
               ),
             ),

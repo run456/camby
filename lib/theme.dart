@@ -13,19 +13,19 @@ class AppColors {
   static const surface = Color(0xFF101726);
   static const ink = Color(0xFFF2F7FF);
   static const muted = Color(0xFF8B9BB4);
-  static const primary = Color(0xFF3BE0C4); // 青绿主色（v2.0.73 由蓝紫切换）
-  static const secondary = Color(0xFF19B3A6); // 深青（次色 / 渐变暗端）
-  static const accent = Color(0xFF5AF0D6); // 亮青绿强调
+  static const primary = Color(0xFF4F8CFF); // 蓝紫主色（v2.0.75 回归原配色）
+  static const secondary = Color(0xFF7B5CFF);
+  static const accent = Color(0xFF5B8CFF); // 亮蓝强调
   static const cyan = Color(0xFF38E8C8);
   static const warn = Color(0xFFFFC55A);
   static const danger = Color(0xFFFF6B8A);
 
-  /// 主行动按钮渐变：青绿 → 紫蓝（v2.0.74 定稿，与「翻译」按钮同一配方）。
-  /// v2.0.73 曾把两端都改成青绿，导致 CTA 变成纯绿色块；现在保留紫蓝尾端。
+  /// 主行动按钮渐变：蓝 → 紫（与 v2.0.22 起的原配方一致）。
+  /// v2.0.73/74 试过青绿系，真机确认原蓝色才是目标，v2.0.75 全量回退。
   static const ctaGradient = LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    colors: [Color(0xFF35E0C4), Color(0xFF7B6BF0)],
+    colors: [Color(0xFF4F8CFF), Color(0xFF7B5CFF)],
   );
 }
 
@@ -596,7 +596,7 @@ class _PrimaryButtonState extends State<PrimaryButton>
                 gradient: AppColors.ctaGradient,
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x5935E0C4),
+                    color: Color(0x594F8CFF),
                     blurRadius: 24,
                     offset: Offset(0, 10),
                   ),

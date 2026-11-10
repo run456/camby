@@ -387,7 +387,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                       boxShadow: _fav
                           ? const [
                               BoxShadow(
-                                color: Color(0x5535E0C4),
+                                color: Color(0x554F8CFF),
                                 blurRadius: 16,
                                 offset: Offset(0, 6),
                               ),
@@ -683,7 +683,7 @@ class _FolderRow extends StatelessWidget {
               ? const LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0x4D35E0C4), Color(0x1F35E0C4)],
+                  colors: [Color(0x4D4F8CFF), Color(0x1F5F8CFF)],
                 )
               : LinearGradient(
                   colors: [
@@ -693,7 +693,7 @@ class _FolderRow extends StatelessWidget {
                 ),
           border: Border.all(
             color: selected
-                ? const Color(0x9935E0C4)
+                ? const Color(0x994F8CFF)
                 : Colors.white.withOpacity(0.12),
           ),
         ),
@@ -702,7 +702,7 @@ class _FolderRow extends StatelessWidget {
             Icon(
               selected ? Icons.folder_rounded : Icons.folder_open_rounded,
               size: 16,
-              color: selected ? const Color(0xFF8FF5E2) : AppColors.muted,
+              color: selected ? const Color(0xFF9CC2FF) : AppColors.muted,
             ),
             const SizedBox(width: 9),
             Expanded(

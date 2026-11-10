@@ -489,7 +489,7 @@ class _PersonPageState extends State<PersonPage> {
               style: const TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.w900,
-                color: Color(0xFF3BE0C4),
+                color: Color(0xFFFFA347),
                 letterSpacing: -1,
               ),
             ),
@@ -667,7 +667,7 @@ class _PersonPageState extends State<PersonPage> {
             style: const TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF3BE0C4),
+              color: Color(0xFFFFA347),
             ),
           ),
         ],
@@ -915,7 +915,7 @@ class _Seg extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
                   gradient: const LinearGradient(
-                    colors: [Color(0x3835E0C4), Color(0x247B6BF0)],
+                    colors: [Color(0x384F8CFF), Color(0x247B5CFF)],
                   ),
                   border: Border.all(
                     color: AppColors.primary.withOpacity(0.55),

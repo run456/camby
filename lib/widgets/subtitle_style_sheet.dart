@@ -539,7 +539,7 @@ class _HeaderBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(15),
           gradient: primary
               ? const LinearGradient(
-                  colors: [Color(0xFF35E0C4), Color(0xFF7B6BF0)],
+                  colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                 )
               : null,
           color: primary ? null : Colors.white.withOpacity(0.10),

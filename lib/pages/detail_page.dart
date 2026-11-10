@@ -834,7 +834,7 @@ class _DetailPageState extends State<DetailPage> {
                 return _videoCard(
                   title: tr.name,
                   tag: '预告',
-                  tagColor: const Color(0xFF3BE0C4),
+                  tagColor: const Color(0xFF5B8CFF),
                   thumb: tr.posterUrl ?? tr.backdropUrl ?? item.backdropUrl,
                   onTap: () => widget.onPlay(tr, null, resume: false),
                 );
@@ -845,7 +845,7 @@ class _DetailPageState extends State<DetailPage> {
                 return _videoCard(
                   title: '远程预告片',
                   tag: '外链',
-                  tagColor: const Color(0xFF3BE0C4),
+                  tagColor: const Color(0xFF5B8CFF),
                   thumb: item.backdropUrl,
                   onTap: () => unawaited(
                     launchUrl(
@@ -1264,7 +1264,7 @@ class _DetailPageState extends State<DetailPage> {
               leading: const Icon(
                 Icons.videocam_outlined,
                 size: 11,
-                color: Color(0xFF8FF5E2),
+                color: Color(0xFFA9C4FF),
               ),
             ),
           if (v.audioLabel.isNotEmpty)
@@ -1842,7 +1842,7 @@ class _DetailPageState extends State<DetailPage> {
               ),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x6635E0C4),
+                  color: Color(0x664F8CFF),
                   blurRadius: 24,
                   offset: Offset(0, 8),
                 ),
@@ -1929,7 +1929,7 @@ class _DetailPageState extends State<DetailPage> {
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+                    colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                   ),
                   borderRadius: BorderRadius.circular(3),
                 ),
@@ -2373,7 +2373,7 @@ class _DetailPageState extends State<DetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   gradient: cur
                       ? const LinearGradient(
-                          colors: [Color(0x3335E0C4), Color(0x1A7B6BF0)],
+                          colors: [Color(0x334F8CFF), Color(0x1A7B5CFF)],
                         )
                       : LinearGradient(
                           colors: [
@@ -2383,7 +2383,7 @@ class _DetailPageState extends State<DetailPage> {
                         ),
                   border: Border.all(
                     color: cur
-                        ? const Color(0x6635E0C4)
+                        ? const Color(0x664F8CFF)
                         : Colors.white.withOpacity(0.10),
                   ),
                 ),
@@ -2599,7 +2599,7 @@ class _BannerGhostBtn extends StatelessWidget {
           ),
           border: Border.all(
             color: active
-                ? const Color(0x8835E0C4)
+                ? const Color(0x884F8CFF)
                 : Colors.white.withOpacity(0.16),
           ),
         ),
@@ -2609,7 +2609,7 @@ class _BannerGhostBtn extends StatelessWidget {
             Icon(
               icon,
               size: 16,
-              color: active ? const Color(0xFF8FF5E2) : const Color(0xFFDFE7F5),
+              color: active ? const Color(0xFF9CC2FF) : const Color(0xFFDFE7F5),
             ),
             const SizedBox(width: 6),
             Text(
@@ -2819,7 +2819,7 @@ class _Badge extends StatelessWidget {
           Icon(
             icon,
             size: 11,
-            color: gold ? const Color(0xFF3BE0C4) : const Color(0xFFCDD9EA),
+            color: gold ? const Color(0xFFFFC55A) : const Color(0xFFCDD9EA),
           ),
           const SizedBox(width: 4),
           Text(
@@ -2827,7 +2827,7 @@ class _Badge extends StatelessWidget {
             style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: gold ? const Color(0xFFB9FFF2) : Colors.white,
+              color: gold ? const Color(0xFFFFD79A) : Colors.white,
             ),
           ),
         ],
@@ -2995,7 +2995,7 @@ class _ProgressPlayButton extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.centerLeft,
                           end: Alignment.centerRight,
-                          colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+                          colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                         ),
                       ),
                     ),

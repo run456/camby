@@ -577,7 +577,7 @@ class _ServerCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   gradient: LinearGradient(
                     colors: p.kind == ServerKind.jellyfin
-                        ? const [Color(0xFF19C7B0), Color(0xFF3BE0C4)]
+                        ? const [Color(0xFF7B5CFF), Color(0xFF4F8CFF)]
                         : const [AppColors.accent, Color(0xFF159F88)],
                   ),
                 ),
@@ -1305,7 +1305,7 @@ class _ProtocolToggle extends StatelessWidget {
             boxShadow: on
                 ? const [
                     BoxShadow(
-                      color: Color(0x5535E0C4),
+                      color: Color(0x554F8CFF),
                       blurRadius: 12,
                       offset: Offset(0, 4),
                     ),

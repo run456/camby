@@ -2438,7 +2438,7 @@ class PlayerPageState extends State<PlayerPage>
             scale: 0.92,
             shadows: const [
               BoxShadow(
-                color: Color(0x8035E0C4),
+                color: Color(0x804F8CFF),
                 blurRadius: 26,
                 offset: Offset(0, 10),
               ),
@@ -2449,7 +2449,7 @@ class PlayerPageState extends State<PlayerPage>
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: [Color(0xF235E0C4), Color(0xF27B6BF0)],
+                  colors: [Color(0xF24F8CFF), Color(0xF27B5CFF)],
                 ),
               ),
               child: Icon(
@@ -2774,7 +2774,7 @@ class _ProgressBarState extends State<_ProgressBar> {
                         pressed ? ui.barActiveH : ui.barTrackH,
                       ),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+                        colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                       ),
                       boxShadow: pressed
                           ? const [
@@ -2847,7 +2847,7 @@ class _SpeedChip extends StatelessWidget {
         // 非 1 倍速时整体偏冷色调，作为「已加速」的视觉标记
         gradient: boosted
             ? const LinearGradient(
-                colors: [Color(0x3835E0C4), Color(0x1E35E0C4)],
+                colors: [Color(0x384F8CFF), Color(0x1E4F8CFF)],
               )
             : null,
         onTap: onTap,

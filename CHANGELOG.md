@@ -1,10 +1,35 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.74 (274)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.75 (275)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.75 (275) 配色回退到原来的蓝色系（保留玻璃加实底 + 偏色修复）
+
+**结论先说**：v2.0.73 / v2.0.74 的方向错了。最早说的「主色调怎么不是蓝绿色了」
+指的是**蓝青色（蓝→紫的那套原始配色）**，不是纯青绿；而真机对比 v2.0.22 截图确认，
+目标就是 `#4F8CFF` 蓝紫主色 + 蓝→紫渐变按钮 + 亮蓝进度条。
+
+- 全量回退 `lib/pages/**`、`lib/widgets/**` 到 v2.0.72 的配色（蓝 / 金徽章 /
+  蓝色发光与按下态），撤销 v2.0.73 的青绿替换。
+- `AppColors` 复位：`primary #4F8CFF`、`secondary #7B5CFF`、`accent #5B8CFF`、
+  `ctaGradient #4F8CFF → #7B5CFF`（与 v2.0.22 一致）。
+- `translate_sheet.dart` 的 `[primary, #7B6BF0]` 保持不变，主色回蓝后即
+  蓝→紫，与 CTA 同族。
+
+**保留 v2.0.73 的两项有效修复**（这两条是真 bug，与配色无关）：
+
+1. `_vibrancy` 色彩矩阵换成规范 `saturate 1.45 + contrast 1.06`，并塞进
+   `BackdropFilter` 的 `ImageFilter.compose`，只调背景、不调内容 —— 彻底消除
+   「蓝紫被算成金黄」的偏色。
+2. 玻璃加实底 `_base #0B111C`：`blurEnabled` 时 alpha 0.70（soft 0.52）、
+   播放页 0.42，弹窗不再透得看见背后文字。
+
+**验证**：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
+`perf_audit.py` 0 命中；`verify_release.sh --build` 出包
+`camby-2.0.75-release-arm64.apk`，aapt 确认 `versionCode=275 / versionName=2.0.75`。
 
 ### v2.0.74 (274) 主色定稿：青绿 → 紫蓝渐变（不再是纯绿）
 

@@ -535,7 +535,7 @@ class _SourceBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         gradient: ab
             ? const LinearGradient(
-                colors: [Color(0x4D35E0C4), Color(0x407B6BF0)],
+                colors: [Color(0x4D4F8CFF), Color(0x407B5CFF)],
               )
             : const LinearGradient(
                 colors: [Color(0x33FFFFFF), Color(0x14FFFFFF)],
@@ -1456,7 +1456,7 @@ class _ContinueList extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF19C7B0), Color(0xFF3BE0C4)],
+                    colors: [Color(0xFFFFC55A), Color(0xFFFF8A4C)],
                   ),
                   border: Border.all(
                     color: Colors.white.withOpacity(0.22),

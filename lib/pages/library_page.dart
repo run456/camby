@@ -578,8 +578,8 @@ class _FilterChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(13),
-          color: const Color(0x3335E0C4),
-          border: Border.all(color: const Color(0x8735E0C4)),
+          color: const Color(0x334F8CFF),
+          border: Border.all(color: const Color(0x874F8CFF)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -589,7 +589,7 @@ class _FilterChip extends StatelessWidget {
               style: TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF8FF5E2).withOpacity(0.55),
+                color: const Color(0xFFA9C4FF).withOpacity(0.55),
               ),
             ),
             const SizedBox(width: 4),
@@ -598,14 +598,14 @@ class _FilterChip extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF8FF5E2),
+                color: Color(0xFFA9C4FF),
               ),
             ),
             const SizedBox(width: 5),
             Icon(
               Icons.close_rounded,
               size: 11,
-              color: const Color(0xFF8FF5E2).withOpacity(0.7),
+              color: const Color(0xFFA9C4FF).withOpacity(0.7),
             ),
           ],
         ),

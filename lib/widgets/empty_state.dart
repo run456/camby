@@ -52,7 +52,7 @@ class EmptyState extends StatelessWidget {
                   gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
-                    colors: [Color(0x2235E0C4), Color(0x0C7B6BF0)],
+                    colors: [Color(0x224F8CFF), Color(0x0C7B5CFF)],
                   ),
                   border: Border.all(color: Colors.white.withOpacity(0.18)),
                 ),
