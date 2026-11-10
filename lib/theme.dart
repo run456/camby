@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'dart:math';
 import 'dart:ui';
 
 import 'liquid_glass.dart';
@@ -277,6 +278,7 @@ class Glass extends StatelessWidget {
     this.gradient,
     this.onTap,
     this.blurEnabled = true,
+    this.fullRefraction = false,
   });
 
   final Widget child;
@@ -291,6 +293,11 @@ class Glass extends StatelessWidget {
   final double? height;
   final Gradient? gradient;
   final VoidCallback? onTap;
+
+  /// 整面折射模式（仅用于最大、最像工具栏的玻璃：底部导航条 / 播放控制条）。
+  /// 开启时 shader 把折射扩展到整块卡面（真实透镜弯曲）、模糊收窄到 ~10、
+  /// 镜面高光由 [LiquidLightSource] 动态驱动。小卡片保持默认 false（毛玻璃）。
+  final bool fullRefraction;
 
   /// 是否启用实时 BackdropFilter 模糊。播放页控件压在逐帧更新的视频之上，
   /// 开启模糊时每一帧都要重采样，中低端 GPU 会被拖垮（表现为唤出控件时
@@ -402,17 +409,27 @@ class Glass extends StatelessWidget {
         // v2.0.76：监听材质档位。开关一拨，每块玻璃自己重绘，
         // 不依赖父页面 setState（页面被 IndexedStack 缓存时也能立即生效）。
         valueListenable: GlassConfig.liquid,
-        builder: (context, _, __) => _build(context),
+        builder: (context, _, __) {
+          final useLiquid =
+              GlassConfig.liquidEnabled && LiquidGlass.supported;
+          if (fullRefraction && useLiquid) {
+            // 整面折射 + 动态镜面：光源匀速公转，仅大玻璃订阅此帧驱动。
+            return ValueListenableBuilder<double>(
+              valueListenable: LiquidLightSource.angle,
+              builder: (ctx, a, ___) =>
+                  _assemble(ctx, Offset(cos(a), sin(a)), useLiquid),
+            );
+          }
+          return _assemble(context, const Offset(0.45, -1.0), useLiquid);
+        },
       );
 
-  Widget _build(BuildContext context) {
+  Widget _assemble(BuildContext context, Offset light, bool useLiquid) {
     final r = BorderRadius.circular(radius);
     // tint 让出一档给色彩矩阵，避免叠加后过曝
     final tintNow = tint * 0.7;
 
-    // L2 液态：开启 + 后端支持 shader + 非播放页（blurEnabled=false 已排除）
-    final useLiquid =
-        blurEnabled && GlassConfig.liquidEnabled && LiquidGlass.supported;
+    // useLiquid 由 build 顶层计算后作为参数传入（见 _assemble 签名）。
     final dpr = MediaQuery.of(context).devicePixelRatio;
 
     // 边缘色散描边：L2 用青/品红分色细边模拟 RGB 色散。
@@ -460,28 +477,54 @@ class Glass extends StatelessWidget {
       child: child,
     );
 
-    // 滤镜层：两条路径都只处理「背后透出的背景」，内容原色不动。
-    //   L2 = 模糊 → shader 沿法线偏移采样（真折射 + 色散）
-    //   L1 = 模糊 → 色彩矩阵（saturate/contrast，纯 CPU 参数）
+    // 滤镜层：所有路径都只处理「背后透出的背景」，内容原色不动。
+    //   L2 整面（fullRefraction）：先 shader 对清晰背景整面折射，再轻模糊柔化
+    //       → 真实透镜弯曲（背景在玻璃内被放大/扭曲），模糊收窄到 ~10
+    //   L2 边缘（小卡片）：先模糊，再 shader 仅在边缘带做色散/菲涅尔高光
+    //   L1：模糊 → 色彩矩阵（saturate/contrast，纯 CPU 参数）
+    //   播放页（blurEnabled=false 且 L2）：纯 shader 折射，背后是逐帧视频
     // v2.0.73 修复：矩阵以前套在 body 外层（ColorFiltered），连按钮、文字一起
     // 调色，品牌蓝被算成金黄。现在塞进 BackdropFilter 的 filter 链。
-    final ImageFilter? filter = !blurEnabled
-        ? null
-        : (useLiquid
-            ? ImageFilter.compose(
-                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                outer: ImageFilter.shader(
-                  LiquidGlass.shader(
-                    radius: radius * dpr,
-                    refraction: 10 * dpr,
-                    dispersion: 0.22,
-                    specular: 0.35,
-                  ),
+    final ImageFilter? filter = !useLiquid
+        ? (blurEnabled ? ImageFilter.blur(sigmaX: blur, sigmaY: blur) : null)
+        : (blurEnabled
+            ? (fullRefraction
+                ? ImageFilter.compose(
+                    // 先折射（作用于清晰背景），后轻模糊
+                    inner: ImageFilter.shader(
+                      LiquidGlass.shader(
+                        radius: radius * dpr,
+                        refraction: 14 * dpr,
+                        dispersion: 0.30,
+                        specular: 0.6,
+                        full: true,
+                        light: light,
+                      ),
+                    ),
+                    outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  )
+                : ImageFilter.compose(
+                    inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+                    outer: ImageFilter.shader(
+                      LiquidGlass.shader(
+                        radius: radius * dpr,
+                        refraction: 10 * dpr,
+                        dispersion: 0.22,
+                        specular: 0.35,
+                        full: false,
+                        light: light,
+                      ),
+                    ),
+                  ))
+            : ImageFilter.shader(
+                LiquidGlass.shader(
+                  radius: radius * dpr,
+                  refraction: 10 * dpr,
+                  dispersion: 0.22,
+                  specular: 0.35,
+                  full: false,
+                  light: light,
                 ),
-              )
-            : ImageFilter.compose(
-                inner: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                outer: ColorFilter.matrix(_vibrancy),
               ));
 
     final clipped = ClipRRect(

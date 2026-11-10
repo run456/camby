@@ -1,10 +1,26 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.76 (276)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.77 (277)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.77 (277) 最大玻璃：整面折射 + 动态镜面 + 缩模糊
+
+- **目标**：在面积最大、最像工具栏的两块玻璃上做 iOS 液态玻璃同款的「真折射 + 流动镜面」，
+  而非之前统一的大模糊毛玻璃。
+- 底部导航条（`GlassNavBar`）：`BackdropFilter` 升级为 `compose(inner: shader(整面折射), outer: blur(10))`
+  —— 先对**清晰背景**做透镜弯曲，再轻模糊柔化边缘；折射带从「仅边缘 14%」扩展到**整面**
+  （shader 新增 `u7_full`，中心不动、边缘最大偏移）。
+- 动态镜面：新增全局 `LiquidLightSource`（scheduler `Ticker`，无需 vsync），光源角度匀速公转，
+  仅 `fullRefraction` 玻璃订阅，得到「光在玻璃上游走」的液态感。App 启动 `main()` 调一次 `start()`。
+- 播放控制条（`player_page` 的 `Glass`）：解除 `useLiquid` 对 `blurEnabled` 的硬依赖，
+  `blurEnabled:false` 的视频控件现可走纯 `shader` 折射（背后是逐帧视频，折射随画面流动）。
+- 性能红线：整面折射 + 每帧光源重建只施加在底部导航条这块大玻璃上；小卡片仍走经典毛玻璃，
+  不订阅角度帧驱动，避免全站每帧重绘。
+- 测试修复：去掉导航条 `initState` 里无条件启动的全局 `Ticker`（会污染 `pumpAndSettle`），
+  改由 `main()` 单一启动。全量 516/517 通过（唯一失败为字幕 GBK 解码的已知 flaky，单独跑稳定通过）。
 
 ### v2.0.76 (276) 修「液态玻璃开关无效」+ 玻璃去脏（收回整面白纱）
 

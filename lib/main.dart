@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -66,6 +67,8 @@ Future<void> main() async {
   } catch (_) {
     // 偏好读取失败不影响启动，保持默认开液态。
   }
+  // 全局动态镜面光源：启动即运行（幂等），导航条等大玻璃订阅后可获得流动高光。
+  LiquidLightSource.start();
   runApp(const CambyApp());
 }
 
@@ -532,39 +535,64 @@ class GlassNavBarState extends State<GlassNavBar> {
 
   @override
   Widget build(BuildContext context) {
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final useLiquid =
+        GlassConfig.liquidEnabled && LiquidGlass.supported;
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppNav.barRadius),
-      child: BackdropFilter(
-        // 整条 bar 只模糊一次（v2.0.68 由 30 调到 20，弱化存在感）；
-        // 胶囊内一律用渐变 + 内描边表达厚度，不给 5 个格子各挂滤镜。
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          height: AppNav.barHeight,
-          padding: const EdgeInsets.all(AppNav.barInset),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppNav.barRadius),
-            // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
-            color: Colors.white.withValues(alpha: 0.06),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.10),
-              width: 1,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x47000000),
-                blurRadius: 20,
-                offset: Offset(0, 8),
+      // 动态镜面：光源匀速公转，仅导航条这一块大玻璃订阅，性能可控。
+      child: ValueListenableBuilder<double>(
+        valueListenable: LiquidLightSource.angle,
+        builder: (_, a, __) {
+          final light = Offset(cos(a), sin(a));
+          final filter = useLiquid
+              ? ImageFilter.compose(
+                  // 整面折射作用于清晰背景，再轻模糊柔化 → 真实透镜弯曲
+                  inner: ImageFilter.shader(
+                    LiquidGlass.shader(
+                      radius: AppNav.barRadius * dpr,
+                      refraction: 16 * dpr,
+                      dispersion: 0.30,
+                      specular: 0.6,
+                      full: true,
+                      light: light,
+                    ),
+                  ),
+                  outer: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                )
+              : ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+          return BackdropFilter(
+            filter: filter,
+            child: Container(
+              height: AppNav.barHeight,
+              padding: const EdgeInsets.all(AppNav.barInset),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppNav.barRadius),
+                // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
+                color: Colors.white.withValues(alpha: 0.06),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  width: 1,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x47000000),
+                    blurRadius: 20,
+                    offset: Offset(0, 8),
+                  ),
+                ],
               ),
-            ],
-          ),
-          // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
-          // 112 + 4×48，定宽 Row 不会挤出像素。
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(GlassNavBar._items.length, _navItem),
-          ),
-        ),
+              // 5 项整体居中：312 − 2 描边 − 6 内距 = 304，正好等于
+              // 112 + 4×48，定宽 Row 不会挤出像素。
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children:
+                    List.generate(GlassNavBar._items.length, _navItem),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

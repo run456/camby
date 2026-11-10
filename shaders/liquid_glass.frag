@@ -19,6 +19,7 @@ uniform float u3_radius;     // 圆角半径（物理像素）
 uniform float u4_refract;    // 折射偏移强度（物理像素）
 uniform float u5_spec;       // 镜面高光强度
 uniform sampler2D u6_tex;    // 引擎注入：背后内容
+uniform float u7_full;        // 整面折射模式：1.0=整面透镜，0.0=仅边缘带
 
 out vec4 fragColor;
 
@@ -50,9 +51,13 @@ void main() {
            - sdRoundRect(p - vec2(0.0, e), b, u3_radius);
   vec2 n = normalize(vec2(dx, dy) + vec2(1e-6));
 
-  // 折射只作用于边缘带（宽度随尺寸自适应），内部几乎零成本
+  // 折射带宽度（仅「边缘带模式」生效）。
   float ew = max(6.0, min(size.x, size.y) * 0.14);
-  float edge = 1.0 - smoothstep(0.0, ew, -d); // 贴近内边缘 → 1，内部 → 0
+  // 整面折射模式（u7_full>0.5）：中心 edge→0、边缘 edge→1，覆盖整块卡面。
+  // 背景在玻璃内被放大/弯曲，形成真实透镜感，而非单纯磨砂。
+  float edge = u7_full > 0.5
+      ? clamp(1.0 + d / (min(size.x, size.y) * 0.5), 0.0, 1.0)
+      : 1.0 - smoothstep(0.0, ew, -d); // 边缘带模式：贴近内边缘 → 1，内部 → 0
 
   // 沿法线偏移采样坐标：边缘处背景被「弯折」，形成玻璃透镜感
   vec2 off = n * u4_refract * edge / size;
