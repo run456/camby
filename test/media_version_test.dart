@@ -270,9 +270,10 @@ void main() {
       final player = src('lib/pages/player_page.dart');
       expect(player.contains('compact: true'), isTrue);
       expect(player.contains('maxWidth: 400'), isTrue);
-      expect(player.contains('if (compact)'), isTrue,
-          reason: '紧凑面板按内容收拢，不再被 Flexible 拉成近满屏');
       final glass = src('lib/widgets/glass_sheet.dart');
+      // v2.0.82：_Sheet 上提为公共 AppSheet，紧凑分支也随实现搬到这里。
+      expect(glass.contains('if (compact)'), isTrue,
+          reason: '紧凑面板按内容收拢，不再被 Flexible 拉成近满屏');
       expect(glass.contains('maxHeightFactor'), isTrue);
       expect(glass.contains('maxWidth ?? PlayerUi.of(context).panelMaxW'),
           isTrue);

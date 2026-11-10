@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../layout.dart';
 import '../theme.dart';
+import 'liquid_press.dart';
 
 /// 通用玻璃面板容器：播放页四类弹层（变速 / 字幕 / 信息 / 样式）与在线字幕
 /// 搜索面板共用同一套外观。
@@ -131,10 +132,8 @@ class GlassPanelRoute<T> extends PageRouteBuilder<T> {
         // 即使 Text 自带 style 也只覆盖颜色/字号、盖不掉 decoration ——
         // 这就是弹层文字一片黄线的原因。这里统一补一层透明 Material，
         // 所有走 GlassPanelRoute 的面板一次性修好，且完全不改变外观。
-        pageBuilder: (ctx, _, _) => Material(
-          type: MaterialType.transparency,
-          child: builder(ctx),
-        ),
+        pageBuilder: (ctx, _, _) =>
+            Material(type: MaterialType.transparency, child: builder(ctx)),
         transitionsBuilder: (ctx, animation, _, child) {
           final curved = CurvedAnimation(
             parent: animation,
@@ -194,10 +193,7 @@ class SheetRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              if (leading != null) ...[
-                leading!,
-                const SizedBox(width: 10),
-              ],
+              if (leading != null) ...[leading!, const SizedBox(width: 10)],
               Expanded(
                 child: Text(
                   label,
@@ -232,4 +228,203 @@ class SheetRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// v2.0.82 · 全站统一弹窗
+// ───────────────────────────────────────────────────────────────────────────
+
+/// 居中弹窗的公共骨架（原播放页私有 `_Sheet`，一字未改地上提）。
+/// 「选择字幕」面板就是它的实例：[GlassPanel] 磨砂卡 + 白粗标题 +
+/// 右上角圆形关闭按钮 + 可滚动内容。全站居中弹窗一律复用它，
+/// 不再各页面自己拼 `Dialog + Glass`，避免同一 App 里三套弹窗外观。
+class AppSheet extends StatelessWidget {
+  const AppSheet({
+    super.key,
+    required this.title,
+    required this.children,
+    this.blur = true,
+    this.maxWidth,
+    this.maxHeightFactor,
+    this.compact = false,
+  });
+
+  final String title;
+  final List<Widget> children;
+  final bool blur;
+  final double? maxWidth;
+  final double? maxHeightFactor;
+
+  /// 短面板按内容收拢，不拉伸成近满屏（播放信息卡用）。
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      blur: blur,
+      maxWidth: maxWidth,
+      maxHeightFactor: maxHeightFactor,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标题栏固定，不随内容滚动
+            Padding(
+              padding: compact
+                  ? const EdgeInsets.fromLTRB(16, 10, 12, 6)
+                  : const EdgeInsets.fromLTRB(20, 14, 14, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: compact ? 14 : 15,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).maybePop(),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.10),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (compact)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 10),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: children,
+                ),
+              )
+            else
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(top: 2, bottom: 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: children,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 弹窗底部的一条动作：**纯文字 + 统一蓝色**（v2.0.82）。
+/// 不再有青绿「知道了」、灰色「取消」、红色「删除」或主题默认色。
+class AppDialogAction<T> {
+  const AppDialogAction({required this.label, this.value, this.onTap});
+
+  final String label;
+
+  /// 点击后 pop 出去的值；给了 [onTap] 时忽略。
+  final T? value;
+
+  /// 需要复制文本 / 重新拉数据等自定义行为时自己接管（记得自行 pop）。
+  final void Function(BuildContext context)? onTap;
+}
+
+/// 统一的居中说明 / 确认弹窗。
+///
+/// - 容器：与「选择字幕」完全同款 [GlassPanel] + [AppSheet]（`blur: true`，
+///   圆角 24、白 18% 细边、右上圆形关闭、淡入缩放入场、支持返回手势）。
+/// - 文字：标题白粗；正文蓝灰 `#9FB0CC`（与字幕面板提示文字同色）；
+///   **所有动作文字统一 [AppColors.accent] 蓝**。
+/// - [message] 与 [body] 二选一：纯说明用前者，需要 `SelectableText` /
+///   输入框 / 多段排版时传后者。
+Future<T?> showAppDialog<T>({
+  required BuildContext context,
+  required String title,
+  String? message,
+  Widget? body,
+  WidgetBuilder? bodyBuilder,
+  List<AppDialogAction<T>> actions = const [],
+  double? maxWidth,
+}) {
+  assert(
+    message != null || body != null || bodyBuilder != null,
+    'showAppDialog 需要 message / body / bodyBuilder',
+  );
+  return Navigator.of(context).push<T>(
+    GlassPanelRoute<T>(
+      builder: (ctx) => AppSheet(
+        title: title,
+        maxWidth: maxWidth,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+            child: bodyBuilder != null
+                ? bodyBuilder(ctx)
+                : (body ??
+                      Text(
+                        message ?? '',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.6,
+                          color: Color(0xFF9FB0CC),
+                        ),
+                      )),
+          ),
+          if (actions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  for (final a in actions)
+                    LiquidPress(
+                      radius: 10,
+                      onTap: () {
+                        if (a.onTap != null) {
+                          a.onTap!(ctx);
+                        } else {
+                          Navigator.of(ctx).pop(a.value);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Text(
+                          a.label,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }

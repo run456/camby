@@ -13,6 +13,7 @@ import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
 import '../models.dart';
 import '../theme.dart';
+import '../widgets/glass_sheet.dart';
 
 /// 设置页水平内边距：平板内容限宽 720 居中，手机保持 16。
 double _horizontalPad(BuildContext context) {
@@ -294,59 +295,14 @@ class _ServersSection extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(BuildContext context, ServerProfile p) async {
-    final ok = await showDialog<bool>(
+    final ok = await showAppDialog<bool>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-        child: Glass(
-          blur: 30,
-          radius: 22,
-          tint: 0.14,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '删除服务器',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFFEAF3FF),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '确定删除「${p.name}」？只删除保存的配置，不会影响服务器上的数据。',
-                style: const TextStyle(fontSize: 13, color: AppColors.muted),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text(
-                      '取消',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text(
-                      '删除',
-                      style: TextStyle(color: AppColors.danger),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      title: '删除服务器',
+      message: '确定删除「${p.name}」？只删除保存的配置，不会影响服务器上的数据。',
+      actions: const [
+        AppDialogAction(label: '取消', value: false),
+        AppDialogAction(label: '删除', value: true),
+      ],
     );
     if (ok == true) {
       AppHaptics.heavy();

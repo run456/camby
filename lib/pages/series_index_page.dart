@@ -13,6 +13,7 @@ import '../widgets/library_index_segment.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/media_filter_sheet.dart';
 import 'tag_page.dart';
+import '../widgets/glass_sheet.dart';
 
 /// 系列总览（v2.0.60 设计稿方案 A 的「系列」二级分段）。
 ///
@@ -67,14 +68,13 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
     final covers = _covers(state.items);
     final all = counts.keys.toList();
     final q = _query.trim().toUpperCase();
-    final names = all
-        .where((s) => q.isEmpty || s.toUpperCase().contains(q))
-        .toList()
-      ..sort((a, b) {
-        if (_sort == 1) return a.compareTo(b);
-        final c = (counts[b] ?? 0).compareTo(counts[a] ?? 0);
-        return c != 0 ? c : a.compareTo(b);
-      });
+    final names =
+        all.where((s) => q.isEmpty || s.toUpperCase().contains(q)).toList()
+          ..sort((a, b) {
+            if (_sort == 1) return a.compareTo(b);
+            final c = (counts[b] ?? 0).compareTo(counts[a] ?? 0);
+            return c != 0 ? c : a.compareTo(b);
+          });
     final wide = context.isTablet;
     final hPad = wide ? 24.0 : 16.0;
     final top = MediaQuery.of(context).padding.top;
@@ -91,8 +91,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.collections_bookmark_outlined,
-                        size: 20, color: AppColors.ink),
+                    const Icon(
+                      Icons.collections_bookmark_outlined,
+                      size: 20,
+                      color: AppColors.ink,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
@@ -144,7 +147,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                             minHeight: 4,
                             backgroundColor: Colors.white.withOpacity(0.10),
                             valueColor: const AlwaysStoppedAnimation<Color>(
-                                AppColors.primary),
+                              AppColors.primary,
+                            ),
                           ),
                         ),
                       ),
@@ -152,7 +156,9 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                       Text(
                         '$_scanDone / $_scanTotal',
                         style: const TextStyle(
-                            fontSize: 10, color: AppColors.muted),
+                          fontSize: 10,
+                          color: AppColors.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -251,8 +257,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                     height: 12,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.collections_bookmark_outlined,
-                    size: 14, color: AppColors.primary),
+                : const Icon(
+                    Icons.collections_bookmark_outlined,
+                    size: 14,
+                    color: AppColors.primary,
+                  ),
             const SizedBox(width: 5),
             Text(
               _scanning ? '同步中' : '同步合集',
@@ -308,87 +317,72 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
       lines.add('服务端没有返回任何合集（BoxSet）。');
       lines.add('请在服务端影片详情确认能看到「所属合集」区块。');
     } else {
-      lines.add('服务端合集 ${r.boxSets} 个 · 待补 ${r.targets} 部 · '
-          '成功写入 ${r.filled} 部。');
+      lines.add(
+        '服务端合集 ${r.boxSets} 个 · 待补 ${r.targets} 部 · '
+        '成功写入 ${r.filled} 部。',
+      );
       if (r.noCollection > 0) lines.add('未关联合集 ${r.noCollection} 部');
       if (r.usedItemLookup) lines.add('已启用 ListItemIds 反查兜底。');
       if (r.cancelled) lines.add('（已中途取消）');
     }
     final notes = r.notes;
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        child: Glass(
-          blur: 30,
-          radius: 22,
-          tint: 0.14,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('同步服务端合集',
-                  style: TextStyle(fontSize: 15, color: Colors.white)),
-              const SizedBox(height: 10),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final l in lines)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(l,
-                              style: const TextStyle(
-                                  fontSize: 12, color: Colors.white, height: 1.5)),
-                        ),
-                      if (notes.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        const Text('说明',
-                            style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.primary)),
-                        const SizedBox(height: 5),
-                        for (final n in notes)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 3),
-                            child: Text('· $n',
-                                style: const TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.white60,
-                                    height: 1.4)),
-                          ),
-                      ],
-                      const SizedBox(height: 12),
-                      const Text(
-                        '「系列」现在取自服务端的「所属合集」（BoxSet），与 Emby 网页端'
-                        '影片详情页的「所属合集」一致。只有服务端没有合集数据时，'
-                        '详情页才会退回直读 NFO。',
-                        style: TextStyle(
-                            fontSize: 10.5, color: Colors.white54, height: 1.5),
-                      ),
-                    ],
+      title: '同步服务端合集',
+      bodyBuilder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final l in lines)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                l,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.55,
+                  color: Color(0xFF9FB0CC),
+                ),
+              ),
+            ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              '说明',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.accent,
+              ),
+            ),
+            const SizedBox(height: 5),
+            for (final n in notes)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  '· $n',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    height: 1.5,
+                    color: Color(0xFF9FB0CC),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('知道了'),
-                ),
-              ),
-            ],
+          ],
+          const SizedBox(height: 12),
+          const Text(
+            '「系列」现在取自服务端的「所属合集」（BoxSet），与 Emby 网页端'
+            '影片详情页的「所属合集」一致。只有服务端没有合集数据时，'
+            '详情页才会退回直读 NFO。',
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.55,
+              color: Color(0xFF9FB0CC),
+            ),
           ),
-        ),
+        ],
       ),
+      actions: const [AppDialogAction(label: '知道了')],
     );
   }
 
@@ -405,15 +399,23 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           filled: true,
           fillColor: Colors.white.withOpacity(0.05),
           hintText: '搜索系列名…',
-          hintStyle:
-              TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.35)),
-          prefixIcon: Icon(Icons.search_rounded,
-              size: 16, color: Colors.white.withOpacity(0.45)),
+          hintStyle: TextStyle(
+            fontSize: 11.5,
+            color: Colors.white.withOpacity(0.35),
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            size: 16,
+            color: Colors.white.withOpacity(0.45),
+          ),
           suffixIcon: _query.isEmpty
               ? null
               : IconButton(
-                  icon: Icon(Icons.close_rounded,
-                      size: 15, color: Colors.white.withOpacity(0.45)),
+                  icon: Icon(
+                    Icons.close_rounded,
+                    size: 15,
+                    color: Colors.white.withOpacity(0.45),
+                  ),
                   onPressed: () {
                     _controller.clear();
                     setState(() => _query = '');
@@ -430,8 +432,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
-            borderSide:
-                BorderSide(color: AppColors.primary.withOpacity(0.55)),
+            borderSide: BorderSide(color: AppColors.primary.withOpacity(0.55)),
           ),
         ),
       ),
@@ -473,8 +474,9 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                       labels[i],
                       style: TextStyle(
                         fontSize: 10.5,
-                        fontWeight:
-                            _sort == i ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: _sort == i
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                         color: _sort == i
                             ? Colors.white
                             : Colors.white.withOpacity(0.6),
@@ -503,9 +505,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           height: 330,
           child: EmptyState(
             icon: Icons.collections_bookmark_outlined,
-            title: q.isEmpty
-                ? '还没有识别到系列'
-                : '没有匹配「${_query.trim()}」的系列',
+            title: q.isEmpty ? '还没有识别到系列' : '没有匹配「${_query.trim()}」的系列',
             reason: q.isEmpty
                 ? '系列名取自服务端的「所属合集」（BoxSet）。同步一次即可出现在下方列表。'
                 : '换个关键词试试，或清空搜索查看全部系列。',
@@ -526,43 +526,14 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
 
   /// 空态次入口：说清「为什么读合集、怎么造合集」，避免又去改 NFO。
   Future<void> _showSourceInfo() async {
-    await showDialog<void>(
+    await showAppDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        child: Glass(
-          blur: 30,
-          radius: 22,
-          tint: 0.14,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('系列从哪里来',
-                  style: TextStyle(fontSize: 15, color: Colors.white)),
-              const SizedBox(height: 10),
-              const Text(
-                '「系列」读取的是服务端的「所属合集」（BoxSet），与 Emby 网页端影片详情页的「所属合集」一致。\n\n'
-                '如果服务端还没有合集，可在网页端新建合集并把影片加进去，再回到这里点「同步合集」。'
-                '只有服务端完全没有合集数据时，详情页才会退回直读 NFO 兜底。',
-                style: TextStyle(fontSize: 11.5, color: Colors.white70, height: 1.6),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('知道了'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      title: '系列从哪里来',
+      message:
+          '「系列」读取的是服务端的「所属合集」（BoxSet），与 Emby 网页端影片详情页的「所属合集」一致。\n\n'
+          '如果服务端还没有合集，可在网页端新建合集并把影片加进去，再回到这里点「同步合集」。'
+          '只有服务端完全没有合集数据时，详情页才会退回直读 NFO 兜底。',
+      actions: const [AppDialogAction(label: '知道了')],
     );
   }
 }
@@ -628,16 +599,21 @@ class _SeriesTile extends StatelessWidget {
                   const SizedBox(height: 5),
                   Text(
                     '$count 部影片',
-                    style:
-                        const TextStyle(fontSize: 11, color: AppColors.muted),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.muted,
+                    ),
                   ),
                 ],
               ),
             ),
             const Padding(
               padding: EdgeInsets.only(top: 20),
-              child: Icon(Icons.chevron_right_rounded,
-                  size: 17, color: AppColors.muted),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 17,
+                color: AppColors.muted,
+              ),
             ),
           ],
         ),

@@ -25,6 +25,7 @@ import '../widgets/skeleton.dart';
 import '../widgets/haptics.dart';
 import 'person_page.dart';
 import 'subtitle_filter_page.dart';
+import '../widgets/glass_sheet.dart';
 
 /// 影片详情：封面全幅压标题 → 元信息 → 收藏 → 剧情简介 → 主演 → 相似推荐
 /// 底部常驻液态玻璃「继续播放」按钮
@@ -64,7 +65,8 @@ class DetailPage extends StatefulWidget {
     MediaItem item, {
     required MediaExtraPart version,
     bool resume,
-  })? onPlayVersion;
+  })?
+  onPlayVersion;
 
   /// 播放「额外部分」（同一影片的 -Cd1 / -Cd2 等其它 MediaSource）
   final void Function(MediaItem item, MediaExtraPart part) onPlayPart;
@@ -334,54 +336,18 @@ class _DetailPageState extends State<DetailPage> {
     final head = _seriesSource.isEmpty ? '尚未查询服务端合集。' : _seriesSource;
     final nfoBody = probes.isEmpty
         ? (_nfoTried
-            ? 'NFO 兜底：未能派生出可用的 .nfo 地址（这部影片没有可访问的 Path）。'
-            : 'NFO 兜底：尚未尝试读取。')
+              ? 'NFO 兜底：未能派生出可用的 .nfo 地址（这部影片没有可访问的 Path）。'
+              : 'NFO 兜底：尚未尝试读取。')
         : 'NFO 兜底候选：\n${probes.map((p) => '· ${p.describe}').join('\n')}';
-    final body = '$head\n\n$nfoBody\n\n'
+    final body =
+        '$head\n\n$nfoBody\n\n'
         '「系列」优先取服务端「所属合集」（BoxSet）。'
         '若合集为空，可到「媒体库 → 系列 → 同步合集」全量同步。';
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        child: Glass(
-          blur: 30,
-          radius: 22,
-          tint: 0.14,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '系列来源诊断',
-                style: TextStyle(fontSize: 15, color: Colors.white),
-              ),
-              const SizedBox(height: 10),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Text(
-                    body,
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.white70, height: 1.55),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('知道了'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      title: '系列来源诊断',
+      message: body,
+      actions: const [AppDialogAction(label: '知道了')],
     );
   }
 
@@ -1018,87 +984,57 @@ class _DetailPageState extends State<DetailPage> {
     final log = await server.trailerDiag(_item.id);
     if (!mounted) return;
     final fullText = '影片 ID: ${_item.id}\n\n${log.join('\n\n')}';
-    showDialog<void>(
+    showAppDialog<void>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.55),
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
-        child: Glass(
-          blur: 30,
-          radius: 22,
-          tint: 0.14,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '预告片 / 额外部分诊断',
-                style: TextStyle(fontSize: 16, color: Colors.white),
-              ),
-              const SizedBox(height: 10),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    fullText,
-                    style: const TextStyle(fontSize: 11, height: 1.5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    // 截图常有滚动截断 / 看不清，直接复制纯文本一次性拿全
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: fullText));
-                      if (ctx.mounted) Navigator.of(ctx).pop();
-                      _toast('诊断结果已复制，可直接粘贴反馈');
-                    },
-                    child: const Text('复制'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      Navigator.of(ctx).pop();
-                      final list = await server.trailers(
-                        _item.id,
-                        includeLocalChildren: !_item.isSeries,
-                      );
-                      final extras = _item.isSeries
-                          ? <MediaItem>[]
-                          : await server.extraParts(_item.id);
-                      final parts = _item.isSeries
-                          ? const <MediaExtraPart>[]
-                          : await server.mediaSources(_item.id);
-                      if (mounted) {
-                        setState(() {
-                          _trailers = list;
-                          _extras = extras;
-                          if (parts.isNotEmpty) {
-                            _item = _item.copyWith(extraParts: parts);
-                          }
-                        });
-                        _toast(
-                          '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个'
-                          ' · 分段 ${parts.length} 个',
-                        );
-                      }
-                    },
-                    child: const Text('重新加载'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('关闭'),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      title: '预告片 / 额外部分诊断',
+      bodyBuilder: (ctx) => SelectableText(
+        fullText,
+        style: const TextStyle(
+          fontSize: 11.5,
+          height: 1.55,
+          color: Color(0xFF9FB0CC),
         ),
       ),
+      actions: [
+        AppDialogAction<void>(
+          label: '复制',
+          onTap: (ctx) async {
+            await Clipboard.setData(ClipboardData(text: fullText));
+            if (ctx.mounted) Navigator.of(ctx).pop();
+            _toast('诊断结果已复制，可直接粘贴反馈');
+          },
+        ),
+        AppDialogAction<void>(
+          label: '重新加载',
+          onTap: (ctx) async {
+            Navigator.of(ctx).pop();
+            final list = await server.trailers(
+              _item.id,
+              includeLocalChildren: !_item.isSeries,
+            );
+            final extras = _item.isSeries
+                ? <MediaItem>[]
+                : await server.extraParts(_item.id);
+            final parts = _item.isSeries
+                ? const <MediaExtraPart>[]
+                : await server.mediaSources(_item.id);
+            if (mounted) {
+              setState(() {
+                _trailers = list;
+                _extras = extras;
+                if (parts.isNotEmpty) {
+                  _item = _item.copyWith(extraParts: parts);
+                }
+              });
+              _toast(
+                '预告片 ${list.length} 个 · 额外部分 ${extras.length} 个'
+                ' · 分段 ${parts.length} 个',
+              );
+            }
+          },
+        ),
+        const AppDialogAction<void>(label: '关闭'),
+      ],
     );
   }
 
@@ -1767,7 +1703,8 @@ class _DetailPageState extends State<DetailPage> {
               if (_shownAudioChannels(item) > 0)
                 _Badge(
                   icon: Icons.graphic_eq_rounded,
-                  label: '${_shownAudioCodec(item)} ${_shownAudioChannels(item)}ch',
+                  label:
+                      '${_shownAudioCodec(item)} ${_shownAudioChannels(item)}ch',
                 ),
             ],
           ),
@@ -2008,228 +1945,231 @@ class _DetailPageState extends State<DetailPage> {
               onNotification: _anyScrollNotification,
               child: RepaintBoundary(
                 child: wide
-                  // 平板（≥840）：设计稿横幅 + 双栏 / 居中单列
-                  ? ListView(
-                      controller: _scroll,
-                      physics: const BouncingScrollPhysics(),
-                      cacheExtent: 800,
-                      padding: EdgeInsets.zero,
-                      children: _tabletChildren(item),
-                    )
-                  : ListView(
-                      controller: _scroll,
-                      physics: const BouncingScrollPhysics(),
-                      cacheExtent: 800,
-                      padding: EdgeInsets.zero,
-                      children: [
-                        // 手机横幅：海报 + 标题块用 Stack 重叠（标题压在封面上）。
-                        // 不能再用「ListView 垂直排列 + Transform.translate 上移」：
-                        // Transform 只改「视觉位置」、不改「布局槽位」，命中测试按布局
-                        // 位置把标题按钮所在区域判给下层海报，按钮永远收不到点击——
-                        // 这就是 v2.0.51 修掉的「标题旁翻译按钮点不动」的根因。
-                        //
-                        // v2.0.52：Stack 作为 ListView 的第一个 child，其「布局占位高度」
-                        // 必须比海报实际高度少 titleLift。否则标题块虽被压到海报上，
-                        // 后续板块（继续播放 / 剧情简介）却仍从完整海报底部开始排，
-                        // 中间凭空空出 titleLift（56~150px）——用户反馈「继续播放和
-                        // 信息页离标题太远」即是此因。这里用 SizedBox 缩短占位，
-                        // 再用 OverflowBox 让内部 Stack 仍以完整 posterH 布局并溢出
-                        // 显示（clipBehavior: Clip.none）：视觉完全不变，但布局槽位
-                        // 上抬 titleLift，后续板块自然紧跟标题块。因为全程没用
-                        // Transform，布局位置与视觉位置一致，命中测试不会退化。
-                        SizedBox(
-                          height: posterH - titleLift,
-                          child: OverflowBox(
-                            alignment: Alignment.topCenter,
-                            minHeight: posterH,
-                            maxHeight: posterH,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                // 海报按原始比例完整显示（不裁切）
-                                RepaintBoundary(
-                                  child: AspectRatio(
-                                    aspectRatio: posterAspect,
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        if ((item.posterUrl ??
-                                                item.backdropUrl) !=
-                                            null) ...[
-                                          // 海报底部渐隐用 ShaderMask（真实 alpha 渐隐）。
-                                          //
-                                          // v2.0.41 曾改为「叠一层纯色渐变」，结果底部出现
-                                          // 明显断层——因为叠的是固定色 #06080E，而页面背景
-                                          // 是随主色变化的，两色对不上就露出硬边。这里恢复
-                                          // ShaderMask：透明处直接透出页面背景，不依赖色值。
-                                          //
-                                          // 性能：外层已有 RepaintBoundary，saveLayer 结果会
-                                          // 被缓存成图层，滚动时只是平移复用，不逐帧重算。
-                                          ShaderMask(
-                                            blendMode: BlendMode.dstIn,
-                                            shaderCallback: (rect) =>
-                                                const LinearGradient(
-                                                  begin: Alignment.topCenter,
-                                                  end: Alignment.bottomCenter,
-                                                  colors: [
-                                                    Colors.white,
-                                                    Colors.white,
-                                                    Colors.transparent,
-                                                  ],
-                                                  stops: [0.0, 0.72, 1.0],
-                                                ).createShader(rect),
-                                            child: CachedImage(
-                                              url:
-                                                  item.posterUrlFor(900) ??
-                                                  item.backdropUrl,
-                                              memWidth: 900,
-                                            ),
-                                          ),
-                                        ] else
-                                          DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                begin: Alignment.topLeft,
-                                                end: Alignment.bottomRight,
-                                                colors: [
-                                                  item.colors.first.withOpacity(
-                                                    0.9,
-                                                  ),
-                                                  AppColors.bgTop,
-                                                  AppColors.bg,
-                                                ],
+                    // 平板（≥840）：设计稿横幅 + 双栏 / 居中单列
+                    ? ListView(
+                        controller: _scroll,
+                        physics: const BouncingScrollPhysics(),
+                        cacheExtent: 800,
+                        padding: EdgeInsets.zero,
+                        children: _tabletChildren(item),
+                      )
+                    : ListView(
+                        controller: _scroll,
+                        physics: const BouncingScrollPhysics(),
+                        cacheExtent: 800,
+                        padding: EdgeInsets.zero,
+                        children: [
+                          // 手机横幅：海报 + 标题块用 Stack 重叠（标题压在封面上）。
+                          // 不能再用「ListView 垂直排列 + Transform.translate 上移」：
+                          // Transform 只改「视觉位置」、不改「布局槽位」，命中测试按布局
+                          // 位置把标题按钮所在区域判给下层海报，按钮永远收不到点击——
+                          // 这就是 v2.0.51 修掉的「标题旁翻译按钮点不动」的根因。
+                          //
+                          // v2.0.52：Stack 作为 ListView 的第一个 child，其「布局占位高度」
+                          // 必须比海报实际高度少 titleLift。否则标题块虽被压到海报上，
+                          // 后续板块（继续播放 / 剧情简介）却仍从完整海报底部开始排，
+                          // 中间凭空空出 titleLift（56~150px）——用户反馈「继续播放和
+                          // 信息页离标题太远」即是此因。这里用 SizedBox 缩短占位，
+                          // 再用 OverflowBox 让内部 Stack 仍以完整 posterH 布局并溢出
+                          // 显示（clipBehavior: Clip.none）：视觉完全不变，但布局槽位
+                          // 上抬 titleLift，后续板块自然紧跟标题块。因为全程没用
+                          // Transform，布局位置与视觉位置一致，命中测试不会退化。
+                          SizedBox(
+                            height: posterH - titleLift,
+                            child: OverflowBox(
+                              alignment: Alignment.topCenter,
+                              minHeight: posterH,
+                              maxHeight: posterH,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // 海报按原始比例完整显示（不裁切）
+                                  RepaintBoundary(
+                                    child: AspectRatio(
+                                      aspectRatio: posterAspect,
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          if ((item.posterUrl ??
+                                                  item.backdropUrl) !=
+                                              null) ...[
+                                            // 海报底部渐隐用 ShaderMask（真实 alpha 渐隐）。
+                                            //
+                                            // v2.0.41 曾改为「叠一层纯色渐变」，结果底部出现
+                                            // 明显断层——因为叠的是固定色 #06080E，而页面背景
+                                            // 是随主色变化的，两色对不上就露出硬边。这里恢复
+                                            // ShaderMask：透明处直接透出页面背景，不依赖色值。
+                                            //
+                                            // 性能：外层已有 RepaintBoundary，saveLayer 结果会
+                                            // 被缓存成图层，滚动时只是平移复用，不逐帧重算。
+                                            ShaderMask(
+                                              blendMode: BlendMode.dstIn,
+                                              shaderCallback: (rect) =>
+                                                  const LinearGradient(
+                                                    begin: Alignment.topCenter,
+                                                    end: Alignment.bottomCenter,
+                                                    colors: [
+                                                      Colors.white,
+                                                      Colors.white,
+                                                      Colors.transparent,
+                                                    ],
+                                                    stops: [0.0, 0.72, 1.0],
+                                                  ).createShader(rect),
+                                              child: CachedImage(
+                                                url:
+                                                    item.posterUrlFor(900) ??
+                                                    item.backdropUrl,
+                                                memWidth: 900,
                                               ),
                                             ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                // 标题块压在封面底部（bottom: titleLift 使其上抬，露出下方
-                                // 海报）；右上角挂翻译按钮。此块在 Stack 上层，命中测试可
-                                // 正常点到按钮（修复前在 Transform 平移层里点不动）。
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: titleLift,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // 标题压在封面上：右上角挂翻译按钮（v2.0.49 补齐手机布局，
-                                        // 之前只有平板 banner 有，手机看不到）
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                item.name,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 26,
-                                                  fontWeight: FontWeight.w900,
-                                                  height: 1.16,
-                                                  letterSpacing: -0.6,
-                                                  color: Colors.white,
-                                                  shadows: const [
-                                                    Shadow(
-                                                      color: Color(0xCC000000),
-                                                      blurRadius: 16,
-                                                    ),
+                                          ] else
+                                            DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    item.colors.first
+                                                        .withOpacity(0.9),
+                                                    AppColors.bgTop,
+                                                    AppColors.bg,
                                                   ],
                                                 ),
                                               ),
                                             ),
-                                            const SizedBox(width: 8),
-                                            _translateButton(
-                                              'title',
-                                              item.name,
-                                              onBanner: true,
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          [
-                                            if (item.year > 0) '${item.year}',
-                                            if (item.runtimeMin > 0)
-                                              '${item.runtimeMin} 分钟',
-                                            if (item.director.isNotEmpty)
-                                              '导演 ${item.director}',
-                                            if (item.studio.isNotEmpty)
-                                              item.studio,
-                                          ].join('  ·  '),
-                                          style: const TextStyle(
-                                            fontSize: 11.5,
-                                            color: Color(0xFFD3DEF0),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 9),
-                                        // 规格徽章
-                                        Wrap(
-                                          spacing: 7,
-                                          runSpacing: 7,
-                                          children: [
-                                            if (item.rating > 0)
-                                              _Badge(
-                                                icon: Icons.star_rounded,
-                                                label: item.rating
-                                                    .toStringAsFixed(1),
-                                                gold: true,
-                                              ),
-                                            if (_shownIsTrue4K(item))
-                                              _Badge(
-                                                icon: Icons.hd_rounded,
-                                                label: '2160p',
-                                              ),
-                                            _Badge(
-                                              icon:
-                                                  Icons.movie_creation_outlined,
-                                              label: _shownVideoCodec(item),
-                                            ),
-                                            _Badge(
-                                              icon: Icons.graphic_eq_rounded,
-                                              label:
-                                                  '${_shownAudioCodec(item)} ${_shownAudioChannels(item)}ch',
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
+                                  // 标题块压在封面底部（bottom: titleLift 使其上抬，露出下方
+                                  // 海报）；右上角挂翻译按钮。此块在 Stack 上层，命中测试可
+                                  // 正常点到按钮（修复前在 Transform 平移层里点不动）。
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    bottom: titleLift,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          // 标题压在封面上：右上角挂翻译按钮（v2.0.49 补齐手机布局，
+                                          // 之前只有平板 banner 有，手机看不到）
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  item.name,
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 26,
+                                                    fontWeight: FontWeight.w900,
+                                                    height: 1.16,
+                                                    letterSpacing: -0.6,
+                                                    color: Colors.white,
+                                                    shadows: const [
+                                                      Shadow(
+                                                        color: Color(
+                                                          0xCC000000,
+                                                        ),
+                                                        blurRadius: 16,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              _translateButton(
+                                                'title',
+                                                item.name,
+                                                onBanner: true,
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            [
+                                              if (item.year > 0) '${item.year}',
+                                              if (item.runtimeMin > 0)
+                                                '${item.runtimeMin} 分钟',
+                                              if (item.director.isNotEmpty)
+                                                '导演 ${item.director}',
+                                              if (item.studio.isNotEmpty)
+                                                item.studio,
+                                            ].join('  ·  '),
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              color: Color(0xFFD3DEF0),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 9),
+                                          // 规格徽章
+                                          Wrap(
+                                            spacing: 7,
+                                            runSpacing: 7,
+                                            children: [
+                                              if (item.rating > 0)
+                                                _Badge(
+                                                  icon: Icons.star_rounded,
+                                                  label: item.rating
+                                                      .toStringAsFixed(1),
+                                                  gold: true,
+                                                ),
+                                              if (_shownIsTrue4K(item))
+                                                _Badge(
+                                                  icon: Icons.hd_rounded,
+                                                  label: '2160p',
+                                                ),
+                                              _Badge(
+                                                icon: Icons
+                                                    .movie_creation_outlined,
+                                                label: _shownVideoCodec(item),
+                                              ),
+                                              _Badge(
+                                                icon: Icons.graphic_eq_rounded,
+                                                label:
+                                                    '${_shownAudioCodec(item)} ${_shownAudioChannels(item)}ch',
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          // 其余内容（播放行 → 简介 → 板块），紧跟标题块底部排布
+                          // （徽章 → 播放行间距 20，与 v2.0.51 之前一致）
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 20),
+                                // 板块：播放行 → 简介 → 媒体信息 → 信息区（系列/
+                                // 演员/标签）→ 视频 → 剧照 → 诊断入口 → 相似推荐
+                                ..._phoneSections(item),
+                                // 底部不再有悬浮播放条（v2.0.43 移到简介上方），
+                                // 留白 120 → 24，只够避开手势条
+                                SizedBox(
+                                  height:
+                                      24 +
+                                      MediaQuery.of(context).padding.bottom,
                                 ),
                               ],
                             ),
                           ),
-                        ),
-                        // 其余内容（播放行 → 简介 → 板块），紧跟标题块底部排布
-                        // （徽章 → 播放行间距 20，与 v2.0.51 之前一致）
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 20),
-                              // 板块：播放行 → 简介 → 媒体信息 → 信息区（系列/
-                              // 演员/标签）→ 视频 → 剧照 → 诊断入口 → 相似推荐
-                              ..._phoneSections(item),
-                              // 底部不再有悬浮播放条（v2.0.43 移到简介上方），
-                              // 留白 120 → 24，只够避开手势条
-                              SizedBox(
-                                height:
-                                    24 + MediaQuery.of(context).padding.bottom,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -2539,11 +2479,7 @@ class _DetailPageState extends State<DetailPage> {
     final list = _similar;
     if (list == null) {
       // v2.0.64：推荐首帧同样先画海报形状，切到内容时交叉淡出。
-      return const ListSkeleton(
-        itemCount: 3,
-        height: 190,
-        shimmer: false,
-      );
+      return const ListSkeleton(itemCount: 3, height: 190, shimmer: false);
     }
     if (list.isEmpty)
       return const Text(
@@ -3137,7 +3073,7 @@ class _RoundBtn extends StatelessWidget {
       child: ClipOval(
         // 真磨砂玻璃：与其他页顶栏圆钮（首页 _GlassCircleBtn 等）统一。
         // 滚动期间降级为纯渐变（见 [degraded]），避免 3 个按钮每帧重采样。
-      child: _glassBody(
+        child: _glassBody(
           Container(
             width: 40,
             height: 40,
@@ -3165,8 +3101,8 @@ class _RoundBtn extends StatelessWidget {
               color: onTap == null
                   ? Colors.white38
                   : active
-                      ? const Color(0xFFFFE1E8)
-                      : Colors.white,
+                  ? const Color(0xFFFFE1E8)
+                  : Colors.white,
             ),
           ),
         ),
@@ -3248,10 +3184,11 @@ class _InfoBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final seriesName = (seriesNameOverride.trim().isNotEmpty
-            ? seriesNameOverride
-            : item.seriesName)
-        .trim();
+    final seriesName =
+        (seriesNameOverride.trim().isNotEmpty
+                ? seriesNameOverride
+                : item.seriesName)
+            .trim();
     final director = item.director.trim();
     final studio = item.studio.trim();
     final hasCredits = director.isNotEmpty || studio.isNotEmpty;

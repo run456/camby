@@ -207,6 +207,7 @@ class PlayerPageState extends State<PlayerPage>
 
   // 字幕 / 分集 / 画面信息
   SubtitleTrackInfo? _subtitle;
+
   /// 当前挂载的在线字幕（非 Emby 服务端轨道）。底栏 / 信息面板靠它区分
   /// 「字幕关闭」与「用的是在线字幕」——只看 _subtitle == null 会误显示关闭。
   OnlineSubtitle? _onlineSubtitle;
@@ -803,7 +804,10 @@ class PlayerPageState extends State<PlayerPage>
     // 不走「主版本 → HLS 回退」，否则会去播主版本。
     final sourceId = widget.mediaSourceId;
     if (sourceId != null && sourceId.isNotEmpty && srv != null) {
-      if (await _start(_engine, srv.streamUrl(widget.item.id, mediaSourceId: sourceId))) {
+      if (await _start(
+        _engine,
+        srv.streamUrl(widget.item.id, mediaSourceId: sourceId),
+      )) {
         return;
       }
       if (await _start(
@@ -1425,7 +1429,7 @@ class PlayerPageState extends State<PlayerPage>
     const speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
     final picked = await Navigator.of(context).push<double>(
       GlassPanelRoute<double>(
-        builder: (ctx) => _Sheet(
+        builder: (ctx) => AppSheet(
           title: '播放速度',
           blur: true,
           children: speeds.map((s) {
@@ -1488,7 +1492,7 @@ class PlayerPageState extends State<PlayerPage>
     // 它被藏在「长按字幕按钮」这个没人会猜到的隐藏手势里。
     final picked = await Navigator.of(context).push<_SubPick>(
       GlassPanelRoute<_SubPick>(
-        builder: (ctx) => _Sheet(
+        builder: (ctx) => AppSheet(
           title: '选择字幕',
           blur: true,
           children: [
@@ -1683,7 +1687,7 @@ class PlayerPageState extends State<PlayerPage>
     final fileName = path.split(Platform.pathSeparator).last;
     await Navigator.of(context).push<void>(
       GlassPanelRoute<void>(
-        builder: (ctx) => _Sheet(
+        builder: (ctx) => AppSheet(
           title: '字幕已保存到手机',
           blur: true,
           children: [
@@ -1883,7 +1887,7 @@ class PlayerPageState extends State<PlayerPage>
     final item = widget.item;
     Navigator.of(context).push<void>(
       GlassPanelRoute<void>(
-        builder: (ctx) => _Sheet(
+        builder: (ctx) => AppSheet(
           title: '播放信息',
           blur: true,
           // v2.0.66：真机反馈这块面板太大，收成按内容高度的紧凑信息卡
@@ -2532,8 +2536,8 @@ class PlayerPageState extends State<PlayerPage>
                             label: _subtitle != null
                                 ? '字幕 · ${_subtitle!.languageLabel}'
                                 : (_onlineSubtitle == null
-                                    ? '字幕'
-                                    : '字幕 · ${_subtitleFromCache ? '本机' : '在线'}'),
+                                      ? '字幕'
+                                      : '字幕 · ${_subtitleFromCache ? '本机' : '在线'}'),
                             icon: Icons.subtitles_outlined,
                             onTap: _pickSubtitle,
                           ),
@@ -2884,111 +2888,6 @@ class _SpeedChip extends StatelessWidget {
 class _SubPick {
   const _SubPick(this.track);
   final SubtitleTrackInfo? track;
-}
-
-class _Sheet extends StatelessWidget {
-  const _Sheet({
-    required this.title,
-    required this.children,
-    this.blur = false,
-    this.maxWidth,
-    this.maxHeightFactor,
-    this.compact = false,
-  });
-  final String title;
-  final List<Widget> children;
-  final double? maxWidth;
-  final double? maxHeightFactor;
-
-  /// v2.0.66「播放信息」专用：字段数量固定且都已压缩，直接按内容高度
-  /// 收拢，不再用 Flexible + SingleChildScrollView —— 后者在 Column(min)
-  /// 里会把 viewport 拉到接近 maxHeight，横屏下变成一整块近满屏黑板。
-  /// 字幕列表 / 在线字幕等长列表仍走原滚动分支。
-  final bool compact;
-
-  /// 是否开启真正的液态玻璃磨砂（与详情页翻译弹层同款）。
-  /// 播放页弹层默认 false（高不透明底色，避免模糊每帧重采样压停视频）；
-  /// 字幕选择弹窗按用户要求改用 true。
-  final bool blur;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassPanel(
-      blur: blur,
-      maxWidth: maxWidth,
-      maxHeightFactor: maxHeightFactor,
-      child: Material(
-        type: MaterialType.transparency,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 标题栏固定在顶部，不随内容滚动（否则长内容一滚，
-            // 标题会压在正文上，截图里就是这个观感）
-            Padding(
-              padding: compact
-                  ? const EdgeInsets.fromLTRB(16, 10, 12, 6)
-                  : const EdgeInsets.fromLTRB(20, 14, 14, 10),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: compact ? 14 : 15,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  // 关闭：手势返回之外再给一个明确的出口
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).maybePop(),
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.10),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.14),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.close_rounded,
-                        size: 16,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // compact：按内容收拢，短面板不会被拉成近满屏。
-            // 非 compact：长列表自己滚，标题始终可见。
-            if (compact)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 10),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: children,
-                ),
-              )
-            else
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(top: 2, bottom: 14),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: children,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 /// 通用行组件 `_SheetRow` 已抽到 `widgets/glass_sheet.dart`（`SheetRow`），

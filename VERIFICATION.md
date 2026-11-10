@@ -2690,3 +2690,24 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 验证（v2.0.81）：`flutter analyze` 0 error / 0 warning（411 项全为 info 级既有弃用）；
 `flutter test` 全过；`perf_audit.py` 0 命中；`aapt dump badging` 确认
 `versionCode='281' versionName='2.0.81'`。本地提交 + tag `v2.0.81`，未推 GitHub。
+
+## §96 发布 v2.0.82（全站弹窗样式统一）
+
+用户要求：以「选择字幕」弹窗为标准统一所有弹窗样式，涉及文字用蓝字。
+
+- 公共组件：`lib/widgets/glass_sheet.dart` 新增 `AppSheet`（原播放页私有
+  `_Sheet` 原样上提）、`AppDialogAction`、`showAppDialog`；支持 `message` /
+  `body` / `bodyBuilder` 三种内容形态与自定义 `onTap`。
+- 7 处 `showDialog + Dialog(backgroundColor: transparent) + Glass` 全部替换：
+  `detail_page` 系列来源诊断 / 预告片诊断、`series_index_page` 同步结果 /
+  系列来源说明、`settings_page` 删除服务器、`stats_page` 说明弹窗、
+  `folder_sheet` 新建收藏夹。
+- 动作文字统一 `AppColors.accent`：清掉青绿「知道了」、灰色「取消」、
+  红色「删除」；正文统一蓝灰 `#9FB0CC`，标题白粗，与选择字幕一致。
+- 标准面板 4 处改调 `AppSheet`，视觉零变化；剧照全屏查看器与底部抽屉
+  因形态不同保持原样。
+- 回归守卫：`media_version_test` 的 `if (compact)` 断言改查公共组件。
+
+验证（v2.0.82）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
+`perf_audit.py` 0 命中；`aapt dump badging` 确认
+`versionCode='282' versionName='2.0.82'`。本地提交 + tag `v2.0.82`，未推 GitHub。

@@ -8,6 +8,7 @@ import '../theme.dart';
 import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/glass_sheet.dart';
 
 /// 数据总结：液态玻璃风格
 /// A 本地库聚合（精确） + B Playback Reporting / 活动日志（真实行为）
@@ -507,61 +508,14 @@ Widget _statsEmpty(BuildContext context, String message) => EmptyHint(
   onAction: () => _showExplainDialog(context, '统计口径', _kStatsEmptyExplain),
 );
 
-/// 计算说明弹窗：液态玻璃（Glass 自带实时模糊 + 折射高光），
-/// 比旧版纯色 AlertDialog 更贴合全局玻璃质感。
+/// 计算说明弹窗：v2.0.82 起统一走 [showAppDialog]（与「选择字幕」同款），
+/// 动作文字统一蓝色，不再单独用青绿色「知道了」。
 void _showExplainDialog(BuildContext context, String title, String message) {
-  showDialog<void>(
+  showAppDialog<void>(
     context: context,
-    barrierColor: Colors.black.withOpacity(0.55),
-    builder: (ctx) => Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
-      child: Glass(
-        blur: 32,
-        radius: 22,
-        tint: 0.14,
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFFEAF3FF),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Flexible(
-              child: SingleChildScrollView(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    height: 1.65,
-                    color: Color(0xFFC9D6F2),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text(
-                  '知道了',
-                  style: TextStyle(color: AppColors.cyan, fontSize: 12.5),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
+    title: title,
+    message: message,
+    actions: const [AppDialogAction(label: '知道了')],
   );
 }
 

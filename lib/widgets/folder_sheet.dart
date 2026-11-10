@@ -9,6 +9,7 @@ import '../theme.dart';
 import 'cached_image.dart';
 import 'glass_toast.dart';
 import 'empty_state.dart';
+import 'glass_sheet.dart';
 
 /// 新建 / 重命名收藏夹的输入弹窗
 ///
@@ -22,118 +23,43 @@ Future<String?> promptFolderName(
   String confirmText = '创建',
 }) {
   final ctrl = TextEditingController(text: initial);
-  return showDialog<String>(
+  return showAppDialog<String>(
     context: context,
-    barrierColor: Colors.black54,
-    builder: (ctx) => Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 34),
-      child: SingleChildScrollView(
-        child: Glass(
-          radius: 24,
-          blur: 24,
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                height: 46,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: Colors.white.withOpacity(0.07),
-                  border: Border.all(color: Colors.white.withOpacity(0.16)),
-                ),
-                child: Center(
-                  child: TextField(
-                    controller: ctrl,
-                    // v2.0.69：禁止自动聚焦。弹窗出现时不弹键盘，
-                    // 用户点这个输入框才唤起输入法。
-                    textInputAction: TextInputAction.done,
-                    style: const TextStyle(fontSize: 14),
-                    cursorColor: AppColors.primary,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      counterText: '',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      hintText: '输入收藏夹名称',
-                      hintStyle: TextStyle(
-                        fontSize: 13.5,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                    onSubmitted: (v) => Navigator.pop(ctx, _clip(v)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: LiquidPress(
-                      onTap: () => Navigator.pop(ctx),
-                      radius: 22,
-                      child: Container(
-                        height: 44,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          color: Colors.white.withOpacity(0.07),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.14),
-                          ),
-                        ),
-                        child: const Text(
-                          '取消',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.muted,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: LiquidPress(
-                      onTap: () => Navigator.pop(ctx, _clip(ctrl.text)),
-                      radius: 22,
-                      child: Container(
-                        height: 44,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          gradient: AppColors.ctaGradient,
-                        ),
-                        child: Text(
-                          confirmText,
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+    title: title,
+    bodyBuilder: (ctx) => Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white.withValues(alpha: 0.07),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Center(
+        child: TextField(
+          controller: ctrl,
+          // v2.0.69：禁止自动聚焦，用户点输入框才唤起键盘。
+          textInputAction: TextInputAction.done,
+          style: const TextStyle(fontSize: 14, color: Colors.white),
+          cursorColor: AppColors.primary,
+          decoration: const InputDecoration(
+            isDense: true,
+            counterText: '',
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.zero,
+            hintText: '输入收藏夹名称',
+            hintStyle: TextStyle(fontSize: 13.5, color: AppColors.muted),
           ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(_clip(v)),
         ),
       ),
     ),
+    actions: [
+      const AppDialogAction<String>(label: '取消'),
+      AppDialogAction<String>(
+        label: confirmText,
+        onTap: (ctx) => Navigator.of(ctx).pop(_clip(ctrl.text)),
+      ),
+    ],
   );
 }
 
@@ -327,9 +253,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                       onAction: () {
                         showToast(
                           context,
-                          _fav
-                              ? '点下方输入框输入名称，回车创建'
-                              : '先收藏当前影片，再新建收藏夹',
+                          _fav ? '点下方输入框输入名称，回车创建' : '先收藏当前影片，再新建收藏夹',
                           icon: Icons.info_outline_rounded,
                         );
                       },
