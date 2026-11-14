@@ -2749,3 +2749,52 @@ Flutter textures 在 Android/iOS/macOS 均无 HDR 能力，**实际 HDR passthro
 验证（v2.0.83）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
 `perf_audit.py` 0 命中；`aapt dump badging` 确认
 `versionCode='283' versionName='2.0.83'`。本地提交 + tag `v2.0.83`，未推 GitHub。
+
+---
+
+## §98 发布 v2.0.84（影片详情页 DLNA 投屏）
+
+需求原文：「在影片详情页增加 dlna 投屏功能，类似如图，按钮加上播放按钮旁边」。
+截图细节无法在工具里展开，按文字与站内既有视觉体系落地：横幅主播放按钮右侧
+一个「投屏」幽灵按钮，手机端播放行同步一个 46×46 方钮，两套入口共用同一个
+`DlnaController.shared` 实例。
+
+**为什么不是调系统投屏面板**：Android 的 MediaRouter / Cast SDK 走 Google Cast
+协议，覆盖不到大量只支持 DLNA/UPnP 的国产电视与盒子。这里实现的是标准 DMR
+控制点：手机 `SetAVTransportURI` 把 Emby 流地址交给电视，电视自己拉流，
+手机不解码不转发，因此 App 退到后台甚至被杀都不影响电视播放。
+
+- 发现：`RawDatagramSocket` 发 SSDP M-SEARCH（MediaRenderer / AVTransport /
+  `ssdp:all` 三类 ST，700ms 后补发一轮抗 UDP 丢包），按 LOCATION 去重；并行
+  GET 描述 XML，只保留带 AVTransport 服务的设备。**刻意不 joinMulticast**：
+  Android 上不显式传 NetworkInterface 会抛 SocketException，而设备对
+  M-SEARCH 的应答是单播，加入组播组并非必需。
+- 组播锁：`MainActivity.kt` 新增 `cn.camby.camby/network` 通道的
+  `setMulticastLock` 分支，发现期间持 `WifiManager.MulticastLock`（引用计数），
+  `finally` 与 `onDestroy` 都会释放。Manifest 补 `ACCESS_WIFI_STATE` /
+  `CHANGE_WIFI_MULTICAST_STATE`。不持锁时 Wi-Fi 驱动过滤组播，
+  典型症状是「搜索一直转圈、零设备」。
+- 协议：`lib/dlna/dlna_protocol.dart` 全纯函数。两个易错点已单测钉死：
+  ① 正则必须加 `\b`，否则 `name='service'` 会误匹配 `<serviceList>`、
+  `name='url'` 会误匹配 `<URLBase>`；② DIDL-Lite 内部逐字段转义后，
+  整段 metadata 作为 SOAP 参数还要再转义一次，Emby 流地址中的 `&`
+  不处理会直接让设备解析 XML 失败。
+- 控制：`SetAVTransportURI → Play → Pause / Stop / Seek / SetVolume`，
+  3 秒轮询 `GetPositionInfo` + `GetTransportInfo`；断开时 cancel Timer。
+  投屏 URL 用 `EmbyServer.streamUrl()` 现算（自带 api_key / PlaySessionId），
+  并带当前选中版本的 `MediaSourceId`；兼容模式切 HLS 转码流并自动重投。
+- 面板：复用「选择字幕」同款 `Glass` 底部抽屉，正文 `#9FB0CC`、动作文字
+  `AppColors.accent`；含扫描 / 空态 / 设备列表 / 播放控制、兼容模式开关、
+  回环地址告警。按钮状态用 `ListenableBuilder` 局部刷新，不整页 setState。
+- 边界：电视必须能直接访问 Emby 地址，`localhost` / `127.0.0.1` 会告警；
+  App 内手选字幕不随投屏传递（由电视端自行选择）；不同厂商对
+  DIDL-Lite / protocolInfo 的宽容度不同，需实机逐台验证。
+
+不动：播放链路、HDR/DV 处理、毛玻璃、动效、既有弹窗样式。
+
+验证（v2.0.84）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过
+（新增 `test/dlna_cast_test.dart` 覆盖 SSDP / XML 边界 / controlURL 三形态 /
+DMR 过滤 / SOAP 双重转义 / DIDL-Lite / 时长与状态解析 / URL 可达性 /
+控制器状态 / 6 组源码守卫）；`perf_audit.py` 0 命中；`aapt dump badging`
+确认 `versionCode='284' versionName='2.0.84'`。本地提交 + tag `v2.0.84`，
+未推 GitHub。

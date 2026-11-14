@@ -1,5 +1,7 @@
 package cn.camby.camby
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.view.Display
 import io.flutter.embedding.android.FlutterActivity
@@ -7,6 +9,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var multicastLock: WifiManager.MulticastLock? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
@@ -17,6 +21,56 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NETWORK_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "setMulticastLock") {
+                    result.success(setMulticastLock(call.argument<Boolean>("enabled") == true))
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * v2.0.84：SSDP 发现期间短暂持有 Wi-Fi 组播锁。
+     *
+     * Android 的 Wi-Fi 驱动默认过滤组播包以省电，不持锁时 Dart 发出的
+     * M-SEARCH 会被直接丢掉，现象是「一直搜索不到投屏设备」。这里只在
+     * 发现阶段 acquire、发现结束立刻 release，引用计数避免重入泄漏。
+     * 投屏控制（AVTransport SOAP）走普通单播 HTTP，不需要这把锁。
+     */
+    private fun setMulticastLock(enabled: Boolean): Map<String, Any> {
+        return try {
+            if (enabled) {
+                if (multicastLock == null) {
+                    val wm = applicationContext
+                        .getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                    multicastLock = wm?.createMulticastLock("camby.dlna")?.apply {
+                        setReferenceCounted(true)
+                    }
+                }
+                if (multicastLock?.isHeld != true) multicastLock?.acquire()
+            } else {
+                if (multicastLock?.isHeld == true) {
+                    try {
+                        multicastLock?.release()
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+            mapOf("held" to (multicastLock?.isHeld == true))
+        } catch (e: Throwable) {
+            mapOf("held" to false, "error" to "$e")
+        }
+    }
+
+    override fun onDestroy() {
+        try {
+            if (multicastLock?.isHeld == true) multicastLock?.release()
+        } catch (_: Throwable) {
+        }
+        multicastLock = null
+        super.onDestroy()
     }
 
     /**
@@ -64,5 +118,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "cn.camby.camby/display"
+        private const val NETWORK_CHANNEL = "cn.camby.camby/network"
     }
 }

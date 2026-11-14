@@ -26,6 +26,8 @@ import '../widgets/haptics.dart';
 import 'person_page.dart';
 import 'subtitle_filter_page.dart';
 import '../widgets/glass_sheet.dart';
+import '../dlna/dlna_controller.dart';
+import '../dlna/dlna_sheet.dart';
 
 /// 影片详情：封面全幅压标题 → 元信息 → 收藏 → 剧情简介 → 主演 → 相似推荐
 /// 底部常驻液态玻璃「继续播放」按钮
@@ -83,6 +85,10 @@ class DetailPage extends StatefulWidget {
 class _DetailPageState extends State<DetailPage> {
   final ScrollController _scroll = ScrollController();
 
+  /// v2.0.84：投屏控制点是进程级单例 —— 从详情页返回再进来时，
+  /// 已发现设备与正在投屏的状态都要保留，不能跟着页面销毁。
+  final DlnaController _cast = DlnaController.shared;
+
   /// 滚动位置只驱动顶栏渐变与状态栏模糊，不再 setState 重建整页
   final ValueNotifier<double> _offsetVN = ValueNotifier<double>(0);
 
@@ -122,6 +128,39 @@ class _DetailPageState extends State<DetailPage> {
       return;
     }
     widget.onPlay(item, _selectedSubtitle, resume: resume);
+  }
+
+  // ── v2.0.84 · DLNA 投屏 ────────────────────────────────────────────────
+
+  /// 拼给电视访问的 Emby 流地址。
+  ///
+  /// 投屏是 DMR 模式：**电视自己拉流**，手机不解码不转发，所以 URL 必须带
+  /// api_key / PlaySessionId（[EmbyServer.streamUrl] 负责），且必须带当前
+  /// 选中版本的 MediaSourceId，否则投出去的是服务端默认的主版本。
+  /// `compatible=false` 直连原片；`true` 走 HLS 服务端转码。
+  String? _castUrl(bool compatible) {
+    final srv = widget.state.server;
+    if (srv == null) return null;
+    final v = _selectedVersion;
+    final msId = (v != null && !v.isPrimary) ? v.id : _item.mediaSourceId;
+    return srv.streamUrl(_item.id, mediaSourceId: msId, direct: !compatible);
+  }
+
+  Future<void> _openCast() async {
+    final probe = _castUrl(false);
+    if (probe == null) {
+      _toast('未连接服务器，无法投屏');
+      return;
+    }
+    await showCastingSheet(
+      context: context,
+      controller: _cast,
+      title: _item.name,
+      itemId: _item.id,
+      buildUrl: (compatible) => _castUrl(compatible) ?? probe,
+      startAt: Duration(seconds: (_item.resumeSeconds ?? 0).round()),
+      duration: Duration(minutes: _item.runtimeMin),
+    );
   }
 
   /// v2.0.65：头图的编码 / 4K 徽章也跟着版本走，否则切到 4K 版本后顶部
@@ -1145,13 +1184,24 @@ class _DetailPageState extends State<DetailPage> {
             onLongPress: () => _playWithVersion(item, resume: false),
           ),
         ),
+        const SizedBox(width: 10),
+        // v2.0.84：投屏入口紧贴播放按钮右侧；投屏中图标转蓝并保持高亮。
+        SizedBox(
+          width: 46,
+          height: 46,
+          child: ListenableBuilder(
+            listenable: _cast,
+            builder: (_, _) =>
+                _CastSquareButton(active: _cast.isActive, onTap: _openCast),
+          ),
+        ),
         if (hasSub) ...[
           const SizedBox(width: 10),
           SizedBox(
             height: 46,
             child: _SubtitlePill(
               label: _selectedSubtitle?.label ?? '字幕',
-              maxWidth: 118,
+              maxWidth: 96,
               onTap: _pickSubtitle,
             ),
           ),
@@ -1804,6 +1854,16 @@ class _DetailPageState extends State<DetailPage> {
                 ),
               ],
             ),
+          ),
+        ),
+        // v2.0.84：投屏按钮紧挨主播放按钮，与手机端播放行的方钮同源。
+        ListenableBuilder(
+          listenable: _cast,
+          builder: (_, _) => _BannerGhostBtn(
+            icon: Icons.cast_rounded,
+            label: _cast.isActive ? '投屏中' : '投屏',
+            active: _cast.isActive,
+            onTap: _openCast,
           ),
         ),
         _BannerGhostBtn(
@@ -2559,6 +2619,47 @@ class _BannerGhostBtn extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 手机端播放行的紧凑投屏按钮（v2.0.84）。
+/// 配色与横幅 [_BannerGhostBtn] 完全一致，只是收成 46×46 的方形，
+/// 保证「播放 + 投屏 + 字幕」三个控件在窄屏也不换行。
+class _CastSquareButton extends StatelessWidget {
+  const _CastSquareButton({required this.active, required this.onTap});
+
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidPress(
+      onTap: onTap,
+      radius: 14,
+      semanticLabel: active ? '投屏中，管理投屏' : '投屏到电视',
+      child: Container(
+        height: 46,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(
+            colors: [
+              Colors.white.withValues(alpha: active ? 0.22 : 0.12),
+              Colors.white.withValues(alpha: active ? 0.10 : 0.04),
+            ],
+          ),
+          border: Border.all(
+            color: active
+                ? const Color(0x884F8CFF)
+                : Colors.white.withValues(alpha: 0.16),
+          ),
+        ),
+        child: Icon(
+          Icons.cast_rounded,
+          size: 20,
+          color: active ? const Color(0xFF9CC2FF) : const Color(0xFFDFE7F5),
         ),
       ),
     );

@@ -1,10 +1,52 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.83 (283)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.84 (284)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.84 (284) 影片详情页新增 DLNA 投屏
+
+用户要求「播放按钮旁边加一个投屏按钮」。实现为完整 DLNA/UPnP DMR 控制点，
+而不是只放一个跳转系统的图标：手机把 Emby 流地址交给电视，由电视自己拉流，
+手机只作遥控、不解码不转发。
+
+- **入口**：影片详情页横幅主播放按钮右侧新增「投屏」幽灵按钮；手机端
+  播放行同步新增 46×46 方形投屏按钮（字幕胶囊收窄到 96，窄屏不换行）。
+  投屏中按钮变蓝并显示「投屏中」，由 `ListenableBuilder` 局部刷新，
+  不触发整页 `setState`。
+- **发现**：`lib/dlna/dlna_discovery.dart` 用 `RawDatagramSocket` 发 SSDP
+  M-SEARCH（MediaRenderer / AVTransport / ssdp:all 三类目标、700ms 补发一轮），
+  收设备单播响应并按 LOCATION 去重；再并行 GET 描述 XML，只保留带
+  `AVTransport` 服务的 DMR。刻意不 `joinMulticast`（Android 上不指定
+  NetworkInterface 会抛异常），接收靠单播应答。
+  **Android 组播锁**：`MainActivity.kt` 新增 `setMulticastLock` 通道，发现期间
+  短暂持有 `WifiManager.MulticastLock`、结束立即释放；Manifest 补
+  `ACCESS_WIFI_STATE` / `CHANGE_WIFI_MULTICAST_STATE`。不持锁时 Wi-Fi 驱动
+  会过滤 M-SEARCH，现象是「一台设备都搜不到」。
+- **协议**：`lib/dlna/dlna_protocol.dart` 全为可单测纯函数 —— SSDP 头解析、
+  描述 XML 解析（命名空间前缀 / URLBase / 相对 controlURL / serviceId 兜底）、
+  SOAP envelope、DIDL-Lite metadata、UPnP 时长、SOAP Fault 与状态解析。
+  DIDL-Lite 内部先逐字段转义，整段 metadata 再随 SOAP 参数转义一次；
+  Emby 流地址里的 `&` 不处理好会直接表现为「电视毫无反应」。
+- **控制**：`lib/dlna/dlna_controller.dart` 状态机覆盖
+  `SetAVTransportURI → Play → Pause / Stop / Seek / 音量`，每 3 秒轮询
+  `GetPositionInfo` + `GetTransportInfo` 同步进度与状态；进度轮询用
+  `Timer.periodic`，断开时必定 cancel。投屏 URL 由详情页按**当前选中版本**
+  的 `MediaSourceId` 现算，兼容模式切到 Emby HLS 转码流并自动重投。
+- **面板**：`lib/dlna/dlna_sheet.dart` 复用「选择字幕」同款 `Glass` 底部抽屉，
+  标题白粗、正文 `#9FB0CC`、动作文字统一 `AppColors.accent`（v2.0.82 规范）。
+  含扫描中 / 空态 / 设备列表 / 投屏控制、兼容模式开关，以及「服务器地址须为
+  局域网 IP」提示与回环地址告警。
+- **边界**：投屏依赖电视能直接访问 Emby 地址；`localhost` / `127.0.0.1`
+  会在面板里告警。字幕由电视端自行选择，App 内手选字幕不随投屏传递。
+  真机表现仍需在具体电视 / 盒子上验证（不同厂商对 DIDL-Lite 的宽容度不同）。
+
+验证：`flutter analyze` 0 error / 0 warning；`flutter test` 全过（含新增
+`test/dlna_cast_test.dart` 协议与源码守卫）；`perf_audit.py` 0 命中；
+`aapt` 复核 `versionCode=284 / versionName=2.0.84`。本地提交 + tag
+`v2.0.84`，未推 GitHub。
 
 ### v2.0.83 (283) 修正 HDR / DV 显示与音频转码
 
