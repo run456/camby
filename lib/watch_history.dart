@@ -1,0 +1,420 @@
+import 'dart:math' as math;
+
+/// v2.0.86：观影日历的数据层。
+///
+/// 以前统计页只有「按日聚合的分钟数」，能画柱状图，但回答不了
+/// 「10 月我看了什么」—— 因为一次观看从来没有被存成一条带日期的事件。
+/// 这里把观看记录统一成 [WatchEvent]，并用 [WatchCalendar] 做月历聚合。
+///
+/// 刻意不 import models.dart：models.dart 里的 ActivitySummary 要引用
+/// WatchEvent，避免循环依赖，本文件只依赖 dart:math。
+
+/// 事件来源。UI 上必须标出来，因为「估算」和「精确」不能混为一谈。
+enum WatchSource { local, activity, imported }
+
+String watchSourceLabel(WatchSource s) => switch (s) {
+  WatchSource.local => '本机记录',
+  WatchSource.activity => '活动日志',
+  WatchSource.imported => '历史估算',
+};
+
+/// 一次观看 = 一条事件。
+class WatchEvent {
+  const WatchEvent({
+    required this.itemId,
+    required this.name,
+    required this.date,
+    this.minutes = 0,
+    this.startAt,
+    this.progress = 0,
+    this.source = WatchSource.local,
+    this.isEpisode = false,
+    this.posterUrl,
+  });
+
+  final String itemId;
+  final String name;
+
+  /// yyyy-MM-dd（本地日期，跨时区不做换算）
+  final String date;
+
+  /// 本次观看分钟数；0 表示「有记录但无法推算时长」
+  final double minutes;
+
+  /// 起播时刻（用于深夜徽章与单日排序）
+  final DateTime? startAt;
+
+  /// 本次结束时的观看进度 0..1
+  final double progress;
+  final WatchSource source;
+  final bool isEpisode;
+  final String? posterUrl;
+
+  DateTime get day {
+    final p = date.split('-');
+    if (p.length != 3) return DateTime(1970);
+    return DateTime(
+      int.tryParse(p[0]) ?? 1970,
+      int.tryParse(p[1]) ?? 1,
+      int.tryParse(p[2]) ?? 1,
+    );
+  }
+
+  bool get isEstimated => source == WatchSource.imported;
+
+  String get progressLabel {
+    if (minutes <= 0 && progress <= 0) return '看过';
+    if (progress >= 0.97) return '已看完';
+    final pct = (progress * 100).round();
+    return pct > 0 ? '看到 $pct%' : '看了 ${minutes.round()} 分钟';
+  }
+
+  WatchEvent copyWith({
+    String? name,
+    String? posterUrl,
+    double? minutes,
+    double? progress,
+    WatchSource? source,
+    bool? isEpisode,
+  }) => WatchEvent(
+    itemId: itemId,
+    name: name ?? this.name,
+    date: date,
+    minutes: minutes ?? this.minutes,
+    startAt: startAt,
+    progress: progress ?? this.progress,
+    source: source ?? this.source,
+    isEpisode: isEpisode ?? this.isEpisode,
+    posterUrl: posterUrl ?? this.posterUrl,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': itemId,
+    'n': name,
+    'd': date,
+    'm': minutes,
+    't': startAt?.millisecondsSinceEpoch,
+    'p': progress,
+    's': source.index,
+    'e': isEpisode,
+    'u': posterUrl,
+  };
+
+  factory WatchEvent.fromJson(Map<String, dynamic> j) => WatchEvent(
+    itemId: (j['id'] ?? '').toString(),
+    name: (j['n'] ?? '').toString(),
+    date: (j['d'] ?? '').toString(),
+    minutes: (j['m'] as num?)?.toDouble() ?? 0,
+    startAt: j['t'] is int
+        ? DateTime.fromMillisecondsSinceEpoch(j['t'] as int)
+        : null,
+    progress: ((j['p'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0).toDouble(),
+    source: _safeSource(j['s']),
+    isEpisode: j['e'] == true,
+    posterUrl: j['u'] as String?,
+  );
+}
+
+/// 老缓存 / 手工数据里的下标可能越界，绝不让一条脏数据把整页日历打崩。
+WatchSource _safeSource(dynamic v) {
+  final i = (v as num?)?.toInt() ?? 0;
+  return (i >= 0 && i < WatchSource.values.length)
+      ? WatchSource.values[i]
+      : WatchSource.local;
+}
+
+/// yyyy-MM-dd
+String watchDayKey(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-'
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
+
+bool isWatchDayKey(String s) =>
+    RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s);
+
+/// 播放器进度 tick（100ns）与本地会话推算观看分钟数。
+///
+/// 优先用「播放器实际行进的 tick 差」，因为它已经扣掉了暂停、缓冲与拖动；
+/// 拿不到（例如从 0 起播但只停了几秒）时退回墙钟时长，最后按片长封顶，
+/// 避免续播场景把整部片长算进本次观看。
+double resolveWatchMinutes({
+  required int positionTicks,
+  required int startTicks,
+  required int elapsedMinutes,
+  required int runtimeMinutes,
+}) {
+  final advanced = (positionTicks - startTicks) / 10000000.0 / 60.0;
+  var m = advanced > 0.5 ? advanced : elapsedMinutes.toDouble();
+  if (m < 0) m = 0;
+  if (runtimeMinutes > 0 && m > runtimeMinutes) m = runtimeMinutes.toDouble();
+  return m;
+}
+
+/// 由结束位置与片长推算观看进度（0..1）。
+double resolveWatchProgress(int positionTicks, int runtimeMinutes) {
+  if (runtimeMinutes <= 0 || positionTicks <= 0) return 0;
+  final total = runtimeMinutes * 60 * 10000000.0;
+  return (positionTicks / total).clamp(0.0, 1.0).toDouble();
+}
+
+/// 本地精确事件 + 活动日志明细合并去重。
+///
+/// 同一天同一部片看多次是合法的（会留下多条），这里只去掉「本机已记过、
+/// 活动日志又记了一遍」的重复；本地数据优先，因为它的进度最准。
+List<WatchEvent> mergeWatchEvents({
+  required List<WatchEvent> local,
+  required List<WatchEvent> activity,
+  Map<String, String> names = const {},
+}) {
+  final out = <WatchEvent>[...local];
+  final seen = <String>{for (final e in local) '${e.date}|${e.itemId}'};
+  for (final e in activity) {
+    final k = '${e.date}|${e.itemId}';
+    if (seen.contains(k)) continue;
+    seen.add(k);
+    final nm = e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片');
+    out.add(e.name == nm ? e : e.copyWith(name: nm));
+  }
+  out.sort((a, b) {
+    final c = b.date.compareTo(a.date);
+    if (c != 0) return c;
+    return (b.startAt?.millisecondsSinceEpoch ?? 0)
+        .compareTo(a.startAt?.millisecondsSinceEpoch ?? 0);
+  });
+  return out;
+}
+
+/// 历史回填的输入种子：只带最少字段，避免把 MediaItem 拖进纯数据层。
+class HistorySeed {
+  const HistorySeed({
+    required this.id,
+    required this.name,
+    required this.when,
+    required this.minutes,
+    this.isEpisode = false,
+    this.posterUrl,
+  });
+
+  final String id;
+  final String name;
+  final DateTime when;
+  final double minutes;
+  final bool isEpisode;
+  final String? posterUrl;
+}
+
+/// 最近 [days] 天的已看历史 → 估算事件。
+///
+/// 服务器只给「最后一次播放时间」和「是否已看」，没有逐次记录，所以
+/// 一条历史只能生成一条事件，时长按片长估算，并统一标成 imported。
+const int kWatchBackfillDays = 365;
+
+List<WatchEvent> eventsFromHistory(
+  Iterable<HistorySeed> seeds, {
+  DateTime? now,
+  int days = kWatchBackfillDays,
+}) {
+  final anchor = now ?? DateTime.now();
+  final cutoff = anchor.subtract(Duration(days: days));
+  final out = <WatchEvent>[];
+  for (final s in seeds) {
+    if (s.when.isAfter(anchor) || s.when.isBefore(cutoff)) continue;
+    if (s.id.isEmpty) continue;
+    out.add(
+      WatchEvent(
+        itemId: s.id,
+        name: s.name,
+        date: watchDayKey(s.when),
+        minutes: s.minutes,
+        startAt: s.when,
+        progress: 1,
+        source: WatchSource.imported,
+        isEpisode: s.isEpisode,
+        posterUrl: s.posterUrl,
+      ),
+    );
+  }
+  return out;
+}
+
+/// 月度徽章。只做「能从现有数据算出来」的，不引入服务器排播信息。
+enum MonthBadge { none, kickoff, streak, marathon, explorer, nightOwl }
+
+String monthBadgeLabel(MonthBadge b, {int streak = 0}) => switch (b) {
+  MonthBadge.none => '本月还没开张',
+  MonthBadge.kickoff => '本月开张',
+  MonthBadge.streak => '连续 $streak 天',
+  MonthBadge.marathon => '单日马拉松',
+  MonthBadge.explorer => '阅片达人',
+  MonthBadge.nightOwl => '深夜场常客',
+};
+
+String monthBadgeIcon(MonthBadge b) => switch (b) {
+  MonthBadge.none => '○',
+  MonthBadge.kickoff => '◈',
+  MonthBadge.streak => '✦',
+  MonthBadge.marathon => '◆',
+  MonthBadge.explorer => '★',
+  MonthBadge.nightOwl => '☾',
+};
+
+class MonthSummary {
+  const MonthSummary({
+    required this.year,
+    required this.month,
+    required this.minutes,
+    required this.activeDays,
+    required this.movies,
+    required this.episodes,
+    required this.titles,
+    required this.bestStreak,
+    required this.badge,
+    required this.topDayMinutes,
+    this.topDay,
+  });
+
+  final int year;
+  final int month;
+  final double minutes;
+  final int activeDays;
+  final int movies;
+  final int episodes;
+
+  /// 去重后的作品数
+  final int titles;
+  final int bestStreak;
+  final MonthBadge badge;
+  final double topDayMinutes;
+  final DateTime? topDay;
+
+  double get hours => minutes / 60;
+  bool get isEmpty => activeDays == 0;
+}
+
+/// 月历索引：按日分组，供日历格子、单日明细、月度概览共用一份计算结果。
+class WatchCalendar {
+  WatchCalendar(Iterable<WatchEvent> events) {
+    for (final e in events) {
+      if (!isWatchDayKey(e.date)) continue;
+      _byDay.putIfAbsent(e.date, () => <WatchEvent>[]).add(e);
+    }
+    for (final list in _byDay.values) {
+      list.sort(
+        (a, b) => (b.startAt?.millisecondsSinceEpoch ?? 0)
+            .compareTo(a.startAt?.millisecondsSinceEpoch ?? 0),
+      );
+    }
+  }
+
+  final Map<String, List<WatchEvent>> _byDay = <String, List<WatchEvent>>{};
+
+  List<WatchEvent> eventsOn(DateTime day) =>
+      List<WatchEvent>.unmodifiable(_byDay[watchDayKey(day)] ?? const []);
+
+  double minutesOn(DateTime day) =>
+      (_byDay[watchDayKey(day)] ?? const []).fold<double>(
+        0,
+        (a, e) => a + e.minutes,
+      );
+
+  int countOn(DateTime day) => (_byDay[watchDayKey(day)] ?? const []).length;
+
+  bool get isEmpty => _byDay.isEmpty;
+
+  /// 有记录的最早 / 最晚日期，用于「翻月」按钮的可用范围提示。
+  DateTime? get firstDay => _byDay.keys.isEmpty
+      ? null
+      : (_byDay.keys.toList()..sort()).first.dayOf();
+  DateTime? get lastDay => _byDay.keys.isEmpty
+      ? null
+      : (_byDay.keys.toList()..sort()).last.dayOf();
+
+  MonthSummary month(int year, int month) {
+    final prefix =
+        '${year.toString().padLeft(4, '0')}-'
+        '${month.toString().padLeft(2, '0')}-';
+    final evs = <WatchEvent>[];
+    _byDay.forEach((k, v) {
+      if (k.startsWith(prefix)) evs.addAll(v);
+    });
+
+    double mins = 0;
+    var movies = 0;
+    var episodes = 0;
+    var nights = 0;
+    final titles = <String>{};
+    final active = <int>{};
+    final perDay = <int, double>{};
+    for (final e in evs) {
+      mins += e.minutes;
+      titles.add(e.itemId);
+      if (e.isEpisode) {
+        episodes++;
+      } else {
+        movies++;
+      }
+      final d = int.tryParse(e.date.substring(8)) ?? 0;
+      active.add(d);
+      perDay[d] = (perDay[d] ?? 0) + e.minutes;
+      if (e.startAt != null && e.startAt!.hour >= 22) nights++;
+    }
+
+    var streak = 0;
+    var best = 0;
+    final daysInMonth = DateTime(year, month + 1, 0).day;
+    for (var d = 1; d <= daysInMonth; d++) {
+      if (active.contains(d)) {
+        streak++;
+        best = math.max(best, streak);
+      } else {
+        streak = 0;
+      }
+    }
+
+    var topMinutes = 0.0;
+    DateTime? topDay;
+    perDay.forEach((d, m) {
+      if (m > topMinutes) {
+        topMinutes = m;
+        topDay = DateTime(year, month, d);
+      }
+    });
+
+    final badge = evs.isEmpty
+        ? MonthBadge.none
+        : best >= 7
+        ? MonthBadge.streak
+        : topMinutes >= 180
+            ? MonthBadge.marathon
+            : titles.length >= 10
+                ? MonthBadge.explorer
+                : nights >= 3
+                    ? MonthBadge.nightOwl
+                    : MonthBadge.kickoff;
+
+    return MonthSummary(
+      year: year,
+      month: month,
+      minutes: mins,
+      activeDays: active.length,
+      movies: movies,
+      episodes: episodes,
+      titles: titles.length,
+      bestStreak: best,
+      badge: badge,
+      topDayMinutes: topMinutes,
+      topDay: topDay,
+    );
+  }
+}
+
+extension _DayKeyX on String {
+  DateTime dayOf() {
+    final p = split('-');
+    return DateTime(
+      int.tryParse(p[0]) ?? 1970,
+      p.length > 1 ? int.tryParse(p[1]) ?? 1 : 1,
+      p.length > 2 ? int.tryParse(p[2]) ?? 1 : 1,
+    );
+  }
+}

@@ -2851,3 +2851,63 @@ v2.0.84 的 SSDP 发现未被破坏。本地提交 + tag `v2.0.85`，未推 GitH
 渲染。若电视不显示字幕，打开面板里的「字幕烧录」；若仍不显示，需反馈电视
 型号与播放信息截图再逐台适配。三星部分机型要求视频 URL 的 HTTP 响应带
 `CaptionInfo.sec` 头，本项目直接给 Emby 地址、无法注入该头，只能靠烧录。
+
+---
+
+## §100 发布 v2.0.86（最近添加虚拟媒体库 + 观影日历）
+
+需求两项，用户确认设计稿的 5 项建议后落地：
+① 首页「最近添加 → 更多」不再等于「全部」，改为一个区别于 Emby UserView
+的虚拟媒体库；② 参考小红书笔记重新设计数据统计，默认落观影日历。
+
+**虚拟媒体库**：哨兵 ID `__camby_recent__`（`models.dart`），刻意不进
+`AppState.views`；`main.dart` 新增 `_openRecentLibrary()`，`home_page.dart`
+只把「最近添加」的 `onAction` 改接 `onOpenRecent`，「继续观看」仍走
+`onOpenAll`（两者以前共用一个回调，这是需求根因）。`library_page.dart` 的
+chip 行重排为 `全部 | 最近添加·虚拟 | 真实 UserView…`（`itemCount+2`、
+`state.views[i - 2]`），虚拟项用 `_DashedOvalPainter` 画紫色虚线胶囊，
+不引新依赖。`_loadView()` 在虚拟 ID 分支直接 return（零网络请求），
+`_source` 走本地 `recentlyAdded`，`_selectView()` 切进去时把排序重置为
+`sort=0 / desc[0]=false`（按入库时间从新到旧，与首页一致）。副标题与空态
+都有专属文案。
+
+**观影日历数据链路**：新增 `lib/watch_history.dart`，定义 `WatchEvent`
+（一次观看 = 一条带日期事件）、`WatchCalendar`、`MonthSummary` 与月度徽章。
+关键修正是 `emby_client.activityLog()` 以前解析了 `starts`/`stops`、
+配对算完 `dailyMinutes` 就把明细丢掉，本版把逐次观看保留成
+`ActivitySummary.events`（含只起播没 Stop 的记录，时长记 0 不凭空估算）。
+本机事件由 `AppState` 在起播 / 退出上报处配对，用播放器 tick 差算真实时长、
+带观看进度，落 `SharedPreferences`（上限 2000 条），演示条目不写。
+四级口径：本机精确 → 活动日志明细（按「日期+条目 Id」去重、补片名）→
+历史回填估算 → 已看历史近 30 天兜底。`backfillWatchHistory()` 读服务端
+「已看」历史最近一年（`limit: 400`），按片长估算并统一标「估算」。
+
+**UI**：`StatsPage` 内部改 `StatsMode.calendar / insight` 双分段，默认日历；
+原 14 张统计卡片整体收进「数据洞察」，底部一级 Tab 数量与顺序不动。
+日历页含月历着色、单日明细（海报 / 进度条 / 来源标签）、月度概览 + 徽章、
+平板双栏、首次同步 CTA、月度海报墙分享（`RepaintBoundary.toImage()` →
+PNG → 已有 `share_plus`）。P0 只做海报墙一种版式。
+
+**明确不做**：追剧播出更新（只是排播信息，不代表片源入库）、桌面小组件 /
+iCloud 跨端同步、三种分享版式。
+
+**回归处理**：`stats_explain_test.dart` / `v2021_ui_test.dart` 两个旧
+widget 测试原本直接断言统计卡片，现在先点「数据洞察」再断言；四处构造
+`HomePage` 的测试补 `onOpenRecent`。`dlna_cast_test.dart` /
+`dlna_subtitle_test.dart` / `quality_pack_test.dart` /
+`online_subtitle_test.dart` 的版本守卫同步到 86，DLNA UA 同步到
+`Camby/2.0.86`。
+
+验证（v2.0.86）：`flutter analyze` 0 error / 0 warning（431 项全为 info）；
+`flutter test` **614 全过**（新增 `test/watch_calendar_test.dart` 26 条，覆盖虚拟库身份 /
+WatchEvent 序列化与纯计算 / 月历聚合与 6 档徽章 / 本机起播退出配对 /
+回填边界 / 7 组源码守卫 / 双分段 widget 测试）；`perf_audit.py` 0 命中；
+`aapt dump badging` 确认 `versionCode='286' versionName='2.0.86'`。
+解包复核 `lib/arm64-v8a/libapp.so` 含 `__camby_recent__` / `观影日历` /
+`最近添加 · 虚拟媒体库` / `Camby/2.0.86`。本地提交 + tag `v2.0.86`，
+未推 GitHub。
+
+**实机待确认**：服务器活动日志的条数受 `Limit=800` 与管理员权限影响，
+普通账号可能拿不到明细；这时日历主要靠本机记录与「同步最近一年」回填。
+「估算」记录只有最后一次播放日期、时长按片长，不代表真实观看时长，
+UI 已单独标注。分享图里的海报依赖网络图缓存，未加载完成时是占位色块。

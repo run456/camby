@@ -29,6 +29,11 @@ void main() {
     for (var i = 0; i < 6; i++) {
       await tester.pump(const Duration(milliseconds: 150));
     }
+    // v2.0.86：总结页默认落「观影日历」，先切到「数据洞察」再断言原卡片。
+    await tester.tap(find.text('数据洞察'));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
     expect(tester.takeException(), isNull);
   }
 

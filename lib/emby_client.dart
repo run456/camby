@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import 'player/playback_plan.dart';
+import 'watch_history.dart';
 
 /// Emby REST API 客户端
 /// 文档：https://<host>:<port>/emby/<endpoint>?api_key=<key>
@@ -2827,19 +2828,46 @@ class EmbyServer {
             // UserId 是另一套内部 Id，如纯数字，与登录返回的 GUID 对不上）——
             // 单账号家用服务器直接按全部播放统计，并在诊断里说明口径
             : '日志播放 $rawPlayback 条，账号匹配 0 条（已按全部播放统计）';
-        // 配对 Start→Stop 推算观看时长（跳过异常间隔），并按日聚合
+        // 配对 Start→Stop 推算观看时长（跳过异常间隔），并按日聚合。
+        // v2.0.86：同时把每次观看留成一条 WatchEvent —— 以前这份明细
+        // 算完 dailyMinutes 就丢了，日历页因此回答不了「那天看了什么」。
         double minutes = 0;
         final dailyMinutes = <String, double>{};
+        final events = <WatchEvent>[];
         for (final id in starts.keys) {
           final s = starts[id]!..sort();
           final e = (stops[id] ?? [])..sort();
           for (var i = 0; i < s.length && i < e.length; i++) {
             final diff = e[i].difference(s[i]).inMinutes;
-            if (diff > 0 && diff < 24 * 60) {
+            final valid = diff > 0 && diff < 24 * 60;
+            if (valid) {
               minutes += diff;
               final k = _dayKey(s[i]);
               dailyMinutes[k] = (dailyMinutes[k] ?? 0) + diff;
             }
+            events.add(
+              WatchEvent(
+                itemId: id,
+                name: '', // 片名由 AppState 用库条目 / 反查表补全
+                date: _dayKey(s[i]),
+                minutes: valid ? diff.toDouble() : 0,
+                startAt: s[i],
+                source: WatchSource.activity,
+              ),
+            );
+          }
+          // 只起播、没有 Stop 配对的观看：仍要在日历上留下一条记录，
+          // 时长记 0（不凭空估算），否则「那天看了什么」会整片空白。
+          for (var i = e.length; i < s.length; i++) {
+            events.add(
+              WatchEvent(
+                itemId: id,
+                name: '',
+                date: _dayKey(s[i]),
+                startAt: s[i],
+                source: WatchSource.activity,
+              ),
+            );
           }
         }
         return ActivitySummary(
@@ -2848,6 +2876,7 @@ class EmbyServer {
           total: total,
           totalMinutes: minutes,
           dailyMinutes: dailyMinutes,
+          events: events,
         );
       }
 

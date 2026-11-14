@@ -9,6 +9,7 @@ import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/glass_sheet.dart';
+import 'watch_calendar_page.dart';
 
 /// 数据总结：液态玻璃风格
 /// A 本地库聚合（精确） + B Playback Reporting / 活动日志（真实行为）
@@ -21,6 +22,10 @@ class StatsPage extends StatefulWidget {
 }
 
 class _StatsPageState extends State<StatsPage> {
+  /// v2.0.86：总结页内部默认落「观影日历」，14 张原统计卡片整体收进「数据洞察」。
+  /// 底部一级 Tab 数量与顺序完全不动。
+  StatsMode _mode = StatsMode.calendar;
+
   @override
   void initState() {
     super.initState();
@@ -102,6 +107,20 @@ class _StatsPageState extends State<StatsPage> {
     final top = MediaQuery.of(context).padding.top;
     final hpad = wide ? 24.0 : 14.0;
 
+    // v2.0.86：日历视图独占整页，沿用同一套背景与压暗层，视觉不断层。
+    if (_mode == StatsMode.calendar) {
+      return Stack(
+        children: [
+          const Positioned.fill(child: _LiquidBackground()),
+          Container(color: Colors.black.withOpacity(0.34)),
+          WatchCalendarView(
+            state: widget.state,
+            onModeChanged: (m) => setState(() => _mode = m),
+          ),
+        ],
+      );
+    }
+
     // 常看作品：优先活动日志的条目级次数，其次 UserData.PlayCount
     // v1.7.72：库列表没有的条目先反查服务器片名（activityItemNames），
     // 仍查不到的显示「库外影片」（多半已从服务器删除），不再显示裸 Id
@@ -182,6 +201,17 @@ class _StatsPageState extends State<StatsPage> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+
+      // v2.0.86：洞察页顶部保留切回日历的入口，与日历页同一个控件。
+      _StatCell(
+        (_) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: StatsModeSegment(
+            mode: _mode,
+            onChanged: (m) => setState(() => _mode = m),
           ),
         ),
       ),

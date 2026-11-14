@@ -233,6 +233,19 @@ class _AppShellState extends State<AppShell>
     _blur.value = false;
   }
 
+  /// v2.0.86：首页「最近添加」的「更多」不再等于「全部」，而是落到
+  /// 一个由本地派生列表驱动的虚拟媒体库。用哨兵 ID 与 Emby UserView 区分，
+  /// 媒体库页会单独拼一个 chip 并跳过网络请求。
+  void _openRecentLibrary() {
+    setState(() {
+      _state.selectedViewId = kRecentViewId;
+      _tab = 1;
+      _visited.add(1);
+    });
+    _tabAnim.forward(from: 0);
+    _blur.value = false;
+  }
+
   /// v2.0.64：空态 CTA 的真实跳转（去媒体库 / 去「我的」连接服务器）。
   /// 与底部 Tab 点击走同一套过渡，避免「点了一下界面像没反应」。
   void _goTab(int i) {
@@ -345,6 +358,7 @@ class _AppShellState extends State<AppShell>
             state: _state,
             onOpenLibrary: _openLibrary,
             onOpenAll: _openAllLibrary,
+            onOpenRecent: _openRecentLibrary,
           ),
           LibraryPage(
             onOpenDetail: _openDetail,

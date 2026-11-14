@@ -20,6 +20,7 @@ void main() {
             onOpenDetail: (_, {String? heroTag}) {},
             onOpenLibrary: (_) {},
             onOpenAll: () {},
+            onOpenRecent: () {},
           ),
         ),
       ),

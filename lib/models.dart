@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'watch_history.dart';
+
 /// 打开详情页（heroTag 用于「封面 → 头图」共享元素转场）
 typedef OpenDetail = void Function(MediaItem item, {String? heroTag});
 
@@ -1182,6 +1184,20 @@ class MediaItem {
   }
 }
 
+/// v2.0.86：首页「最近添加」的「更多」要落到一个**虚拟媒体库**。
+///
+/// 它不是 Emby 的 UserView，所以刻意用一个带双下划线的哨兵 ID —— 服务器
+/// 返回的 Id 全是 GUID / 数字，永不冲突。虚拟库不进 [AppState.views]，
+/// 由媒体库页在 chip 行单独拼一项，取数直接走本地 `recentlyAdded`。
+const String kRecentViewId = '__camby_recent__';
+
+const LibraryView kRecentView = LibraryView(
+  id: kRecentViewId,
+  name: '最近添加',
+);
+
+bool isVirtualViewId(String? id) => id == kRecentViewId;
+
 /// 媒体库（Emby UserView）
 class LibraryView {
   const LibraryView({
@@ -1871,6 +1887,7 @@ class ActivitySummary {
     required this.total,
     this.totalMinutes = 0,
     this.dailyMinutes = const {},
+    this.events = const [],
   });
 
   final Map<String, int> itemPlays; // ItemId → 播放次数
@@ -1882,6 +1899,12 @@ class ActivitySummary {
 
   /// 按日期聚合的观看分钟数（yyyy-MM-dd → 分钟）
   final Map<String, double> dailyMinutes;
+
+  /// v2.0.86：PlaybackStart/Stop 配对后的逐次观看明细。
+  /// 以前这份数据在 `activityLog()` 里算完日级分钟数就被丢掉了，
+  /// 现在保留下来供观影日历回答「那天看了什么」。
+  /// 片名由上层用库条目 / activityItemNames 反查（日志里只有 ItemId）。
+  final List<WatchEvent> events;
 
   double get totalHours => totalMinutes / 60;
 

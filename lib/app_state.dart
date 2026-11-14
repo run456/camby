@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'emby_client.dart';
 import 'models.dart';
+import 'watch_history.dart';
 import 'widgets/haptics.dart';
 
 /// 待上报进度（持久化队列用）
@@ -15,6 +16,14 @@ class _PendingProgress {
   const _PendingProgress(this.ticks, this.played);
   final int ticks;
   final bool played;
+}
+
+/// v2.0.86：一次本机播放会话。起播记下时刻与位置，退出时才能算出
+/// 「这次到底看了多久 / 看到哪里」，而不是把整部片长算进去。
+class _WatchSession {
+  const _WatchSession(this.startedAt, this.startTicks);
+  final DateTime startedAt;
+  final int startTicks;
 }
 
 /// 应用数据源状态
@@ -38,6 +47,11 @@ class AppState extends ChangeNotifier {
   /// 服务器「已看」历史（/Users/{id}/PlayedItems），跨端、不依赖活动日志权限
   List<MediaItem> _playedHistory = const [];
   bool _playbackLoading = false;
+
+  /// v2.0.86：本机观看事件（精确）+ 历史回填事件（估算），持久化到 SharedPreferences。
+  List<WatchEvent> _watchEvents = const [];
+  final Map<String, _WatchSession> _watchSessions = {};
+  bool _watchBackfillDone = false;
 
   /// 是否处于「离线（使用本地缓存）」状态
   bool _offline = false;
@@ -65,6 +79,134 @@ class AppState extends ChangeNotifier {
   /// 服务器标记为「已看了」的历史条目（v2.0.2）
   List<MediaItem> get playedHistory => _playedHistory;
   bool get playbackLoading => _playbackLoading;
+
+  // ---------------- 观影日历事件流（v2.0.86） ----------------
+
+  /// 本机记录 + 历史回填（不含服务器活动日志），只读。
+  List<WatchEvent> get localWatchEvents => _watchEvents;
+
+  /// 是否已经做过「首次同步历史观看」；UI 用它决定要不要显示同步 CTA。
+  bool get watchBackfillDone => _watchBackfillDone;
+
+  /// 日历页唯一的取数入口，四级口径：
+  /// 1. 本机精确事件（起播/退出配对，带进度）；
+  /// 2. 服务器活动日志明细补漏（同一天同一部片本机已记过就跳过）；
+  /// 3. 历史回填的估算事件（已并进 [localWatchEvents]）；
+  /// 4. 以上全空时，用「已看历史」近 30 天现场生成估算事件（不落盘）。
+  List<WatchEvent> get watchEvents {
+    final byId = {for (final e in _items) e.id: e};
+    final names = <String, String>{
+      for (final e in _items) e.id: e.name,
+      ..._activityNames,
+    };
+    final fromLog = <WatchEvent>[
+      for (final e in _activity?.events ?? const <WatchEvent>[])
+        e.copyWith(
+          name: e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片'),
+          posterUrl: e.posterUrl ?? byId[e.itemId]?.posterUrl,
+          isEpisode: byId[e.itemId]?.type == MediaType.episode,
+        ),
+    ];
+    final merged = mergeWatchEvents(
+      local: _watchEvents,
+      activity: fromLog,
+      names: names,
+    );
+    if (merged.isNotEmpty) return merged;
+    return eventsFromHistory(_historySeeds(), days: 30);
+  }
+
+  Iterable<HistorySeed> _historySeeds() sync* {
+    for (final e in _playedHistory) {
+      final t = e.lastPlayedAt;
+      if (t == null || t <= 0) continue;
+      yield HistorySeed(
+        id: e.id,
+        name: e.name,
+        when: DateTime.fromMillisecondsSinceEpoch(t),
+        minutes: e.runtimeMin.toDouble(),
+        isEpisode: e.type == MediaType.episode,
+        posterUrl: e.posterUrl,
+      );
+    }
+  }
+
+  Future<void> _loadWatchEvents() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _watchBackfillDone = prefs.getBool('watch_backfill_done') ?? false;
+      final raw = prefs.getString('watch_events_json');
+      if (raw == null || raw.isEmpty) return;
+      final data = jsonDecode(raw) as List<dynamic>;
+      _watchEvents = data
+          .whereType<Map<String, dynamic>>()
+          .map(WatchEvent.fromJson)
+          .where((e) => e.itemId.isNotEmpty && isWatchDayKey(e.date))
+          .toList();
+    } catch (_) {
+      _watchEvents = const [];
+    }
+  }
+
+  Future<void> _persistWatchEvents() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'watch_events_json',
+        jsonEncode(_watchEvents.map((e) => e.toJson()).toList()),
+      );
+      await prefs.setBool('watch_backfill_done', _watchBackfillDone);
+    } catch (_) {}
+  }
+
+  /// 首次同步：把服务器「已看」历史最近一年回填成估算事件。
+  /// 逐条按「日期 + 条目 Id」去重，绝不覆盖已有的本机精确记录。
+  /// 返回新增条数，供 UI 弹 toast。
+  Future<int> backfillWatchHistory() async {
+    final s = _server;
+    if (s == null) return 0;
+    List<MediaItem> history;
+    try {
+      history = await s.playedHistory(limit: 400);
+    } catch (_) {
+      return 0;
+    }
+    final byId = {for (final e in _items) e.id: e};
+    final seeds = <HistorySeed>[];
+    for (final e in history) {
+      final t = e.lastPlayedAt;
+      if (t == null || t <= 0) continue;
+      seeds.add(
+        HistorySeed(
+          id: e.id,
+          name: e.name,
+          when: DateTime.fromMillisecondsSinceEpoch(t),
+          minutes: e.runtimeMin.toDouble(),
+          isEpisode: e.type == MediaType.episode,
+          posterUrl: e.posterUrl ?? byId[e.id]?.posterUrl,
+        ),
+      );
+    }
+    final existing = <String>{
+      for (final e in _watchEvents) '${e.date}|${e.itemId}',
+      for (final e in _activity?.events ?? const <WatchEvent>[])
+        '${e.date}|${e.itemId}',
+    };
+    final added = <WatchEvent>[
+      for (final e in eventsFromHistory(seeds))
+        if (!existing.contains('${e.date}|${e.itemId}')) e,
+    ];
+    if (added.isNotEmpty) {
+      _watchEvents = [..._watchEvents, ...added]
+        ..sort((a, b) => a.date.compareTo(b.date));
+    }
+    _watchBackfillDone = true;
+    await _persistWatchEvents();
+    notifyListeners();
+    return added.length;
+  }
 
   /// 活动日志条目 Id → 片名（不在库列表里的条目，服务器反查结果）
   Map<String, String> _activityNames = const {};
@@ -424,6 +566,8 @@ class AppState extends ChangeNotifier {
     String? mediaSourceId,
     int? audioStreamIndex,
   }) {
+    // v2.0.86：起播先记会话，退出时与 Stop 配对成一条本地观看事件。
+    _watchSessions[itemId] = _WatchSession(DateTime.now(), positionTicks);
     return _server?.reportPlaybackStart(
           itemId,
           positionTicks: positionTicks,
@@ -441,8 +585,56 @@ class AppState extends ChangeNotifier {
     int positionTicks, {
     bool played = false,
   }) {
+    _recordLocalWatch(itemId, positionTicks, played: played);
     return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
         Future.value();
+  }
+
+  /// 把一次播放会话落成本地 WatchEvent。不依赖服务端是否在线 —— 断网看片
+  /// 也要能在日历里留下记录。演示条目不写（否则演示库会污染真实日历）。
+  void _recordLocalWatch(
+    String itemId,
+    int positionTicks, {
+    required bool played,
+  }) {
+    if (itemId.isEmpty || itemId.startsWith('demo-')) return;
+    final sess = _watchSessions.remove(itemId);
+    final startedAt = sess?.startedAt ?? DateTime.now();
+    final elapsed = DateTime.now().difference(startedAt).inMinutes;
+    MediaItem? item;
+    for (final e in _items) {
+      if (e.id == itemId) {
+        item = e;
+        break;
+      }
+    }
+    final runtime = item?.runtimeMin ?? 0;
+    final minutes = resolveWatchMinutes(
+      positionTicks: positionTicks,
+      startTicks: sess?.startTicks ?? 0,
+      elapsedMinutes: elapsed,
+      runtimeMinutes: runtime,
+    );
+    // 试看几秒（既没进度也没时长）不记，避免日历被误触点亮。
+    if (minutes < 0.5 && positionTicks <= 0) return;
+    final ev = WatchEvent(
+      itemId: itemId,
+      name: item?.name ?? '库外影片',
+      date: watchDayKey(startedAt),
+      minutes: minutes,
+      startAt: startedAt,
+      progress: played ? 1.0 : resolveWatchProgress(positionTicks, runtime),
+      source: WatchSource.local,
+      isEpisode: item?.type == MediaType.episode,
+      posterUrl: item?.posterUrl,
+    );
+    _watchEvents = [..._watchEvents, ev];
+    // 只保留最近 2000 条，长期使用的 JSON 不能无限膨胀。
+    if (_watchEvents.length > 2000) {
+      _watchEvents = _watchEvents.sublist(_watchEvents.length - 2000);
+    }
+    unawaited(_persistWatchEvents());
+    notifyListeners();
   }
 
   /// 当前还有多少收藏夹上云待重试（pendingSync 标记）
@@ -1133,6 +1325,7 @@ class AppState extends ChangeNotifier {
     await _loadFolders();
     await _loadPendingProgress();
     await _loadPlayCount();
+    await _loadWatchEvents();
     await _loadServers();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(

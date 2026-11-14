@@ -98,6 +98,11 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _loadView({required bool reset}) async {
     final state = widget.state;
     final vid = state.selectedViewId;
+    // v2.0.86：虚拟媒体库完全由本地派生列表驱动，零网络请求。
+    if (isVirtualViewId(vid)) {
+      _viewItems = null;
+      return;
+    }
     if (vid == null || state.demoMode) {
       _viewItems = null;
       return;
@@ -121,7 +126,29 @@ class _LibraryPageState extends State<LibraryPage> {
     if (mounted) setState(() => _viewLoading = false);
   }
 
-  List<MediaItem> get _source => _viewItems ?? widget.state.items;
+  /// v2.0.86：虚拟库取本地「按入库时间」派生列表，不查服务端、不依赖 _viewItems。
+  List<MediaItem> get _source {
+    if (isVirtualViewId(widget.state.selectedViewId)) {
+      return widget.state.recentlyAdded;
+    }
+    return _viewItems ?? widget.state.items;
+  }
+
+  /// 统一处理「全部 / 最近添加（虚拟）/ 真实 Emby 库」的切换。
+  /// 虚拟库默认按入库时间从新到旧，与首页「最近添加」顺序一致。
+  void _selectView(String? id) {
+    final state = widget.state;
+    if (state.selectedViewId == id) return;
+    state.selectedViewId = id;
+    _viewItems = null;
+    _cacheKey = '';
+    if (isVirtualViewId(id)) {
+      _sort = 0;
+      _desc = List<bool>.from(_defaultDesc)..[0] = false;
+    }
+    setState(() {});
+    _loadView(reset: true);
+  }
 
   /// 下拉刷新：与首页同一套动作（拉条目 + 视图 + 写缓存），
   /// 用 toast 明确告诉用户同步了多少项
@@ -225,6 +252,7 @@ class _LibraryPageState extends State<LibraryPage> {
             );
     }
     final wide = context.isTablet;
+    final isRecent = isVirtualViewId(state.selectedViewId);
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
         '|$_cnOnly|${_tagFilters.join()}'
@@ -354,9 +382,11 @@ class _LibraryPageState extends State<LibraryPage> {
                                 ),
                               ),
                               Text(
-                                state.demoMode
-                                    ? '演示数据'
-                                    : '${state.sourceLabel} · ${list.length} 项',
+                                isRecent
+                                    ? '最近添加 · 虚拟媒体库 · ${list.length} 项'
+                                    : state.demoMode
+                                        ? '演示数据'
+                                        : '${state.sourceLabel} · ${list.length} 项',
                                 style: const TextStyle(
                                   fontSize: 10.5,
                                   color: AppColors.muted,
@@ -392,16 +422,30 @@ class _LibraryPageState extends State<LibraryPage> {
                       onChanged: _setIndexTab,
                     ),
                     const SizedBox(height: 12),
-                    // 媒体库分组
-                    if (state.views.isNotEmpty)
+                    // 媒体库分组：全部 | 最近添加(虚拟) | Emby 真实库…
+                    if (state.views.isNotEmpty || isRecent)
                       SizedBox(
                         height: 34,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: state.views.length + 1,
+                          itemCount: state.views.length + 2,
                           itemBuilder: (c, i) {
+                            // v2.0.86：虚拟库 chip 固定排在「全部」之后、真实
+                            // UserView 之前，用紫色虚线与真实库视觉区分。
+                            if (i == 1) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: LiquidPress(
+                                  radius: 17,
+                                  scale: 0.95,
+                                  semanticLabel: '最近添加虚拟媒体库',
+                                  onTap: () => _selectView(kRecentViewId),
+                                  child: _VirtualChip(selected: isRecent),
+                                ),
+                              );
+                            }
                             final isAll = i == 0;
-                            final v = isAll ? null : state.views[i - 1];
+                            final v = isAll ? null : state.views[i - 2];
                             final sel = isAll
                                 ? state.selectedViewId == null
                                 : state.selectedViewId == v!.id;
@@ -410,12 +454,7 @@ class _LibraryPageState extends State<LibraryPage> {
                               child: LiquidPress(
                                 radius: 17,
                                 scale: 0.95,
-                                onTap: () {
-                                  state.selectedViewId = isAll ? null : v!.id;
-                                  _viewItems = null;
-                                  _cacheKey = '';
-                                  _loadView(reset: true);
-                                },
+                                onTap: () => _selectView(isAll ? null : v!.id),
                                 child: _Chip(
                                   label: isAll ? '全部' : v!.name,
                                   selected: sel,
@@ -500,18 +539,25 @@ class _LibraryPageState extends State<LibraryPage> {
                     reason: _asFilter.activeCount > 0
                         ? '当前 ${_asFilter.activeCount} 个筛选条件组合后没有匹配影片。'
                             '清掉条件就能看到完整媒体库。'
-                        : (state.server == null
-                            ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
-                            : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
+                        : isRecent
+                            ? '「最近添加」是 Camby 按入库时间生成的虚拟媒体库，'
+                                '同步到影片后这里就会列出全部条目。'
+                            : (state.server == null
+                                ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
+                                : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
                     primaryLabel: _asFilter.activeCount > 0
                         ? '清除筛选'
-                        : (state.server == null ? '去连接服务器' : '刷新媒体库'),
+                        : isRecent
+                            ? '刷新媒体库'
+                            : (state.server == null ? '去连接服务器' : '刷新媒体库'),
                     onPrimary: () {
                       if (_asFilter.activeCount > 0) {
                         setState(() {
                           _clearFilters();
                           _cacheKey = '';
                         });
+                      } else if (isRecent) {
+                        _onRefresh();
                       } else if (state.server == null) {
                         widget.onGoSettings?.call();
                       } else {
@@ -612,6 +658,87 @@ class _FilterChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// v2.0.86：虚拟媒体库 chip。紫色虚线 + 时钟图标，和真实 Emby UserView
+/// 的实线灰胶囊明确区分；不引入 dotted_border 之类的新依赖，虚线用
+/// `Path.computeMetrics()` 自己切段画。
+class _VirtualChip extends StatelessWidget {
+  const _VirtualChip({required this.selected});
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    const violet = AppColors.secondary;
+    final line = selected ? violet : violet.withOpacity(0.62);
+    return CustomPaint(
+      painter: _DashedOvalPainter(line),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: selected ? violet.withOpacity(0.26) : violet.withOpacity(0.08),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.schedule_rounded, size: 12, color: line),
+            const SizedBox(width: 5),
+            Text(
+              '最近添加',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: selected ? Colors.white : const Color(0xFFBFAEFF),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '虚拟',
+              style: TextStyle(
+                fontSize: 8.5,
+                fontWeight: FontWeight.w600,
+                color: line.withOpacity(0.85),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashedOvalPainter extends CustomPainter {
+  const _DashedOvalPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromLTRBR(
+          0.8,
+          0.8,
+          size.width - 0.8,
+          size.height - 0.8,
+          Radius.circular(size.height / 2),
+        ),
+      );
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.1
+      ..style = PaintingStyle.stroke;
+    for (final metric in path.computeMetrics()) {
+      var d = 0.0;
+      while (d < metric.length) {
+        canvas.drawPath(metric.extractPath(d, d + 4), paint);
+        d += 7;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedOvalPainter old) => old.color != color;
 }
 
 class _Chip extends StatelessWidget {
