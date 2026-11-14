@@ -130,7 +130,7 @@ class _DetailPageState extends State<DetailPage> {
     widget.onPlay(item, _selectedSubtitle, resume: resume);
   }
 
-  // ── v2.0.84 · DLNA 投屏 ────────────────────────────────────────────────
+  // ── v2.0.84 · DLNA 投屏 / v2.0.85 · 投屏字幕 ───────────────────────────
 
   /// 拼给电视访问的 Emby 流地址。
   ///
@@ -138,26 +138,98 @@ class _DetailPageState extends State<DetailPage> {
   /// api_key / PlaySessionId（[EmbyServer.streamUrl] 负责），且必须带当前
   /// 选中版本的 MediaSourceId，否则投出去的是服务端默认的主版本。
   /// `compatible=false` 直连原片；`true` 走 HLS 服务端转码。
-  String? _castUrl(bool compatible) {
+  ///
+  /// v2.0.85：烧录模式（[burn]）改走 `master.m3u8?SubtitleMethod=Encode`，
+  /// 由服务端把 [subtitleIndex] 这条轨编进画面。此时字幕已在视频里，
+  /// DIDL-Lite 不能再带外挂字幕，否则电视会叠加出双份。
+  String? _castUrl({
+    required bool compatible,
+    required bool burn,
+    required int? subtitleIndex,
+  }) {
     final srv = widget.state.server;
     if (srv == null) return null;
     final v = _selectedVersion;
     final msId = (v != null && !v.isPrimary) ? v.id : _item.mediaSourceId;
+    if (burn && subtitleIndex != null) {
+      return srv.burnSubtitleUrl(
+        _item.id,
+        subtitleStreamIndex: subtitleIndex,
+        mediaSourceId: msId,
+      );
+    }
     return srv.streamUrl(_item.id, mediaSourceId: msId, direct: !compatible);
   }
 
+  /// 把详情页的字幕轨转成投屏面板可发送的候选。
+  ///
+  /// 每条都统一取 `textCandidates` 里的 SRT 地址：DLNA 电视基本只认 SubRip，
+  /// Emby 会按 `Stream.srt` 扩展名把 ASS / VTT / SMI 转成文本流。图形字幕
+  /// （PGS / SUP / DVBSub）拿不到文本，标记 `isTextFriendly=false` 让面板
+  /// 提示改烧录，但不硬禁止 —— 少数电视能自己处理，交由用户实机试。
+  List<CastSubtitle> _castSubtitles() {
+    final out = <CastSubtitle>[];
+    for (final s in _item.subtitles) {
+      String? chosen;
+      for (final u in s.textCandidates) {
+        if (u.startsWith('http')) {
+          chosen = u;
+          break;
+        }
+      }
+      if (chosen == null) continue;
+      final c = s.codec.toLowerCase();
+      final graphic =
+          c.contains('pgs') ||
+          c.contains('sup') ||
+          c.contains('dvbsub') ||
+          c.contains('dvdsub') ||
+          c.contains('xsub');
+      out.add(
+        CastSubtitle(
+          label: s.menuLabel,
+          url: chosen,
+          streamIndex: s.index,
+          isTextFriendly: !graphic,
+        ),
+      );
+    }
+    return out;
+  }
+
   Future<void> _openCast() async {
-    final probe = _castUrl(false);
+    final probe = _castUrl(
+      compatible: false,
+      burn: false,
+      subtitleIndex: null,
+    );
     if (probe == null) {
       _toast('未连接服务器，无法投屏');
       return;
     }
+    final subtitles = _castSubtitles();
+    // 详情页手选的轨优先；没手选时取默认轨（通常中文字幕）——用户明确
+    // 要求「有字幕的也把字幕投屏」，所以默认带上而不是留空。
+    final preferred =
+        _selectedSubtitle?.index ?? _defaultSubtitle(_item)?.index;
     await showCastingSheet(
       context: context,
       controller: _cast,
       title: _item.name,
       itemId: _item.id,
-      buildUrl: (compatible) => _castUrl(compatible) ?? probe,
+      subtitles: subtitles,
+      preferredSubtitleIndex: preferred,
+      buildUrl: ({
+        required bool compatible,
+        required bool burn,
+        required int? subtitleIndex,
+      }) =>
+          _castUrl(
+            compatible: compatible,
+            burn: burn,
+            subtitleIndex: subtitleIndex,
+          ) ??
+          probe,
       startAt: Duration(seconds: (_item.resumeSeconds ?? 0).round()),
       duration: Duration(minutes: _item.runtimeMin),
     );

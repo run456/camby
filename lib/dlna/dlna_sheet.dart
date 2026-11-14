@@ -11,14 +11,24 @@ import 'dlna_protocol.dart';
 /// `showModalBottomSheet`、圆角 24、白 12% 细边、拖拽把手；v2.0.82 定的
 /// 规范也照旧 —— 正文蓝灰 `#9FB0CC`，**所有动作文字统一 [AppColors.accent]**。
 ///
-/// [buildUrl] 由详情页提供：兼容模式切换后要重新拼一次带 MediaSourceId 的
-/// Emby 流地址，控制器不缓存 URL。
+/// [buildUrl] 由详情页提供：兼容模式 / 字幕烧录切换后要重新拼一次带
+/// MediaSourceId 的 Emby 流地址，控制器不缓存 URL（鉴权 token 可能会变）。
+/// v2.0.85 起多带 [burn] 与 [subtitleIndex] 两个维度。
+typedef CastUrlBuilder =
+    String Function({
+      required bool compatible,
+      required bool burn,
+      required int? subtitleIndex,
+    });
+
 Future<void> showCastingSheet({
   required BuildContext context,
   required DlnaController controller,
   required String title,
   required String itemId,
-  required String Function(bool compatible) buildUrl,
+  required CastUrlBuilder buildUrl,
+  List<CastSubtitle> subtitles = const <CastSubtitle>[],
+  int? preferredSubtitleIndex,
   Duration startAt = Duration.zero,
   Duration? duration,
 }) {
@@ -31,6 +41,8 @@ Future<void> showCastingSheet({
       title: title,
       itemId: itemId,
       buildUrl: buildUrl,
+      subtitles: subtitles,
+      preferredSubtitleIndex: preferredSubtitleIndex,
       startAt: startAt,
       duration: duration,
     ),
@@ -45,14 +57,18 @@ class _CastingSheet extends StatefulWidget {
     required this.buildUrl,
     required this.startAt,
     required this.duration,
+    this.subtitles = const <CastSubtitle>[],
+    this.preferredSubtitleIndex,
   });
 
   final DlnaController controller;
   final String title;
   final String itemId;
-  final String Function(bool compatible) buildUrl;
+  final CastUrlBuilder buildUrl;
   final Duration startAt;
   final Duration? duration;
+  final List<CastSubtitle> subtitles;
+  final int? preferredSubtitleIndex;
 
   @override
   State<_CastingSheet> createState() => _CastingSheetState();
@@ -62,30 +78,65 @@ class _CastingSheetState extends State<_CastingSheet> {
   @override
   void initState() {
     super.initState();
-    // 首帧之后再触发发现，避免在 build 阶段通知监听器。
+    // 首帧之后再触发发现 / 注入字幕，避免在 build 阶段通知监听器。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final c = widget.controller;
+      c.configureSubtitles(
+        available: widget.subtitles,
+        preferredIndex: widget.preferredSubtitleIndex,
+        scope: widget.itemId,
+      );
       if (c.phase == DlnaPhase.idle && c.devices.isEmpty) c.discover();
     });
   }
 
-  CastRequest _request(DlnaController c, {Duration? startAt}) => CastRequest(
-    url: widget.buildUrl(c.compatibleMode),
-    title: widget.title,
-    id: widget.itemId,
-    startAt: startAt ?? widget.startAt,
-    duration: widget.duration,
-    mimeType: c.compatibleMode ? 'application/vnd.apple.mpegurl' : 'video/mp4',
-  );
+  /// 一条投屏请求：把「兼容模式 / 烧录 / 选中的字幕」三个开关折算成
+  /// 实际 URL + 是否外挂字幕。
+  ///
+  /// 烧录模式下字幕已被服务端编进画面，**必须**把 subtitleUrl 置空，
+  /// 否则电视会同时显示画面里的和外挂的两份字幕。
+  CastRequest _request(DlnaController c, {Duration? startAt}) {
+    final sub = c.effectiveSubtitle;
+    final burn = c.burnSubtitle && sub != null;
+    return CastRequest(
+      url: widget.buildUrl(
+        compatible: c.compatibleMode,
+        burn: burn,
+        subtitleIndex: sub?.streamIndex,
+      ),
+      title: widget.title,
+      id: widget.itemId,
+      startAt: startAt ?? widget.startAt,
+      duration: widget.duration,
+      mimeType: (c.compatibleMode || burn)
+          ? 'application/vnd.apple.mpegurl'
+          : 'video/mp4',
+      subtitleUrl: burn ? null : sub?.url,
+      subtitleLabel: sub == null
+          ? ''
+          : (burn ? '${sub.label} · 已烧录' : sub.label),
+    );
+  }
+
+  /// 改字幕 / 烧录 / 兼容模式后，若正在投屏就用新地址重投一次，
+  /// 不让用户「先断开、再改、再点一次」。connecting 中不重投，避免和
+  /// 正在进行的 SetAVTransportURI 打架。
+  void _recastIfActive(DlnaController c) {
+    final d = c.current;
+    if (d == null) return;
+    final active =
+        c.phase == DlnaPhase.playing ||
+        c.phase == DlnaPhase.paused ||
+        c.phase == DlnaPhase.stopped;
+    if (!active) return;
+    c.cast(d, _request(c, startAt: c.position));
+  }
 
   void _onCompatibleChanged(bool value) {
     final c = widget.controller;
     c.setCompatibleMode(value);
-    final d = c.current;
-    if (d == null) return;
-    // 已在投屏时立刻用新地址重投，不让用户先断开再手动点一次。
-    c.cast(d, _request(c, startAt: c.position));
+    _recastIfActive(c);
   }
 
   @override
@@ -107,7 +158,6 @@ class _CastingSheetState extends State<_CastingSheet> {
 
   Widget _body(BuildContext ctx) {
     final c = widget.controller;
-    final url = widget.buildUrl(c.compatibleMode);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -123,9 +173,12 @@ class _CastingSheetState extends State<_CastingSheet> {
         const SizedBox(height: 8),
         _header(ctx),
         const SizedBox(height: 4),
+        // 字幕要先于设备列表选好：DLNA 没有标准的「选字幕」动作，
+        // 只能在起播那次 SetAVTransportURI 的 metadata 里带过去。
+        _subtitleSection(c),
         _stateBody(ctx, c),
         _compatibleRow(c),
-        _hintRow(url),
+        _hintRow(_request(c).url),
         const SizedBox(height: 8),
       ],
     );
@@ -278,8 +331,10 @@ class _CastingSheetState extends State<_CastingSheet> {
       mainAxisSize: MainAxisSize.min,
       children: [
         ConstrainedBox(
+          // v2.0.85：字幕区占了约 100dp，设备列表上限收一点，避免整张
+          // 抽屉在 720p / 小屏机型上顶到状态栏。
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.36,
+            maxHeight: MediaQuery.of(ctx).size.height * 0.26,
           ),
           child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
@@ -461,6 +516,18 @@ class _CastingSheetState extends State<_CastingSheet> {
                     color: Color(0xFF9FB0CC),
                   ),
                 ),
+                if (c.castSubtitleLabel.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(
+                    '字幕：${c.castSubtitleLabel}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -542,6 +609,146 @@ class _CastingSheetState extends State<_CastingSheet> {
     ),
   );
 
+  // ── v2.0.85 · 投屏字幕 ─────────────────────────────────────────────────
+
+  /// 选字幕 + 烧录开关。默认走 DIDL-Lite 外挂（无损、不转码）；电视不吃
+  /// 外挂字幕时打开烧录，让 Emby 把字幕编进画面（有损、但任何电视都认）。
+  Widget _subtitleSection(DlnaController c) {
+    if (c.subtitles.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(18, 0, 18, 6),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            '本片没有可随投屏发送的字幕轨',
+            style: TextStyle(fontSize: 10.5, color: Color(0xFF9FB0CC)),
+          ),
+        ),
+      );
+    }
+    final sub = c.effectiveSubtitle;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 0, 18, 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '投屏字幕',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: <Widget>[
+                _subtitleChip(c, label: '不带字幕', value: null),
+                for (final s in c.subtitles)
+                  _subtitleChip(c, label: s.label, value: s),
+              ],
+            ),
+          ),
+          if (sub != null && !sub.isTextFriendly) ...<Widget>[
+            const SizedBox(height: 6),
+            const Text(
+              '这是图形字幕，电视多半不认；建议打开下面的「字幕烧录」。',
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1.4,
+                color: AppColors.warn,
+              ),
+            ),
+          ],
+          const SizedBox(height: 2),
+          _burnRow(c, sub),
+        ],
+      ),
+    );
+  }
+
+  Widget _subtitleChip(
+    DlnaController c, {
+    required String label,
+    required CastSubtitle? value,
+  }) {
+    final selected = c.isSubtitleSelected(value);
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: LiquidPress(
+        radius: 9,
+        semanticLabel: '投屏字幕 $label',
+        onTap: () {
+          c.selectSubtitle(value);
+          _recastIfActive(c);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            color: selected
+                ? AppColors.accent.withValues(alpha: 0.20)
+                : Colors.white.withValues(alpha: 0.05),
+            border: Border.all(
+              color: selected
+                  ? AppColors.accent.withValues(alpha: 0.6)
+                  : Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: selected ? AppColors.accent : const Color(0xFFDFE7F5),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _burnRow(DlnaController c, CastSubtitle? sub) {
+    final enabled = sub != null;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '字幕烧录（服务端转码）',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: enabled ? Colors.white : const Color(0xFF9FB0CC),
+                ),
+              ),
+              const Text(
+                '电视不显示外挂字幕时打开，画质会有损失',
+                style: TextStyle(fontSize: 10, color: Color(0xFF9FB0CC)),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: enabled && c.burnSubtitle,
+          onChanged: enabled
+              ? (v) {
+                  c.setBurnSubtitle(v);
+                  _recastIfActive(c);
+                }
+              : null,
+        ),
+      ],
+    );
+  }
+
   Widget _compatibleRow(DlnaController c) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 10, 0),
@@ -583,6 +790,15 @@ class _CastingSheetState extends State<_CastingSheet> {
         children: [
           const Text(
             '投屏由电视直接播放 Emby 流，手机只作遥控；请确认手机与电视在同一 Wi-Fi。',
+            style: TextStyle(
+              fontSize: 10.5,
+              height: 1.5,
+              color: Color(0xFF9FB0CC),
+            ),
+          ),
+          const SizedBox(height: 3),
+          const Text(
+            '字幕以 DIDL-Lite 外挂字段发送，各厂商电视支持不一；不显示时请打开「字幕烧录」。',
             style: TextStyle(
               fontSize: 10.5,
               height: 1.5,

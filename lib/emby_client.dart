@@ -22,6 +22,38 @@ const _kItemFields =
     'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,'
     'Tags,TagItems,Studios,SeriesName,Path';
 
+/// 拼一条把指定字幕轨**烧进画面**的 HLS 地址（v2.0.85 · DLNA 字幕兜底）。
+///
+/// DLNA 没有标准的「选字幕」动作，电视固件对 DIDL-Lite 外挂字幕的宽容度也
+/// 参差不齐（内封 MKV 字幕电视自己会认，但不知道 App 里选了哪条；外挂
+/// .ass/.srt 多数电视根本看不到）。最保底的路径是让 Emby 服务端把字幕
+/// 编码进视频帧：任何能播 HLS 的 DMR 都会显示字幕，代价是实时转码、画质
+/// 有损、服务器 CPU/GPU 开销高。
+///
+/// `SubtitleMethod=Encode` 是关键：只给 `SubtitleStreamIndex` 时，Emby /
+/// Jellyfin 往往把字幕作为独立轨道列进 HLS，电视解码器不渲染，现象仍然是
+/// 「没有字幕」。抽成顶层纯函数是为了能在 `flutter test` 里逐参数验证。
+String buildBurnSubtitleUrl({
+  required String baseUrl,
+  required String itemId,
+  required String apiKey,
+  required int subtitleStreamIndex,
+  required String playSessionId,
+  String? mediaSourceId,
+}) =>
+    Uri.parse('$baseUrl/Videos/$itemId/master.m3u8')
+        .replace(
+          queryParameters: <String, String>{
+            if (mediaSourceId != null && mediaSourceId.isNotEmpty)
+              'MediaSourceId': mediaSourceId,
+            'PlaySessionId': playSessionId,
+            'SubtitleStreamIndex': '$subtitleStreamIndex',
+            'SubtitleMethod': 'Encode',
+            'api_key': apiKey,
+          },
+        )
+        .toString();
+
 /// 服务端「合集 / BoxSet」的精简信息（v2.0.63）。
 ///
 /// Emby 把 NFO 的 `<set><name>` 建成独立的 BoxSet 对象，而不是 Movie 上的
@@ -215,6 +247,22 @@ class EmbyServer {
         ? '$baseUrl/Videos/$itemId/stream?Static=true$ms$sid&api_key=$_token'
         : '$baseUrl/Videos/$itemId/master.m3u8$ms$sid&api_key=$_token';
   }
+
+  /// v2.0.85：投屏字幕烧录模式专用地址。字幕已经在画面里，投屏面板此时
+  /// **不能再往 DIDL-Lite 塞外挂字幕**，否则电视会叠加出双份字幕。
+  String burnSubtitleUrl(
+    String itemId, {
+    required int subtitleStreamIndex,
+    String? mediaSourceId,
+  }) =>
+      buildBurnSubtitleUrl(
+        baseUrl: baseUrl,
+        itemId: itemId,
+        apiKey: _token ?? '',
+        subtitleStreamIndex: subtitleStreamIndex,
+        playSessionId: ensurePlaySessionId(),
+        mediaSourceId: mediaSourceId,
+      );
 
   /// 拼一条带鉴权的播放 URL（统一走 Uri，避免手拼 & 时漏转义）。
   String _playbackUrl(String path, Map<String, String> params) =>

@@ -120,7 +120,7 @@ class DeviceDescriptionFetcher {
           .get(
             Uri.parse(location),
             headers: const <String, String>{
-              'USER-AGENT': 'Camby/2.0.84 UPnP/1.1 DLNADOC/1.50',
+              'USER-AGENT': dlnaUserAgent,
             },
           )
           .timeout(timeout);

@@ -428,12 +428,19 @@ void main() {
       expect(s.contains('setState('), isFalse);
     });
 
-    test('版本号与协议层 UA 已同步到 84', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.84+284'), isTrue);
-      expect(
-        src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.84'),
-        isTrue,
-      );
+    test('版本号与协议层 UA 已同步到 85，且三处共用同一常量', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.85+285'), isTrue);
+      final proto = src('lib/dlna/dlna_protocol.dart');
+      expect(proto.contains("dlnaUserAgent = 'Camby/2.0.85"), isTrue);
+      expect(proto.contains(r'USER-AGENT: $dlnaUserAgent'), isTrue);
+      for (final f in <String>[
+        'lib/dlna/dlna_discovery.dart',
+        'lib/dlna/dlna_controller.dart',
+      ]) {
+        final s = src(f);
+        expect(s.contains("'USER-AGENT': dlnaUserAgent"), isTrue, reason: f);
+        expect(s.contains('Camby/2.0.'), isFalse, reason: f);
+      }
     });
   });
 }

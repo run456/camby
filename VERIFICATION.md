@@ -2798,3 +2798,56 @@ DMR 过滤 / SOAP 双重转义 / DIDL-Lite / 时长与状态解析 / URL 可达�
 控制器状态 / 6 组源码守卫）；`perf_audit.py` 0 命中；`aapt dump badging`
 确认 `versionCode='284' versionName='2.0.84'`。本地提交 + tag `v2.0.84`，
 未推 GitHub。
+
+## §99 发布 v2.0.85（DLNA 投屏字幕随片发送）
+
+需求原文：「App 内手选的字幕不随投屏传递，由电视端自行选择。这个到了电视
+投屏端会怎么处理？我希望有字幕的，也把字幕投屏」。
+
+**结论先行**：v2.0.84 的 `SetAVTransportURI` 只带了一个 `<res>`，电视拿到
+的是 Emby 原片直链。MKV 内封字幕电视能自己识别但不知道 App 选了哪条；
+外挂 `.srt` / `.ass` 电视完全看不到；UPnP 标准里也没有「选字幕」动作。
+所以不是「电视端会怎么处理」，而是「电视端根本没收到字幕信息」。
+
+实现为两条互补路径，默认走无损那条：
+
+- **默认 · DIDL-Lite 外挂**：起播那次 metadata 里同时写三星
+  `sec:CaptionInfoEx` / `sec:CaptionInfo` 与 LG / 松下系
+  `pv:subtitleFileUri` + 第二个 `text/srt` `<res>`。各厂商互不认对方的
+  字段，只能一次全塞；多出来的字段对不认的 DMR 是未知元素，按 XML 规则
+  应忽略。字幕统一请求 `Stream.srt`，让 Emby 按扩展名转出文本流。
+- **兜底 · 服务端烧录**：`master.m3u8` 带 `SubtitleStreamIndex` +
+  `SubtitleMethod=Encode`。少了 `Encode`，Emby / Jellyfin 只把字幕当独立
+  HLS 轨道列出，电视解码器不渲染，现象仍是「没有字幕」。烧录时把外挂 URL
+  置空，防止电视叠加双份字幕。
+
+- 控制器：`CastSubtitle` 模型 + 字幕选择状态。`configureSubtitles()` 带
+  `scope=itemId` —— 字幕 `Index` 在不同影片间几乎都是 2 / 3 / 4，只按
+  index 保留选择会把上一部片选的轨错带到下一部。
+- 面板：「投屏字幕」chip 行（含「不带字幕」）、图形字幕告警、烧录开关；
+  播放状态卡显示当前字幕；改动后若正在投屏自动重投。
+- 详情页：`_castSubtitles()` 只保留绝对 http(s) 地址，PGS / SUP / DVBSub
+  标成图形字幕供面板提示；手选轨优先，没手选取默认轨。
+- 协议层：`dlnaUserAgent` 常量统一 SSDP / 描述 GET / SOAP POST 三处 UA。
+- 面板高度：设备列表 `maxHeight` 0.36 → 0.26，避免字幕区把抽屉顶到状态栏；
+  字幕 chip 用横向滚动，纵向只占一行。
+
+不动：播放链路、HDR/DV、毛玻璃、动效、既有弹窗样式、SSDP 发现与组播锁、
+AndroidManifest 权限。
+
+验证（v2.0.85）：`flutter analyze` 0 error / 0 warning（403 项全为 info）；
+`flutter test` **588 全过**（新增 `test/dlna_subtitle_test.dart` 22 条，覆盖
+DIDL-Lite 三厂商字段 / 双重转义 / v2.0.84 无字幕逐字节回归 / 烧录 URL
+参数 / 控制器选择语义与片源 scope / 详情页候选 / 6 组源码守卫）；
+`perf_audit.py` 0 命中；`aapt dump badging` 确认
+`versionCode='285' versionName='2.0.85'`，四项网络权限齐全。
+解包复核 `lib/arm64-v8a/libapp.so` 含 `sec:CaptionInfoEx` /
+`pv:subtitleFileUri` / `SubtitleMethod` / `Stream.srt` / `Camby/2.0.85`，
+中文文案以 UTF-16LE 存于 AOT 快照（「投屏字幕」「字幕烧录」「不带字幕」
+均命中）；`classes.dex` 的 `createMulticastLock` / `setMulticastLock` 仍在，
+v2.0.84 的 SSDP 发现未被破坏。本地提交 + tag `v2.0.85`，未推 GitHub。
+
+**实机待确认**：DLNA 外挂字幕是厂商私有扩展，无法在单测里证明某台电视会
+渲染。若电视不显示字幕，打开面板里的「字幕烧录」；若仍不显示，需反馈电视
+型号与播放信息截图再逐台适配。三星部分机型要求视频 URL 的 HTTP 响应带
+`CaptionInfo.sec` 头，本项目直接给 Emby 地址、无法注入该头，只能靠烧录。

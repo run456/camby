@@ -1,10 +1,70 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.84 (284)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.85 (285)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.85 (285) 投屏字幕随片发送
+
+承接上一版「App 内手选的字幕不随投屏传递」的限制。用户追问「这个到了电视
+投屏端会怎么处理？我希望有字幕的，也把字幕投屏」。
+
+**先说清楚电视端原来发生了什么**：DLNA 是 DMR 模式，手机只调
+`SetAVTransportURI` 把一个 Emby 流地址交给电视，电视自己 HTTP GET 拉流。
+v2.0.84 那份 DIDL-Lite 只有标题、class 和一个 `<res>`，于是：
+
+- MKV 内封字幕：电视固件能自己识别、用遥控器切换，但它不知道 App 里选的
+  是哪条，默认语言由电视固件决定；
+- 外挂 `.srt` / `.ass`：电视完全看不到，就是「无字幕」；
+- ASS 特效 / PGS 图形字幕：多数电视不渲染。
+- UPnP 标准里**没有**通用的「选字幕」动作，起播后再补一条指令是行不通的。
+
+这一版做了两条互补路径，默认走无损那条：
+
+1. **起播 metadata 带外挂字幕（默认开，无损、不转码）**
+   `buildDidlLite()` 新增 `subtitleUrl`，一次写全各厂商私有字段：三星
+   `sec:CaptionInfoEx` / `sec:CaptionInfo`，LG / 松下 / 部分安卓电视
+   `pv:subtitleFileUri` + 第二个 `text/srt` 的 `<res>`；根节点补
+   `dlna` / `sec` / `pv` 三个命名空间。字幕地址统一取
+   `SubtitleTrackInfo.textCandidates` 里的 `Stream.srt` —— DLNA 电视基本
+   只认 SubRip，Emby 会按扩展名把 ASS / VTT / SMI 转成文本流。URL 里的
+   `&` 逐字段转义一次，整段 metadata 作为 SOAP 参数再转义一次。
+   详情页手选的字幕轨优先，没手选就取默认轨（通常中文字幕）而不是留空。
+2. **服务端字幕烧录（兜底，有损但任何电视都认）**
+   `EmbyServer.burnSubtitleUrl()` 走
+   `master.m3u8?SubtitleStreamIndex=N&SubtitleMethod=Encode`，让 Emby 把
+   字幕编进视频帧。只给 `SubtitleStreamIndex` 不给 `Encode` 时，服务端通常
+   把字幕当独立轨道列进 HLS，电视不渲染，现象依然是「没有字幕」。
+   烧录时**不再**往 DIDL-Lite 塞外挂字幕，否则电视会叠加出双份；同时
+   mimeType 切成 HLS。代价是服务端实时转码、画质有损、CPU/GPU 开销高。
+
+- **控制器**：`lib/dlna/dlna_controller.dart` 新增 `CastSubtitle`、
+  `configureSubtitles()`（带 itemId scope，避免字幕 index 在不同影片间重复
+  导致选错轨）、`selectSubtitle()` / `setSendSubtitle()` /
+  `setBurnSubtitle()` / `effectiveSubtitle` / `isSubtitleSelected()`。
+- **面板**：`lib/dlna/dlna_sheet.dart` 顶部新增「投屏字幕」区 —— 横向 chip
+  选轨（含「不带字幕」）、图形字幕告警、「字幕烧录」开关，播放状态卡显示
+  当前字幕。改字幕 / 烧录 / 兼容模式时若正在投屏会自动用新地址重投，不用
+  先断开再点一次。设备列表高度上限从 0.36 收到 0.26，给字幕区腾位置。
+- **详情页**：`_castSubtitles()` 把字幕轨转成可发送候选（过滤非绝对地址、
+  把 PGS/SUP/DVBSub 标成图形字幕）；`_castUrl` 增加 burn / subtitleIndex
+  两个维度。
+- **协议层**：三处散落的 `USER-AGENT` 收敛成 `dlnaUserAgent` 常量，
+  升版本不会再漏改。
+
+不动：播放链路、HDR/DV 处理、毛玻璃、动效、既有弹窗样式、SSDP 发现与
+组播锁。
+
+**边界**：DLNA 外挂字幕是厂商私有扩展，没有任何协议保证电视一定认；三星
+部分机型还会对视频 URL 发 HEAD 读 `CaptionInfo.sec` 响应头，本项目直接给
+Emby 地址、无法控制该响应头 —— 这类设备必须开「字幕烧录」。MKV 内封字幕
+即使带外挂字段，电视也可能优先用自己的轨道，属于固件行为。
+
+验证（`flutter test` 588 全过、`flutter analyze` 0 error / 0 warning、
+`perf_audit.py` 0 命中、`aapt` 复核 `versionCode=285 / versionName=2.0.85`）
+与完整发版记录见 [VERIFICATION.md](./VERIFICATION.md) §99。
 
 ### v2.0.84 (284) 影片详情页新增 DLNA 投屏
 

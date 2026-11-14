@@ -1,4 +1,4 @@
-/// DLNA / UPnP 协议层（v2.0.84）。
+/// DLNA / UPnP 协议层（v2.0.84，v2.0.85 补外挂字幕 metadata）。
 ///
 /// 这里只放**纯函数与不可变模型**：SSDP 报文、设备描述 XML、SOAP envelope、
 /// DIDL-Lite metadata、响应解析。刻意不引用 `dart:io` / Flutter，因而可以在
@@ -12,6 +12,10 @@ library;
 
 const String ssdpMulticastIp = '239.255.255.250';
 const int ssdpPort = 1900;
+
+/// 发版号只在这里维护：SSDP M-SEARCH、描述 XML GET、SOAP POST 三处共用，
+/// 以前散在三个文件里，升版本时漏改就会出现「同一会话两种 UA」的怪现象。
+const String dlnaUserAgent = 'Camby/2.0.85 UPnP/1.1 DLNADOC/1.50';
 
 /// 同时搜三类目标：只发 MediaRenderer 会漏掉部分国产电视 / 盒子（它们只回
 /// `ssdp:all` 或 AVTransport 服务类型）。多播三个包代价可忽略。
@@ -27,7 +31,7 @@ String buildMSearch(String st, {int mx = 3}) =>
     'MAN: "ssdp:discover"\r\n'
     'MX: $mx\r\n'
     'ST: $st\r\n'
-    'USER-AGENT: Camby/2.0.84 UPnP/1.1 DLNADOC/1.50\r\n'
+    'USER-AGENT: $dlnaUserAgent\r\n'
     '\r\n';
 
 /// 解析 SSDP 响应头。首行是状态行（`HTTP/1.1 200 OK` / `NOTIFY * HTTP/1.1`），
@@ -337,18 +341,46 @@ String buildDidlLite({
   required String url,
   Duration? duration,
   String mimeType = 'video/mp4',
+  String? subtitleUrl,
+  String subtitleType = 'srt',
 }) {
   final dur = duration == null
       ? ''
       : ' duration="${formatUpnpDuration(duration)}"';
+
+  // v2.0.85：外挂字幕必须在**起播的 metadata** 里声明。DLNA 没有标准的
+  // 「选字幕」动作，电视只看得到 SetAVTransportURI 带过来的这份 DIDL-Lite。
+  // 各厂商用各自的私有字段，互相不认，所以一次全塞：
+  //   · sec:CaptionInfoEx / CaptionInfo —— 三星（Ex 是必须的 hint）
+  //   · pv:subtitleFileUri + 第二个 text/srt res —— LG / 松下 / 部分安卓电视
+  // 字幕 URL 里带 api_key（有 &），这里先转义一次，整段 metadata 作为 SOAP
+  // 参数时还会再转义一次，两层都不能省。
+  var sub = '';
+  if (subtitleUrl != null && subtitleUrl.isNotEmpty) {
+    final u = xmlEscape(subtitleUrl);
+    final t = xmlEscape(subtitleType);
+    sub = '<sec:CaptionInfoEx sec:type="$t">$u</sec:CaptionInfoEx>'
+        '<sec:CaptionInfo sec:type="$t">$u</sec:CaptionInfo>'
+        '<res protocolInfo="http-get:*:text/$t:DLNA.ORG_OP=01;DLNA.ORG_CI=0" '
+        'pv:subtitleFileUri="$u" pv:subtitleFileType="$t">$u</res>';
+  }
+
+  // 命名空间只在真的带字幕时追加：不带字幕的输出必须与 v2.0.84 逐字节
+  // 一致，否则等于给所有已能正常投屏的电视换了一份 metadata，纯属自找风险。
+  final ns = sub.isEmpty
+      ? ''
+      : ' xmlns:dlna="urn:schemas-dlna-org:metadata-1-0/" '
+          'xmlns:sec="http://www.sec.co.kr/" '
+          'xmlns:pv="http://www.pv.com/pvns/"';
   return '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
       'xmlns:dc="http://purl.org/dc/elements/1.1/" '
-      'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+      'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"$ns>'
       '<item id="${xmlEscape(id)}" parentID="-1" restricted="1">'
       '<dc:title>${xmlEscape(title)}</dc:title>'
       '<upnp:class>object.item.videoItem</upnp:class>'
       '<res protocolInfo="http-get:*:$mimeType:DLNA.ORG_OP=01;DLNA.ORG_CI=0"$dur>'
       '${xmlEscape(url)}</res>'
+      '$sub'
       '</item></DIDL-Lite>';
 }
 

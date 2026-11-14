@@ -18,6 +18,29 @@ enum DlnaPhase {
   error,
 }
 
+/// 一条可随投屏发送的字幕轨（v2.0.85）。
+///
+/// [url] 统一指向 Emby 的 `Stream.srt`：DLNA 电视端基本只认 SubRip，
+/// `SubtitleTrackInfo.textCandidates` 会把 ASS / VTT / SMI 的扩展名换成
+/// srt，由服务端按扩展名转出文本流。[streamIndex] 是烧录模式要用的
+/// `SubtitleStreamIndex`。
+class CastSubtitle {
+  const CastSubtitle({
+    required this.label,
+    required this.url,
+    required this.streamIndex,
+    this.isTextFriendly = true,
+  });
+
+  final String label;
+  final String url;
+  final int streamIndex;
+
+  /// PGS / SUP 等图形字幕即便换成 SRT 扩展名也拿不到文本，电视端外挂
+  /// 大概率无效，面板给「建议烧录」提示；不硬禁止，交由用户试。
+  final bool isTextFriendly;
+}
+
 /// 一次投屏的内容描述。URL 由详情页按当前选中版本 / 兼容模式**现算**，
 /// 控制器不依赖 Emby 客户端，也不缓存 URL（鉴权 token 可能会变）。
 class CastRequest {
@@ -28,6 +51,8 @@ class CastRequest {
     this.startAt = Duration.zero,
     this.duration,
     this.mimeType = 'video/mp4',
+    this.subtitleUrl,
+    this.subtitleLabel,
   });
 
   final String url;
@@ -36,6 +61,13 @@ class CastRequest {
   final Duration startAt;
   final Duration? duration;
   final String mimeType;
+
+  /// 外挂字幕的绝对 SRT 地址。**烧录模式传 null** —— 字幕已经在画面里，
+  /// 再外挂一次会让电视叠加出双份字幕。
+  final String? subtitleUrl;
+
+  /// 面板展示用，controller 只透传不解析。
+  final String? subtitleLabel;
 }
 
 class SoapResult {
@@ -75,6 +107,34 @@ class DlnaController extends ChangeNotifier {
   /// 兼容模式：改用 Emby 的 HLS 转码流（兼容性好、画质有损）。
   /// 默认直连原片，电视不支持容器 / 编码时再打开。
   bool compatibleMode = false;
+
+  // ── 字幕（v2.0.85）────────────────────────────────────────────────────
+  List<CastSubtitle> subtitles = const <CastSubtitle>[];
+  CastSubtitle? selectedSubtitle;
+
+  /// 把外挂字幕地址写进 DIDL-Lite（默认开，无损、不转码）。
+  bool sendSubtitle = true;
+
+  /// 让 Emby 把字幕烧进画面（默认关：实时转码、画质有损，但任何电视都认）。
+  bool burnSubtitle = false;
+
+  String castSubtitleLabel = '';
+
+  /// 实际生效的字幕：关闭「随投屏发送」时为 null。
+  CastSubtitle? get effectiveSubtitle =>
+      sendSubtitle ? selectedSubtitle : null;
+
+  /// 面板 chip 的高亮判定：[s] 为 null 代表「不带字幕」那一枚。
+  /// 关掉「随片发送」后就应该高亮它，而不是继续高亮某条字幕轨。
+  bool isSubtitleSelected(CastSubtitle? s) {
+    if (s == null) return !sendSubtitle;
+    return sendSubtitle && selectedSubtitle?.streamIndex == s.streamIndex;
+  }
+
+  /// 上一次配置字幕时所属的片源。字幕的 `streamIndex` 在不同影片间会重复
+  /// （基本都是 2、3、4…），只按 index 保留选择会把上一部片选的轨错带到
+  /// 下一部，所以换个 itemId 就必须重置。
+  String _subtitleScope = '';
 
   bool _discovering = false;
   Timer? _poll;
@@ -128,12 +188,71 @@ class DlnaController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── 字幕选择 ────────────────────────────────────────────────────────────
+
+  /// 打开面板时由详情页注入候选。同一片源内保留用户此前的选择；换片
+  /// （[scope] 一般是 itemId）则重置，并跟随详情页手选的轨；详情页没选
+  /// 就取第一条（通常是默认中文字幕）——用户要求「有字幕的也投过去」。
+  void configureSubtitles({
+    required List<CastSubtitle> available,
+    int? preferredIndex,
+    String scope = '',
+  }) {
+    final sameScope = scope.isNotEmpty && scope == _subtitleScope;
+    _subtitleScope = scope;
+    subtitles = available;
+
+    final keep = sameScope ? selectedSubtitle : null;
+    if (keep != null &&
+        available.any((e) => e.streamIndex == keep.streamIndex)) {
+      notifyListeners();
+      return;
+    }
+    CastSubtitle? pick;
+    for (final s in available) {
+      if (s.streamIndex == preferredIndex) {
+        pick = s;
+        break;
+      }
+    }
+    selectedSubtitle = available.isEmpty ? null : (pick ?? available.first);
+    if (!sameScope) sendSubtitle = true;
+    notifyListeners();
+  }
+
+  /// [value] 为 null 即面板里的「不带字幕」chip。
+  void selectSubtitle(CastSubtitle? value) {
+    if (value == null) {
+      setSendSubtitle(false);
+      return;
+    }
+    if (selectedSubtitle?.streamIndex == value.streamIndex && sendSubtitle) {
+      return;
+    }
+    selectedSubtitle = value;
+    sendSubtitle = true;
+    notifyListeners();
+  }
+
+  void setSendSubtitle(bool value) {
+    if (sendSubtitle == value) return;
+    sendSubtitle = value;
+    notifyListeners();
+  }
+
+  void setBurnSubtitle(bool value) {
+    if (burnSubtitle == value) return;
+    burnSubtitle = value;
+    notifyListeners();
+  }
+
   // ── 投屏 ────────────────────────────────────────────────────────────────
 
   Future<bool> cast(DlnaDevice device, CastRequest request) async {
     _stopPoll();
     current = device;
     castTitle = request.title;
+    castSubtitleLabel = request.subtitleLabel ?? '';
     phase = DlnaPhase.connecting;
     message = '正在连接 ${device.title}…';
     position = Duration.zero;
@@ -146,6 +265,7 @@ class DlnaController extends ChangeNotifier {
       url: request.url,
       duration: request.duration,
       mimeType: request.mimeType,
+      subtitleUrl: request.subtitleUrl,
     );
 
     final ok = await _call(
@@ -232,7 +352,7 @@ class DlnaController extends ChangeNotifier {
             headers: <String, String>{
               'Content-Type': 'text/xml; charset="utf-8"',
               'SOAPACTION': call.actionHeader,
-              'USER-AGENT': 'Camby/2.0.84 UPnP/1.1 DLNADOC/1.50',
+              'USER-AGENT': dlnaUserAgent,
             },
             body: utf8.encode(call.envelope),
           )
