@@ -2960,3 +2960,59 @@ ExoPlayer 是否生效需在真机验证（若仍黑屏，切到 MPV 内核可�
 `SSLContext` / `X509TrustManager`，且 v2.0.83 的 `hdrCapabilities`、
 v2.0.84 的 `createMulticastLock` 均未破坏。本地提交 + tag `v2.0.87`，
 未推 GitHub。
+
+## §102 发布 v2.0.88（绿联独立接入 + 继续观看虚拟库 · 附三份设计稿）
+
+需求分两段：**1 / 2 / 3**（媒体库选择弹窗、收藏页重做、浅色白色玻璃主题）
+只出设计稿 `Camby媒体库选择器与浅色主题设计稿.html`，**本版未改这三处业务代码**，
+等用户确认；**4 / 5 / 6** 直接落地。设计稿 §0 列 5 件待拍板事项，
+§4 给 P0/P1/P2 分期，§5 标注本轮已落地且与设计稿无关的部分。
+
+**文档依据**：用户提供的《绿联NAS媒体中心对接Emby兼容方案》第五点。核心结论是
+绿联影视中心只实现 Emby 原生 API 子集：图片 / 播放流地址不带 `/emby/` 前缀、
+必须带 `api_key`，`MediaSources` 被阉割，不能依赖 `TranscodingUrl` /
+`DirectStreamUrl`，图片加载器的 HttpClient 也必须忽略自签证书。
+
+| 现象 | 根因（v2.0.87） | v2.0.88 处理 |
+|---|---|---|
+| 刷得到简介、拿不到图片 | `imageUrl()` 用 `baseUrl`（含 `/emby`）且图片 URL 未强制带 token | 新增 `assetUrl = isUgreen ? rootUrl : baseUrl`，图片 / backdrop / poster / 演员图 / `_absolutize()` 全改走 `assetUrl` |
+| 播放地址打不开 | `streamUrl()` 拼标准 Emby 查询串；`resolvePlayback()` 依赖被阉割的 `PlaybackInfo` | 绿联专用 `https://ip:9443/Videos/{id}/stream?api_key=...`，跳过协商直接根路径直链 |
+| 海报仍加载失败 | `CachedNetworkImage` 走 `flutter_cache_manager → HttpFileService → dart:io HttpClient`，不受 `_newClient()` 与 Kotlin 默认值管辖 | 新增 `lib/widgets/image_ssl.dart`，用同 key 的自定义 `CacheManager` 动态设 `badCertificateCallback`；`cached_image.dart` 的 `_probeCache()` 与 `CachedNetworkImage` 统一改用 `ImageSsl.manager` |
+| 登录探测顺序不利 | 候选前缀固定 `['/emby', '']` | 绿联 `['', '/emby']`，标准 Emby 保持原顺序 |
+| 出问题无法自查 | 无任何 URL 诊断入口 | `EmbyServer.diagnostics()` + 设置页「连接诊断」`SelectableText`，输出 API / 资源基址、自检 URL 与首条 Item 原始 JSON（提示含令牌勿外传） |
+
+**独立服务器类型**：`ServerKind.ugreen`、独立入口卡（强制 HTTPS 9443、自动忽略证书、
+不显示 Emby/Jellyfin 分段）、v2.0.87 旧配置按 `emby + ignore_ssl + secure + 9443`
+自动迁移、进度降级判据改为 `kind != ServerKind.ugreen`。
+
+**继续观看虚拟库**：`__camby_continue__` 哨兵、`onOpenContinue` →
+`_openContinueLibrary()`、`LibraryPage._source` 取 `state.continueWatching` 零请求、
+chip 行 `state.views.length + 3`、`onOpenAll` / `_openAllLibrary()` 链路删除。
+
+**验证（v2.0.88）**：`flutter test` **664 全过**（新增
+`test/ugreen_independent_test.dart` 21 条，覆盖独立类型与旧配置迁移、绿联 /
+标准 Emby / Jellyfin 三套资源 URL 拼装、播放最简直链忽略 `MediaSourceId` 与
+HLS 参数、诊断面板输出不含 `/emby`、图片证书层三处源码守卫、继续观看虚拟库
+全链路、设置页独立入口与版本同步；`test/ugreen_ssl_test.dart`、
+`test/watch_calendar_test.dart` 等 6 个文件的版本与结构守卫同步到 88）；
+`flutter analyze` 0 error / 0 warning（419 项全为 info）；
+`tools/perf_audit.py` 未命中红线。
+
+**实机待确认**：不同 UGOS Pro 版本的资源路径是否恒为根路径、图片 URL 是否需要
+额外 `tag` 参数，仍需用「连接诊断」里的自检 URL 在浏览器里逐个验证；
+`CachedNetworkImage` 的自定义 `CacheManager` 与系统默认缓存同 key，
+已有缓存文件的复用行为建议真机清一次缓存后观察；绿联侧若开放了
+`/Sessions/*`，可以按实际表现放宽进度降级判定。
+
+**交付**：`camby-2.0.88-release-arm64.apk`（39 MB）。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='288' versionName='2.0.88'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.87 逐项一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 命中 `Camby/2.0.88` / `__camby_continue__` /
+`__camby_recent__` / `Videos/` / `Images/Primary` / `ignore_ssl`；中文常量按
+Dart AOT 的 UTF-16LE 编码全部命中「绿联影视中心」「连接诊断 · 图片与播放地址」
+「资源基址」「HTTPS · 强制」「UGOS Pro」「请勿外传」「查看全部」「继续观看」
+「观影日历」「影视中心媒体服务器账号」。`classes.dex` 中 v2.0.83 的
+`hdrCapabilities`、v2.0.84 的 `createMulticastLock`、v2.0.87 的
+`setIgnoreSsl` / `setDefaultSSLSocketFactory` / `SSLContext` /
+`X509TrustManager` 均未破坏；五档启动图标 md5 与 v2.0.87 逐档一致。
+本地提交 + tag `v2.0.88`，未推 GitHub。

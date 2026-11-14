@@ -450,31 +450,44 @@ void main() {
     test('models：哨兵常量与虚拟判定都在，且未写进 views', () {
       final s = src('lib/models.dart');
       expect(s.contains("const String kRecentViewId = '__camby_recent__';"), isTrue);
+      expect(s.contains("const String kContinueViewId = '__camby_continue__';"), isTrue);
       expect(s.contains('bool isVirtualViewId(String? id)'), isTrue);
+      expect(s.contains('bool isContinueViewId(String? id)'), isTrue);
       expect(s.contains('final List<WatchEvent> events;'), isTrue);
     });
 
-    test('main / home：只有「最近添加」改走虚拟库，继续观看仍跳全部', () {
+    test('main / home：最近添加与继续观看各回各家虚拟库', () {
       final main = src('lib/main.dart');
       expect(main.contains('void _openRecentLibrary()'), isTrue);
+      expect(main.contains('void _openContinueLibrary()'), isTrue);
       expect(main.contains('_state.selectedViewId = kRecentViewId;'), isTrue);
+      expect(main.contains('_state.selectedViewId = kContinueViewId;'), isTrue);
       expect(main.contains('onOpenRecent: _openRecentLibrary,'), isTrue);
+      expect(main.contains('onOpenContinue: _openContinueLibrary,'), isTrue);
+      // v2.0.88：不再有「点更多一律打回全部」的兜底回调
+      expect(main.contains('void _openAllLibrary()'), isFalse);
       final home = src('lib/pages/home_page.dart');
       expect(home.contains('required this.onOpenRecent,'), isTrue);
+      expect(home.contains('required this.onOpenContinue,'), isTrue);
       expect(home.contains('onAction: widget.onOpenRecent'), isTrue);
-      expect(home.contains('onAction: widget.onOpenAll'), isTrue);
+      expect(home.contains('onAction: widget.onOpenContinue'), isTrue);
+      expect(home.contains("action: '查看全部'"), isTrue);
+      expect(home.contains('onOpenAll:'), isFalse);
     });
 
-    test('library：虚拟库零网络请求、走本地 recentlyAdded、按入库时间排', () {
+    test('library：虚拟库零网络请求、走本地派生列表、按入库时间排', () {
       final s = src('lib/pages/library_page.dart');
       expect(s.contains('if (isVirtualViewId(vid))'), isTrue);
       expect(s.contains('return widget.state.recentlyAdded;'), isTrue);
-      expect(s.contains('itemCount: state.views.length + 2'), isTrue);
+      expect(s.contains('return widget.state.continueWatching;'), isTrue);
+      expect(s.contains('itemCount: state.views.length + 3'), isTrue);
       expect(s.contains('if (i == 1)'), isTrue);
+      expect(s.contains('if (i == 2)'), isTrue);
       expect(s.contains('_selectView(kRecentViewId)'), isTrue);
-      expect(s.contains('state.views[i - 2]'), isTrue);
+      expect(s.contains('_selectView(kContinueViewId)'), isTrue);
+      expect(s.contains('state.views[i - 3]'), isTrue);
       expect(s.contains('_DashedOvalPainter'), isTrue);
-      expect(s.contains('最近添加 · 虚拟媒体库 · '), isTrue);
+      expect(s.contains('· 虚拟媒体库 · '), isTrue);
       expect(s.contains('_sort = 0;'), isTrue);
       expect(s.contains('是 Camby 按入库时间生成的虚拟媒体库'), isTrue);
       // 虚拟库分支必须出现在任何 itemsForView 调用之前
@@ -526,13 +539,13 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.87', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.87+287'), isTrue);
-      expect(src('README.md').contains('v2.0.87 (287)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.87 (287)'), isTrue);
+    test('版本与文档同步到 v2.0.88', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.88+288'), isTrue);
+      expect(src('README.md').contains('v2.0.88 (288)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.88 (288)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.87 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.88 "),
         isTrue,
       );
     });

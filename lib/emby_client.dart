@@ -77,7 +77,10 @@ class EmbyServer {
     this.password = '',
     this.kind = ServerKind.emby,
     this.ignoreSsl = false,
-  }) : _basePath = kind == ServerKind.jellyfin ? '' : '/emby';
+  }) : _basePath = (kind == ServerKind.jellyfin ||
+            kind == ServerKind.ugreen)
+            ? ''
+            : '/emby';
 
   final String host;
   final int port;
@@ -112,6 +115,10 @@ class EmbyServer {
   /// 最近一次播放路由的诊断说明，播放信息面板展示（尽力而为文本）。
   String lastPlaybackDiagnostic = '';
 
+  /// 首次拉库时留一条原始 Item JSON 片段（文档 5.3 第 3 条：诊断面板要能
+  /// 区分「字段缺失」和「URL 拼错」）。只保留首条的前 1200 字符，不落盘。
+  String _sampleItemJson = '';
+
   /// 播放 URL 与 /Sessions/* 上报必须共用同一个 PlaySessionId。
   /// v2.0.83 前这个字段只在上报里生成，播放 URL 完全没有带 ——
   /// Emby 官方把 PlaySessionId 列为 stream 端点必需参数。
@@ -125,11 +132,55 @@ class EmbyServer {
   /// 当前会话令牌；NFO / 字幕等走服务端代理端点时要用。
   String? get token => _token;
 
+  /// 绿联接入诊断（文档 5.3 第 3 条 / 5.4 自检顺序）。
+  ///
+  /// 把「拼好的图片 URL / 播放 URL / API 前缀」原样列出来，用户可以直接
+  /// 贴进浏览器或 Postman 逐条验证：能返回图片说明是 App 侧问题，403 是
+  /// 账号没开直链，404 是路径拼接错。URL 含令牌，面板里已提醒勿外传。
+  String diagnostics({String? sampleItemId}) {
+    final id = sampleItemId ?? '{itemId}';
+    final pic = '$assetUrl/Items/$id/Images/Primary'
+        '?maxWidth=400&api_key=${_token ?? ''}';
+    return <String>[
+      '服务器类型：${kind.name}${isUgreen ? '（绿联影视中心）' : ''}',
+      '站点根地址：$rootUrl',
+      'API 基址：$baseUrl',
+      '资源基址：$assetUrl',
+      'API 前缀：${_basePath.isEmpty ? '根路径' : _basePath}',
+      '证书校验：${ignoreSsl ? '已跳过（仅限局域网）' : '系统默认'}',
+      '登录状态：${_token == null ? '未登录' : '已取得令牌'}',
+      '',
+      '① 图片自检（浏览器打开应返回图片）：',
+      pic,
+      '',
+      '② 播放自检（浏览器/播放器打开应能拉流）：',
+      streamUrl(id),
+      '',
+      '③ 首条 Item 原始 JSON 片段（看 ImageTags / MediaSources）：',
+      _sampleItemJson.isEmpty ? '（尚未拉到条目）' : _sampleItemJson,
+      '',
+      '以上地址包含访问令牌，请勿外传。',
+    ].join('\n');
+  }
+
   String get rootUrl => '${secure ? 'https' : 'http'}://$host:$port';
 
   /// API 基址 = [rootUrl] + 探测出的 [_basePath]。
   /// v2.0.87：登录会把前缀结果定下来，全文件 60+ 处拼 URL 的地方自动跟随。
   String get baseUrl => '$rootUrl$_basePath';
+
+  /// 绿联影视中心是**独立服务器类型**（v2.0.88）。它只实现 Emby 接口子集：
+  /// 登录 / Items 查询可能兼容 `/emby` 前缀，但图片与流端点**只在站点根路径**。
+  bool get isUgreen => kind == ServerKind.ugreen;
+
+  /// 资源基址（图片 / 视频流 / 字幕 / HLS）。
+  ///
+  /// 这是 v2.0.88 修「只有简介正常、海报裂图、播放 403/404」的关键：
+  /// 之前所有资源 URL 都拼 [baseUrl]，而登录探测一旦把 [_basePath] 定成
+  /// `/emby`（绿联对 `/emby/Users/AuthenticateByName` 也会返回合法 token），
+  /// 图片和流就全都打到不存在的 `/emby/Items/...` 上。文档第五节给的
+  /// 绿联模板明确无前缀，故资源请求恒用 [rootUrl]，与 API 前缀解耦。
+  String get assetUrl => isUgreen ? rootUrl : baseUrl;
 
   /// 本类唯一允许创建 [HttpClient] 的地方（v2.0.87）。
   ///
@@ -151,7 +202,8 @@ class EmbyServer {
     final path = u.startsWith('/') ? u : '/$u';
     // 服务器已经带了 /emby 前缀时直接拼 origin，避免出现 /emby/emby
     if (path.startsWith('/emby/')) return '$rootUrl$path';
-    return '$rootUrl$_basePath$path';
+    // 绿联的相对资源地址一律落在根路径，不跟随 API 前缀。
+    return isUgreen ? '$rootUrl$path' : '$rootUrl$_basePath$path';
   }
 
   /// 认证：POST /Users/AuthenticateByName
@@ -168,9 +220,9 @@ class EmbyServer {
   /// 播放 URL 全部跟随。证书错误 / 超时 / 密码错不会被误判成路径问题，
   /// 直接抛给用户，避免重试之后给出误导性报错。
   Future<void> authenticate() async {
-    final candidates = kind == ServerKind.jellyfin
-        ? const <String>['']
-        : const <String>['/emby', ''];
+    final candidates = kind == ServerKind.emby
+        ? const <String>['/emby', '']
+        : const <String>['', '/emby'];
     Object? lastMiss;
     for (final prefix in candidates) {
       _basePath = prefix;
@@ -284,6 +336,10 @@ class EmbyServer {
       total = (json['TotalRecordCount'] as int?) ?? all.length;
       final list = (json['Items'] as List<dynamic>? ?? []);
       if (list.isEmpty) break;
+      if (_sampleItemJson.isEmpty) {
+        final raw = jsonEncode(list.first);
+        _sampleItemJson = raw.length > 1200 ? raw.substring(0, 1200) : raw;
+      }
       all.addAll(list.map((e) => _fromJson(e as Map<String, dynamic>)));
       start += list.length;
       if (list.length < pageSize) break;
@@ -297,17 +353,23 @@ class EmbyServer {
     String type = 'Primary',
     int maxWidth = 400,
   }) =>
-      '$baseUrl/Items/$itemId/Images/$type?maxWidth=$maxWidth&api_key=$_token';
+      '$assetUrl/Items/$itemId/Images/$type?maxWidth=$maxWidth&api_key=${_token ?? ''}';
 
   /// 播放地址
   /// direct=true  → 直连原片（省服务端资源，适合客户端能解码的容器）
   /// direct=false → HLS 自适应流（兼容性最好）
   String streamUrl(String itemId, {String? mediaSourceId, bool direct = true}) {
+    // 绿联：文档 5.2 给出的可用模板只有 api_key。MediaSources 被阉割，
+    // Static=true / PlaySessionId / MediaSourceId 这些标准参数在部分固件上
+    // 会直接 403/404，所以这里一律自行构造最简直链，不读服务端返回的 url。
+    if (isUgreen) {
+      return '$assetUrl/Videos/$itemId/stream?api_key=${_token ?? ''}';
+    }
     final ms = mediaSourceId != null ? '&MediaSourceId=$mediaSourceId' : '';
     final sid = '&PlaySessionId=${ensurePlaySessionId()}';
     return direct
-        ? '$baseUrl/Videos/$itemId/stream?Static=true$ms$sid&api_key=$_token'
-        : '$baseUrl/Videos/$itemId/master.m3u8$ms$sid&api_key=$_token';
+        ? '$assetUrl/Videos/$itemId/stream?Static=true$ms$sid&api_key=$_token'
+        : '$assetUrl/Videos/$itemId/master.m3u8$ms$sid&api_key=$_token';
   }
 
   /// v2.0.85：投屏字幕烧录模式专用地址。字幕已经在画面里，投屏面板此时
@@ -318,7 +380,7 @@ class EmbyServer {
     String? mediaSourceId,
   }) =>
       buildBurnSubtitleUrl(
-        baseUrl: baseUrl,
+        baseUrl: assetUrl,
         itemId: itemId,
         apiKey: _token ?? '',
         subtitleStreamIndex: subtitleStreamIndex,
@@ -328,7 +390,7 @@ class EmbyServer {
 
   /// 拼一条带鉴权的播放 URL（统一走 Uri，避免手拼 & 时漏转义）。
   String _playbackUrl(String path, Map<String, String> params) =>
-      Uri.parse('$baseUrl$path')
+      Uri.parse('$assetUrl$path')
           .replace(queryParameters: {...params, 'api_key': _token ?? ''})
           .toString();
 
@@ -368,6 +430,21 @@ class EmbyServer {
       directPlayParams(playSessionId: sid, mediaSourceId: msId),
     );
     lastPlaybackDiagnostic = '';
+    // 绿联影视中心：文档 5.2 坑 3 指出 MediaSources 结构被阉割，
+    // TranscodingUrl / DirectStreamUrl 往往为空，PlaybackInfo 协商没有意义。
+    // 直接走根路径直链，避免协商失败后落到一个带 /emby 的兜底地址。
+    if (isUgreen) {
+      final u = streamUrl(item.id, mediaSourceId: msId);
+      lastPlaybackDiagnostic = '绿联影视中心 · 根路径直链';
+      return PlaybackRoute(
+        url: u,
+        fallbackUrl: u,
+        playMethod: 'DirectPlay',
+        playSessionId: sid,
+        negotiated: false,
+        diagnostic: lastPlaybackDiagnostic,
+      );
+    }
     if (plan.audioDelivery == AudioDelivery.direct) {
       return PlaybackRoute(
         url: direct,
@@ -852,17 +929,17 @@ class EmbyServer {
               .trim();
       final subPath = ((m['Path'] as String?) ?? '').trim();
       final stdRoute =
-          '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+          '$assetUrl/Videos/$id/$sourceId/Subtitles/$idx/'
           '0/Stream.$fmt?api_key=$_token';
       final noZeroRoute =
-          '$baseUrl/Videos/$id/$sourceId/Subtitles/$idx/'
+          '$assetUrl/Videos/$id/$sourceId/Subtitles/$idx/'
           'Stream.$fmt?api_key=$_token';
       final oldRoute =
-          '$baseUrl/Videos/$id/Subtitles/$idx/'
+          '$assetUrl/Videos/$id/Subtitles/$idx/'
           'Stream.$fmt?api_key=$_token';
       final fileRoute = subPath.isEmpty
           ? ''
-          : '$baseUrl/Items/$id/File'
+          : '$assetUrl/Items/$id/File'
                 '?Path=${Uri.encodeQueryComponent(subPath)}&api_key=$_token';
 
       final ordered = <String>[
@@ -913,7 +990,7 @@ class EmbyServer {
     final String? posterTag = imageData['Primary'] as String?;
     final backdrops = <String>[
       for (var i = 0; i < backdropTags.length; i++)
-        '$baseUrl/Items/$id/Images/Backdrop/$i?maxWidth=1280&api_key=$_token&tag=${backdropTags[i]}',
+        '$assetUrl/Items/$id/Images/Backdrop/$i?maxWidth=1280&api_key=$_token&tag=${backdropTags[i]}',
     ];
     // 远程预告片（Emby RemoteTrailers，多为 YouTube 外链）
     final remoteTrailers = (j['RemoteTrailers'] as List<dynamic>? ?? const []);
@@ -960,14 +1037,16 @@ class EmbyServer {
       posterAspect:
           (j['PrimaryImageAspectRatio'] as num?)?.toDouble() ?? 0.6667,
       posterUrl: posterTag != null
-          ? '$baseUrl/Items/$id/Images/Primary?maxWidth=800&api_key=$_token&tag=$posterTag'
+          ? '$assetUrl/Items/$id/Images/Primary?maxWidth=800&api_key=$_token&tag=$posterTag'
           : null,
       backdropUrl: backdrops.isNotEmpty ? backdrops.first : null,
       backdrops: backdrops,
       trailerUrls: trailerUrls,
       extraParts: extraParts,
       resolutionKnown: heightFound,
-      videoUrl: '$baseUrl/Videos/$id/stream?Static=true&api_key=$_token',
+      videoUrl: isUgreen
+          ? streamUrl(id)
+          : '$assetUrl/Videos/$id/stream?Static=true&api_key=$_token',
       addedDaysAgo: _addedDays(j['DateCreated'] as String?),
       filePath: effectivePath,
       fileSizeBytes: msSize,
@@ -2422,7 +2501,7 @@ class EmbyServer {
   /// 把 200px 缩略图放大铺成满幅 340dp banner，既发糊又构图被切。
   String personImageUrl(String personId, String? tag, {int maxWidth = 200}) {
     final t = tag != null ? '&tag=$tag' : '';
-    return '$baseUrl/Items/$personId/Images/Primary?maxWidth=$maxWidth&api_key=$_token$t';
+    return '$assetUrl/Items/$personId/Images/Primary?maxWidth=$maxWidth&api_key=$_token$t';
   }
 
   /// 是否为可自动重试的网络瞬断。

@@ -1,10 +1,63 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.87 (287)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.88 (288)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.88 (288) 绿联影视中心独立接入 + 继续观看虚拟库（附三份设计稿）
+
+用户一次提了 6 项。**1 / 2 / 3 只出设计稿、等确认，本版未改一行业务代码**：
+`/workspace/Camby媒体库选择器与浅色主题设计稿.html` 覆盖媒体库 2 列分类选择弹窗、
+收藏页重做、浅色白色玻璃主题，§0 列了 5 件待拍板的事，§4 给了 P0/P1/P2 分期。
+其中 §3 明确写清：Flutter 里做不出 iOS 那种真折射液态玻璃（v2.0.77～79 已完整试过
+shader 折射 + 动态镜面 + 缩模糊，真机 `ImageFilter.shader` 不可用，v2.0.81 已全量
+收敛为纯毛玻璃），所以浅色质感给的是**可落地的近似配方**（高饱和玻璃 + 弧形镜面
+高光 + 边缘色散 + 厚度阴影），不是恢复已删除的 `liquid_glass.frag`。
+
+**4 · 继续观看补「查看全部」**：`models.dart` 新增哨兵 `kContinueViewId =
+'__camby_continue__'` 与 `kContinueView`，与「最近添加」并列为第二个虚拟媒体库。
+`HomePage.onOpenContinue` → `main._openContinueLibrary()` 独立落点，不再复用
+`_openAllLibrary()`；`LibraryPage._source` 直接返回本地派生的 `state.continueWatching`，
+零网络请求；chip 行扩到 `state.views.length + 3`，青色虚线 chip + 播放图标，
+副标题「继续观看 · 虚拟媒体库 · N 项」。删掉了已无用的 `onOpenAll` 链路。
+
+**5 · 绿联影视中心独立服务器类型**：按用户要求不再和 Emby 混在一起。
+`ServerKind { emby, jellyfin, ugreen }`，设置页「我的服务器」新增独立入口卡
+「绿联影视中心 / UGOS Pro · HTTPS 9443 · 自签证书 · 不支持进度同步」；
+进入后预设 9443 + HTTPS + 自动勾选忽略证书，协议区显示 `HTTPS · 强制` 且不允许切回
+HTTP，账号 hint 改为「影视中心媒体服务器账号（非 NAS 管理员）」，表单不显示
+Emby / Jellyfin 分段。`ServerProfile.fromJson()` 把 v2.0.87 存的旧形态
+（`emby` + `ignore_ssl` + `secure` + `9443`）自动迁移为 `ugreen`，老用户不用重填。
+进度降级判据从「猜端口」改成 `kind != ServerKind.ugreen`。
+
+**6 · 修图片与播放地址（依据《绿联NAS媒体中心对接Emby兼容方案》第五点）**：
+文档确认绿联不是完整 Emby，只实现接口子集——图片 / 视频流地址**不带 `/emby/` 前缀**
+且必须带 `api_key`，`MediaSources` 被阉割，不能依赖 `TranscodingUrl` /
+`DirectStreamUrl`。v2.0.87 只修了「能不能连上」，资源地址仍按标准 Emby 拼，
+所以刷得到简介、拿不到图片和播放地址。
+
+- **API 与资源基址分离**：`baseUrl = rootUrl + _basePath` 只管 API；新增
+  `assetUrl => isUgreen ? rootUrl : baseUrl`，图片 / backdrop / poster / videoUrl /
+  字幕候选 / 演员图 / HLS / 烧录 URL / `_absolutize()` 全部改走 `assetUrl`。
+- **播放走最简直链**：`streamUrl()` 绿联专用
+  `https://ip:9443/Videos/{id}/stream?api_key=...`；`resolvePlayback()` 绿联不做
+  `PlaybackInfo` / `MediaSources` 协商，直接返回根路径直链并标注诊断。
+- **前缀探测顺序反转**：绿联候选 `['', '/emby']`（先根路径），标准 Emby 仍 `['/emby', '']`。
+- **图片网络层也要忽略证书**：v2.0.87 收口的 `EmbyServer._newClient()` 和 Kotlin
+  `HttpsURLConnection` 默认值都管不到 `CachedNetworkImage` 背后那套
+  `flutter_cache_manager → HttpFileService → dart:io HttpClient`。新增
+  `lib/widgets/image_ssl.dart`，用 `CacheManager(Config(DefaultCacheManager.key,
+  fileService: HttpFileService(httpClient: ...)))` 动态设置 `badCertificateCallback`；
+  `cached_image.dart` 的 `_probeCache()` 与 `CachedNetworkImage` 统一改用
+  `ImageSsl.manager`，切换 / 断开服务器时回调实时读取开关，不遗留全局信任。
+- **连接诊断面板**：`EmbyServer.diagnostics()` 输出服务器类型、站点根地址、API 基址、
+  资源基址、API 前缀、证书校验状态、图片自检 URL、播放自检 URL 与首条 Item 原始
+  JSON 片段；`AppState.serverDiagnostics` + 设置页「连接诊断」入口用
+  `SelectableText` 展示，并提示内容含令牌勿外传。
+
+DLNA UA 同步 `Camby/2.0.88`。完整门禁与解包复核见 [VERIFICATION.md](./VERIFICATION.md) §102。
 
 ### v2.0.87 (287) 接入绿联 NAS 影视中心（方案 A：忽略 SSL 证书校验）
 

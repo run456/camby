@@ -10,7 +10,10 @@ enum MediaType { movie, series, episode }
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
 /// - jellyfin：根路径
-enum ServerKind { emby, jellyfin }
+/// 服务器类型。v2.0.88 起 [ugreen] 是**独立入口**：绿联影视中心只是
+/// Emby 接口子集，图片 / 流地址与标准 Emby 不同（见兼容方案文档第五节），
+/// 必须靠类型标记走不同的资源 URL 拼法，不能继续当普通 Emby 猜端口。
+enum ServerKind { emby, jellyfin, ugreen }
 
 /// 视频动态范围（Emby `MediaStreams[].VideoRangeType`）。
 ///
@@ -88,6 +91,7 @@ class ServerProfile {
   String get kindLabel => switch (kind) {
     ServerKind.jellyfin => 'Jellyfin',
     ServerKind.emby => 'Emby',
+    ServerKind.ugreen => '绿联影视中心',
   };
   String get address => '${secure ? 'https' : 'http'}://$host:$port';
 
@@ -124,21 +128,35 @@ class ServerProfile {
     'ignore_ssl': ignoreSsl,
   };
 
-  factory ServerProfile.fromJson(Map<String, dynamic> j) => ServerProfile(
-    id: j['id'] as String? ?? '',
-    name: j['name'] as String? ?? '',
-    host: j['host'] as String? ?? '',
-    port: j['port'] as int? ?? 8096,
-    secure: j['secure'] as bool? ?? false,
-    username: j['username'] as String? ?? '',
-    password: j['password'] as String? ?? '',
-    // 旧版本的「绿联 NAS」配置按 Emby 兼容处理
-    kind: (j['kind'] as String?) == 'jellyfin'
-        ? ServerKind.jellyfin
-        : ServerKind.emby,
-    // 旧配置没有这个键 → 默认关闭，不会把旧版「隐式全开」继承过来
-    ignoreSsl: j['ignore_ssl'] as bool? ?? false,
-  );
+  factory ServerProfile.fromJson(Map<String, dynamic> j) {
+    final port = j['port'] as int? ?? 8096;
+    final secure = j['secure'] as bool? ?? false;
+    final ignoreSsl = j['ignore_ssl'] as bool? ?? false;
+    var kind = switch (j['kind'] as String?) {
+      'jellyfin' => ServerKind.jellyfin,
+      'ugreen' => ServerKind.ugreen,
+      // 旧版本没有 ugreen 这个值，历史配置仍按 Emby 还原。
+      _ => ServerKind.emby,
+    };
+    // v2.0.87 的绿联配置是「Emby + HTTPS 9443 + 忽略证书」。升级到 88
+    // 时自动识别为独立类型，否则旧配置仍会拼 /emby 资源地址而继续裂图。
+    // 条件足够窄：9443 是影视中心固定端口，标准 Emby 不会同时满足。
+    if (kind == ServerKind.emby && ignoreSsl && secure && port == 9443) {
+      kind = ServerKind.ugreen;
+    }
+    return ServerProfile(
+      id: j['id'] as String? ?? '',
+      name: j['name'] as String? ?? '',
+      host: j['host'] as String? ?? '',
+      port: port,
+      secure: secure,
+      username: j['username'] as String? ?? '',
+      password: j['password'] as String? ?? '',
+      kind: kind,
+      // 旧配置没有这个键 → 默认关闭，不会把旧版「隐式全开」继承过来
+      ignoreSsl: ignoreSsl,
+    );
+  }
 }
 
 /// 归一后的性别取值（v2.0.61 / G4）。
@@ -1201,12 +1219,26 @@ class MediaItem {
 /// 由媒体库页在 chip 行单独拼一项，取数直接走本地 `recentlyAdded`。
 const String kRecentViewId = '__camby_recent__';
 
+/// v2.0.88：首页「继续观看 → 查看全部」的落点。以前这个入口跳「全部」
+/// 媒体库，语义不对（会看到所有影片而不是没看完的那几部）。
+const String kContinueViewId = '__camby_continue__';
+
 const LibraryView kRecentView = LibraryView(
   id: kRecentViewId,
   name: '最近添加',
 );
 
-bool isVirtualViewId(String? id) => id == kRecentViewId;
+const LibraryView kContinueView = LibraryView(
+  id: kContinueViewId,
+  name: '继续观看',
+);
+
+bool isVirtualViewId(String? id) =>
+    id == kRecentViewId || id == kContinueViewId;
+
+bool isRecentViewId(String? id) => id == kRecentViewId;
+
+bool isContinueViewId(String? id) => id == kContinueViewId;
 
 /// 媒体库（Emby UserView）
 class LibraryView {

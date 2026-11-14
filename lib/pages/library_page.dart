@@ -126,11 +126,12 @@ class _LibraryPageState extends State<LibraryPage> {
     if (mounted) setState(() => _viewLoading = false);
   }
 
-  /// v2.0.86：虚拟库取本地「按入库时间」派生列表，不查服务端、不依赖 _viewItems。
+  /// 虚拟库取本地派生列表，不查服务端、不依赖 _viewItems。
+  /// v2.0.88 增加「继续观看」：直接展示未看完的条目，而不是打回「全部」。
   List<MediaItem> get _source {
-    if (isVirtualViewId(widget.state.selectedViewId)) {
-      return widget.state.recentlyAdded;
-    }
+    final vid = widget.state.selectedViewId;
+    if (isContinueViewId(vid)) return widget.state.continueWatching;
+    if (isRecentViewId(vid)) return widget.state.recentlyAdded;
     return _viewItems ?? widget.state.items;
   }
 
@@ -252,7 +253,9 @@ class _LibraryPageState extends State<LibraryPage> {
             );
     }
     final wide = context.isTablet;
-    final isRecent = isVirtualViewId(state.selectedViewId);
+    final isRecent = isRecentViewId(state.selectedViewId);
+    final isContinue = isContinueViewId(state.selectedViewId);
+    final isVirtual = isRecent || isContinue;
     final key =
         '${state.selectedViewId}|$_sort|${_desc.join()}|${_resFilters.join()}'
         '|$_cnOnly|${_tagFilters.join()}'
@@ -382,8 +385,8 @@ class _LibraryPageState extends State<LibraryPage> {
                                 ),
                               ),
                               Text(
-                                isRecent
-                                    ? '最近添加 · 虚拟媒体库 · ${list.length} 项'
+                                isVirtual
+                                    ? '${isContinue ? '继续观看' : '最近添加'} · 虚拟媒体库 · ${list.length} 项'
                                     : state.demoMode
                                         ? '演示数据'
                                         : '${state.sourceLabel} · ${list.length} 项',
@@ -423,15 +426,15 @@ class _LibraryPageState extends State<LibraryPage> {
                     ),
                     const SizedBox(height: 12),
                     // 媒体库分组：全部 | 最近添加(虚拟) | Emby 真实库…
-                    if (state.views.isNotEmpty || isRecent)
+                    if (state.views.isNotEmpty || isVirtual)
                       SizedBox(
                         height: 34,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: state.views.length + 2,
+                          itemCount: state.views.length + 3,
                           itemBuilder: (c, i) {
-                            // v2.0.86：虚拟库 chip 固定排在「全部」之后、真实
-                            // UserView 之前，用紫色虚线与真实库视觉区分。
+                            // 虚拟库 chip 固定排在「全部」之后、真实 UserView
+                            // 之前，用虚线胶囊与真实库视觉区分。
                             if (i == 1) {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 8),
@@ -444,8 +447,25 @@ class _LibraryPageState extends State<LibraryPage> {
                                 ),
                               );
                             }
+                            if (i == 2) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: LiquidPress(
+                                  radius: 17,
+                                  scale: 0.95,
+                                  semanticLabel: '继续观看虚拟媒体库',
+                                  onTap: () => _selectView(kContinueViewId),
+                                  child: _VirtualChip(
+                                    selected: isContinue,
+                                    label: '继续观看',
+                                    icon: Icons.play_circle_outline_rounded,
+                                    color: AppColors.cyan,
+                                  ),
+                                ),
+                              );
+                            }
                             final isAll = i == 0;
-                            final v = isAll ? null : state.views[i - 2];
+                            final v = isAll ? null : state.views[i - 3];
                             final sel = isAll
                                 ? state.selectedViewId == null
                                 : state.selectedViewId == v!.id;
@@ -542,12 +562,15 @@ class _LibraryPageState extends State<LibraryPage> {
                         : isRecent
                             ? '「最近添加」是 Camby 按入库时间生成的虚拟媒体库，'
                                 '同步到影片后这里就会列出全部条目。'
-                            : (state.server == null
-                                ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
-                                : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
+                            : isContinue
+                                ? '「继续观看」列出所有没看完的影片与剧集，'
+                                    '播放任意一部后这里就会出现。'
+                                : (state.server == null
+                                    ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
+                                    : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
                     primaryLabel: _asFilter.activeCount > 0
                         ? '清除筛选'
-                        : isRecent
+                        : isVirtual
                             ? '刷新媒体库'
                             : (state.server == null ? '去连接服务器' : '刷新媒体库'),
                     onPrimary: () {
@@ -556,7 +579,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           _clearFilters();
                           _cacheKey = '';
                         });
-                      } else if (isRecent) {
+                      } else if (isVirtual) {
                         _onRefresh();
                       } else if (state.server == null) {
                         widget.onGoSettings?.call();
@@ -664,32 +687,39 @@ class _FilterChip extends StatelessWidget {
 /// 的实线灰胶囊明确区分；不引入 dotted_border 之类的新依赖，虚线用
 /// `Path.computeMetrics()` 自己切段画。
 class _VirtualChip extends StatelessWidget {
-  const _VirtualChip({required this.selected});
+  const _VirtualChip({
+    required this.selected,
+    this.label = '最近添加',
+    this.icon = Icons.schedule_rounded,
+    this.color = AppColors.secondary,
+  });
   final bool selected;
+  final String label;
+  final IconData icon;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    const violet = AppColors.secondary;
-    final line = selected ? violet : violet.withOpacity(0.62);
+    final line = selected ? color : color.withOpacity(0.62);
     return CustomPaint(
       painter: _DashedOvalPainter(line),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
-          color: selected ? violet.withOpacity(0.26) : violet.withOpacity(0.08),
+          color: selected ? color.withOpacity(0.26) : color.withOpacity(0.08),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.schedule_rounded, size: 12, color: line),
+            Icon(icon, size: 12, color: line),
             const SizedBox(width: 5),
             Text(
-              '最近添加',
+              label,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: selected ? Colors.white : const Color(0xFFBFAEFF),
+                color: selected ? Colors.white : color.withOpacity(0.82),
               ),
             ),
             const SizedBox(width: 4),

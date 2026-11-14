@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../theme.dart';
+import 'image_ssl.dart';
 import 'skeleton.dart';
 
 /// 生成稳定的图片缓存 key：去掉会随登录变化的 `api_key`，
@@ -77,7 +78,7 @@ class _CachedImageState extends State<CachedImage> {
     final u = widget.url;
     if (u == null || u.isEmpty) return null;
     try {
-      return await DefaultCacheManager().getFileFromCache(imageCacheKey(u));
+      return await ImageSsl.manager.getFileFromCache(imageCacheKey(u));
     } catch (_) {
       // 缓存管理器不可用时按「未命中」处理，走 180ms 淡入，不影响加载。
       return null;
@@ -109,6 +110,7 @@ class _CachedImageState extends State<CachedImage> {
           final instant = snap.data != null;
           return CachedNetworkImage(
             imageUrl: u,
+            cacheManager: ImageSsl.manager,
             cacheKey: imageCacheKey(u),
             fit: widget.fit,
             alignment: widget.alignment,

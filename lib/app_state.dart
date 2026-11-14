@@ -9,9 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'emby_client.dart';
 import 'models.dart';
 import 'player/native_ssl.dart';
-import 'server_address.dart';
 import 'watch_history.dart';
 import 'widgets/haptics.dart';
+import 'widgets/image_ssl.dart';
 
 /// 待上报进度（持久化队列用）
 class _PendingProgress {
@@ -348,6 +348,15 @@ class AppState extends ChangeNotifier {
 
   /// 当前连接是否跳过了 TLS 证书校验（诊断 / 设置页提示用）。
   bool get ignoreSslErrors => _server?.ignoreSsl ?? false;
+
+  /// 绿联接入诊断文本（设置页「连接诊断」入口展示，含拼好的图片/播放 URL）。
+  String get serverDiagnostics => _server?.diagnostics(
+        sampleItemId: _items.isEmpty ? null : _items.first.id,
+      ) ??
+      '尚未连接服务器。';
+
+  /// 当前是否为绿联影视中心（独立服务器类型，v2.0.88）。
+  bool get isUgreenServer => _server?.isUgreen ?? false;
 
   List<LibraryView> get views => _views;
   String? get selectedViewId => _selectedViewId;
@@ -1391,8 +1400,11 @@ class AppState extends ChangeNotifier {
     _error = null;
     notifyListeners();
     // v2.0.87：先同步 Android 播放器原生栈的证书策略，再发任何请求。
-    // 连接失败也要同步（关掉开关时必须恢复系统默认），所以放在 try 外。
+    // v2.0.88：图片走 Dart 的另一套 HttpClient，必须同步设置，否则自签
+    // HTTPS 下海报全部握手失败（文档 5.1 第 3 条）。连接失败也要同步，
+    // 所以放在 try 外。
     await NativeSsl.setIgnoreCertificateErrors(ignoreSsl);
+    ImageSsl.setIgnoreCertificateErrors(ignoreSsl);
     try {
       final server = EmbyServer(
         host: host,
@@ -1411,12 +1423,9 @@ class AppState extends ChangeNotifier {
       _demoMode = false;
       _offline = false;
       _userName = username;
-      // 绿联影视中心（HTTPS 9443）不开放 /Sessions/* 与进度接口：
-      // 连上就关掉服务端上报，只留本机观影日历，并让设置页给出说明。
-      _progressSyncSupported = !isUgreenCompatSource(
-        port: port,
-        secure: secure,
-      );
+      // v2.0.88：绿联是独立的服务器类型，进度能力按类型判定，不再靠
+      // 「HTTPS + 9443」猜来源。连上就关掉服务端上报，只留本机观影日历。
+      _progressSyncSupported = kind != ServerKind.ugreen;
       _loading = false;
       _invalidateDerived();
       notifyListeners();
@@ -1469,6 +1478,7 @@ class AppState extends ChangeNotifier {
     _server = null;
     // 断开后恢复系统证书校验，别让「信任任意证书」留在进程里
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
+    ImageSsl.setIgnoreCertificateErrors(false);
     _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];
@@ -1488,6 +1498,7 @@ class AppState extends ChangeNotifier {
   void useDemo() {
     _server = null;
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
+    ImageSsl.setIgnoreCertificateErrors(false);
     _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];

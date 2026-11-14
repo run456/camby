@@ -45,8 +45,8 @@ void main() {
         state: state,
         onOpenDetail: (_, {String? heroTag}) {},
         onOpenLibrary: (_) {},
-        onOpenAll: () {},
         onOpenRecent: () {},
+        onOpenContinue: () {},
       ),
     );
   });

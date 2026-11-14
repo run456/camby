@@ -29,17 +29,19 @@ class HomePage extends StatefulWidget {
     required this.onOpenDetail,
     required this.state,
     required this.onOpenLibrary,
-    required this.onOpenAll,
     required this.onOpenRecent,
+    required this.onOpenContinue,
   });
 
   final OpenDetail onOpenDetail;
   final void Function(LibraryView view) onOpenLibrary;
-  final VoidCallback onOpenAll;
 
   /// v2.0.86：「最近添加 → 更多」专属跳转，落到虚拟媒体库。
-  /// 「继续观看 → 更多」仍走 [onOpenAll]（全部），两者不再混用。
   final VoidCallback onOpenRecent;
+
+  /// v2.0.88：「继续观看 → 查看全部」专属跳转，落到继续观看虚拟媒体库。
+  /// 三个「更多」入口各回各家，不再统一打回「全部」。
+  final VoidCallback onOpenContinue;
   final AppState state;
 
   @override
@@ -620,8 +622,10 @@ class _HomePageState extends State<HomePage> {
                                 const SizedBox(height: 20),
                                 _RowHeader(
                                   title: '继续观看',
-                                  action: '${state.continueWatching.length} 部',
-                                  onAction: widget.onOpenAll,
+                                  // v2.0.88：明确的「查看全部」入口。以前只显示
+                                  // 「N 部」，看不出可点，点了也只跳「全部」库。
+                                  action: '查看全部',
+                                  onAction: widget.onOpenContinue,
                                 ),
                                 SizedBox(
                                   height: cardW / cardAspect + 2,

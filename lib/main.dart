@@ -223,9 +223,12 @@ class _AppShellState extends State<AppShell>
     _blur.value = false;
   }
 
-  void _openAllLibrary() {
+  /// v2.0.86：首页「最近添加」的「更多」不再等于「全部」，而是落到
+  /// 一个由本地派生列表驱动的虚拟媒体库。用哨兵 ID 与 Emby UserView 区分，
+  /// 媒体库页会单独拼一个 chip 并跳过网络请求。
+  void _openRecentLibrary() {
     setState(() {
-      _state.selectedViewId = null;
+      _state.selectedViewId = kRecentViewId;
       _tab = 1;
       _visited.add(1);
     });
@@ -233,12 +236,12 @@ class _AppShellState extends State<AppShell>
     _blur.value = false;
   }
 
-  /// v2.0.86：首页「最近添加」的「更多」不再等于「全部」，而是落到
-  /// 一个由本地派生列表驱动的虚拟媒体库。用哨兵 ID 与 Emby UserView 区分，
-  /// 媒体库页会单独拼一个 chip 并跳过网络请求。
-  void _openRecentLibrary() {
+  /// v2.0.88：首页「继续观看 → 查看全部」。以前这个入口跳「全部」库，
+  /// 语义不对（会看到全部影片而不是没看完的那几部），现在落到独立的
+  /// 虚拟媒体库，直接展示 continueWatching 全量。
+  void _openContinueLibrary() {
     setState(() {
-      _state.selectedViewId = kRecentViewId;
+      _state.selectedViewId = kContinueViewId;
       _tab = 1;
       _visited.add(1);
     });
@@ -357,8 +360,8 @@ class _AppShellState extends State<AppShell>
             onOpenDetail: _openDetail,
             state: _state,
             onOpenLibrary: _openLibrary,
-            onOpenAll: _openAllLibrary,
             onOpenRecent: _openRecentLibrary,
+            onOpenContinue: _openContinueLibrary,
           ),
           LibraryPage(
             onOpenDetail: _openDetail,

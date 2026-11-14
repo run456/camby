@@ -163,7 +163,44 @@ void main() {
       expect(q.ignoreSsl, isTrue);
       expect(q.port, 9443);
       expect(q.secure, isTrue);
-      expect(q.kind, ServerKind.emby);
+      // v2.0.88：这条配置正是 v2.0.87 保存的绿联形态，反序列化时自动
+      // 升级成独立类型，旧配置才能拿到「资源地址走根路径」的修复。
+      expect(q.kind, ServerKind.ugreen);
+    });
+
+    test('v2.0.88 旧配置迁移：只有 HTTPS 9443 + 忽略证书才升级', () {
+      Map<String, dynamic> base() => {
+        'id': 'old',
+        'name': 'old',
+        'host': '10.0.0.2',
+        'port': 9443,
+        'secure': true,
+        'username': 'u',
+        'password': 'p',
+        'kind': 'emby',
+        'ignore_ssl': true,
+      };
+      expect(ServerProfile.fromJson(base()).kind, ServerKind.ugreen);
+      expect(
+        ServerProfile.fromJson({...base(), 'port': 8096}).kind,
+        ServerKind.emby,
+      );
+      expect(
+        ServerProfile.fromJson({...base(), 'secure': false}).kind,
+        ServerKind.emby,
+      );
+      expect(
+        ServerProfile.fromJson({...base(), 'ignore_ssl': false}).kind,
+        ServerKind.emby,
+      );
+      expect(
+        ServerProfile.fromJson({...base(), 'kind': 'jellyfin'}).kind,
+        ServerKind.jellyfin,
+      );
+      expect(
+        ServerProfile.fromJson({...base(), 'kind': 'ugreen'}).kind,
+        ServerKind.ugreen,
+      );
     });
 
     test('旧配置没有 ignore_ssl 键 → 默认关闭，不继承旧版隐式全开', () {
@@ -343,10 +380,14 @@ void main() {
       expect(d.contains('setIgnoreCertificateErrors'), isTrue);
     });
 
-    test('app_state：连接同步原生开关、绿联关进度、断开恢复', () {
+    test('app_state：连接同步原生 + 图片证书开关、绿联按类型关进度、断开恢复', () {
       final s = src('lib/app_state.dart');
       expect(s.contains('NativeSsl.setIgnoreCertificateErrors(ignoreSsl)'), isTrue);
-      expect(s.contains('isUgreenCompatSource('), isTrue);
+      expect(s.contains('ImageSsl.setIgnoreCertificateErrors(ignoreSsl)'), isTrue);
+      expect(s.contains('ImageSsl.setIgnoreCertificateErrors(false)'), isTrue);
+      // v2.0.88：进度能力按独立类型判定，不再靠 9443 猜来源
+      expect(s.contains('kind != ServerKind.ugreen'), isTrue);
+      expect(s.contains('isUgreenCompatSource('), isFalse);
       // 4 个上报入口各一处早退：进度直写 / 队列冲刷 / 起播 / 退出
       expect('!_progressSyncSupported'.allMatches(s).length, 4);
       expect(s.contains('ignoreSsl: profile.ignoreSsl'), isTrue);
@@ -357,27 +398,45 @@ void main() {
       );
     });
 
-    test('设置页：方案 A 复选框默认关闭、风险提示、完整地址粘贴', () {
+    test('设置页：方案 B 独立绿联入口、证书开关、风险提示、完整地址粘贴', () {
       final s = src('lib/pages/settings_page.dart');
       expect(s.contains('late bool _ignoreSsl;'), isTrue);
-      expect(s.contains('_ignoreSsl = p?.ignoreSsl ?? false;'), isTrue);
+      expect(s.contains('_ignoreSsl = p?.ignoreSsl ?? isUgreenPreset;'), isTrue);
       expect(s.contains('忽略 SSL 证书校验'), isTrue);
       expect(s.contains('中间人风险'), isTrue);
       expect(s.contains('parseServerAddress('), isTrue);
       expect(s.contains('_onHostChanged'), isTrue);
       expect(s.contains('kUgreenProgressHint'), isTrue);
       expect(s.contains('证书校验失败'), isTrue);
-      // 不新增服务器类型（方案 A 的边界）：类型分段仍只有 Emby / Jellyfin
+      // 独立入口：Emby / Jellyfin 表单仍只有两项，绿联走专属卡片
       expect(s.contains("items: const ['Emby', 'Jellyfin']"), isTrue);
-      expect(src('lib/models.dart').contains('enum ServerKind {'), isTrue);
+      expect(s.contains('presetKind: ServerKind.ugreen,'), isTrue);
+      expect(s.contains("'连接绿联影视中心'"), isTrue);
+      expect(s.contains("'HTTPS · 强制'"), isTrue);
+      expect(s.contains('state.serverDiagnostics'), isTrue);
+      expect(
+        src('lib/models.dart').contains('enum ServerKind { emby, jellyfin, ugreen }'),
+        isTrue,
+      );
     });
 
-    test('版本与文档同步到 v2.0.87', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.87+287'), isTrue);
-      expect(src('README.md').contains('v2.0.87 (287)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.87 (287)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§101'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.87'), isTrue);
+    test('图片网络层：证书开关对 CachedNetworkImage 生效', () {
+      final s = src('lib/widgets/image_ssl.dart');
+      expect(s.contains('badCertificateCallback'), isTrue);
+      expect(s.contains('ignoreCertificateErrors'), isTrue);
+      expect(s.contains('HttpFileService(httpClient:'), isTrue);
+      expect(s.contains('DefaultCacheManager.key'), isTrue);
+      final c = src('lib/widgets/cached_image.dart');
+      expect(c.contains('cacheManager: ImageSsl.manager'), isTrue);
+      expect(c.contains('ImageSsl.manager.getFileFromCache'), isTrue);
+    });
+
+    test('版本与文档同步到 v2.0.88', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.88+288'), isTrue);
+      expect(src('README.md').contains('v2.0.88 (288)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.88 (288)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§102'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.88'), isTrue);
     });
   });
 }

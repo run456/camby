@@ -401,6 +401,70 @@ class _ServersSection extends StatelessWidget {
           style: TextStyle(fontSize: 10.5, color: AppColors.muted),
         ),
         const SizedBox(height: 9),
+        // v2.0.88：绿联影视中心是**独立连接入口**，不再塞进 Emby 表单的
+        // 类型分段里。它只是 Emby 接口子集，资源地址规则、进度能力都不同，
+        // 单独一张卡也方便把预设和风险提示讲清楚。
+        LiquidPress(
+          radius: 20,
+          scale: 0.985,
+          onTap: () => _openSheet(
+            context,
+            null,
+            presetKind: ServerKind.ugreen,
+          ),
+          child: Glass(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF19B394), Color(0xFF0E7C86)],
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.storage_rounded,
+                    size: 21,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 11),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '绿联影视中心',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'UGOS Pro · HTTPS 9443 · 自签证书 · 不支持进度同步',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: Color(0xFF4BE0BE),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
         if (servers.isEmpty)
           Glass(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
@@ -509,6 +573,37 @@ class _ServersSection extends StatelessWidget {
               ),
             ),
           ),
+          // v2.0.88：文档 5.3 第 3 条。把拼好的图片 / 播放 URL 与首条
+          // Item 原始字段摊开，用户可按 5.4 顺序逐条贴进浏览器自检。
+          LiquidPress(
+            onTap: () => showAppDialog<void>(
+              context: context,
+              title: '连接诊断',
+              body: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 340),
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    state.serverDiagnostics,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      height: 1.55,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+              actions: const [AppDialogAction(label: '知道了', value: null)],
+            ),
+            radius: 8,
+            scale: 0.94,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                '连接诊断 · 图片与播放地址',
+                style: TextStyle(fontSize: 11, color: AppColors.accent),
+              ),
+            ),
+          ),
         ],
       ],
     );
@@ -565,14 +660,29 @@ class _ServerCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   gradient: LinearGradient(
-                    colors: p.kind == ServerKind.jellyfin
-                        ? const [Color(0xFF7B5CFF), Color(0xFF4F8CFF)]
-                        : const [AppColors.accent, Color(0xFF159F88)],
+                    colors: switch (p.kind) {
+                      ServerKind.jellyfin => const [
+                        Color(0xFF7B5CFF),
+                        Color(0xFF4F8CFF),
+                      ],
+                      ServerKind.ugreen => const [
+                        Color(0xFF19B394),
+                        Color(0xFF0E7C86),
+                      ],
+                      ServerKind.emby => const [
+                        AppColors.accent,
+                        Color(0xFF159F88),
+                      ],
+                    },
                   ),
                 ),
                 child: Center(
                   child: Text(
-                    p.kind == ServerKind.jellyfin ? 'J' : 'E',
+                    switch (p.kind) {
+                      ServerKind.jellyfin => 'J',
+                      ServerKind.ugreen => '绿',
+                      ServerKind.emby => 'E',
+                    },
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -766,14 +876,20 @@ class _ServerSheetState extends State<_ServerSheet> {
   void initState() {
     super.initState();
     final p = widget.profile;
+    // v2.0.88：绿联是独立入口（不从 Emby 表单混进来），预设 HTTPS 9443
+    // 并自动勾选忽略证书，用户只需要填 IP 和影视中心账号。
+    final isUgreenPreset =
+        (p?.kind ?? widget.presetKind) == ServerKind.ugreen;
     _name = TextEditingController(text: p?.name ?? '');
     _host = TextEditingController(text: p?.host ?? '');
-    _port = TextEditingController(text: (p?.port ?? 8096).toString());
+    _port = TextEditingController(
+      text: (p?.port ?? (isUgreenPreset ? 9443 : 8096)).toString(),
+    );
     _user = TextEditingController(text: p?.username ?? '');
     _pwd = TextEditingController(text: p?.password ?? '');
     _kind = p?.kind ?? widget.presetKind ?? ServerKind.emby;
-    _secure = p?.secure ?? false;
-    _ignoreSsl = p?.ignoreSsl ?? false;
+    _secure = p?.secure ?? isUgreenPreset;
+    _ignoreSsl = p?.ignoreSsl ?? isUgreenPreset;
     _host.addListener(_onHostChanged);
   }
 
@@ -871,12 +987,14 @@ class _ServerSheetState extends State<_ServerSheet> {
       _loading = true;
       _result = null;
     });
+    final isUgreen = _kind == ServerKind.ugreen;
     final p = ServerProfile(
       id: widget.profile?.id ?? 's${DateTime.now().microsecondsSinceEpoch}',
       name: _name.text.trim().isEmpty ? host : _name.text.trim(),
       host: host,
       port: addr.port,
-      secure: addr.secure,
+      // 绿联影视中心不提供 HTTP，强制 HTTPS，避免粘贴 http:// 后落到 9443 明文
+      secure: isUgreen ? true : addr.secure,
       username: user,
       password: _pwd.text,
       kind: _kind,
@@ -889,7 +1007,7 @@ class _ServerSheetState extends State<_ServerSheet> {
       _resultOk = ok;
       _result = ok
           ? '连接成功，已载入 ${widget.state.items.length} 个条目'
-                '${isUgreenCompatSource(port: addr.port, secure: addr.secure) ? '\n$kUgreenProgressHint' : ''}'
+                '${isUgreen || isUgreenCompatSource(port: addr.port, secure: addr.secure) ? '\n$kUgreenProgressHint' : ''}'
           : _friendlyConnectError(host, widget.state.error);
     });
     if (ok) {
@@ -902,7 +1020,10 @@ class _ServerSheetState extends State<_ServerSheet> {
   @override
   Widget build(BuildContext context) {
     final detectedPort = int.tryParse(_port.text.trim()) ?? 8096;
-    final ugreen = isUgreenCompatSource(port: detectedPort, secure: _secure);
+    final isUgreen = _kind == ServerKind.ugreen;
+    // 独立绿联入口恒为绿联；普通 Emby 表单里填了 9443 也仍给兼容提示。
+    final ugreen = isUgreen ||
+        isUgreenCompatSource(port: detectedPort, secure: _secure);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -932,7 +1053,9 @@ class _ServerSheetState extends State<_ServerSheet> {
                   children: [
                     Expanded(
                       child: Text(
-                        _editing ? '编辑服务器' : '添加服务器',
+                        isUgreen
+                            ? (_editing ? '编辑绿联影视中心' : '连接绿联影视中心')
+                            : (_editing ? '编辑服务器' : '添加服务器'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -942,12 +1065,38 @@ class _ServerSheetState extends State<_ServerSheet> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _Segment(
-                      items: const ['Emby', 'Jellyfin'],
-                      value: _kind.index,
-                      onSelect: (i) =>
-                          setState(() => _kind = ServerKind.values[i]),
-                    ),
+                    // v2.0.88：绿联是独立入口，表单里不再和 Emby / Jellyfin
+                    // 混排成一段；这里只留一枚不可切换的类型徽标。
+                    if (isUgreen)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: const Color(0x2219B394),
+                          border: Border.all(color: const Color(0x6619B394)),
+                        ),
+                        child: const Text(
+                          '绿联影视中心',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF4BE0BE),
+                          ),
+                        ),
+                      )
+                    else
+                      _Segment(
+                        items: const ['Emby', 'Jellyfin'],
+                        value: _kind == ServerKind.jellyfin ? 1 : 0,
+                        onSelect: (i) => setState(
+                          () => _kind = i == 1
+                              ? ServerKind.jellyfin
+                              : ServerKind.emby,
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -957,6 +1106,8 @@ class _ServerSheetState extends State<_ServerSheet> {
                       'Jellyfin 走根路径（无 /emby 前缀），登录与媒体读取通用',
                     ServerKind.emby =>
                       'Emby 走 /emby 路径，支持 Playback Reporting 统计',
+                    ServerKind.ugreen =>
+                      'HTTPS 9443 · 图片与播放地址走站点根路径 · 已自动跳过证书校验',
                   },
                   style: const TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
@@ -988,10 +1139,43 @@ class _ServerSheetState extends State<_ServerSheet> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          _ProtocolToggle(
-                            secure: _secure,
-                            onChanged: (v) => setState(() => _secure = v),
-                          ),
+                          if (isUgreen)
+                            // 绿联没有 HTTP、也不存在 8096，协议不允许切换。
+                            Container(
+                              height: 48,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: const Color(0x1419B394),
+                                border: Border.all(
+                                  color: const Color(0x4419B394),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.lock_outline_rounded,
+                                    size: 14,
+                                    color: Color(0xFF4BE0BE),
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'HTTPS · 强制',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF4BE0BE),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            _ProtocolToggle(
+                              secure: _secure,
+                              onChanged: (v) => setState(() => _secure = v),
+                            ),
                         ],
                       ),
                     ),
@@ -1000,8 +1184,9 @@ class _ServerSheetState extends State<_ServerSheet> {
                 _Field(
                   controller: _user,
                   label: '用户名',
-                  hint:
-                      '${_kind == ServerKind.jellyfin ? 'Jellyfin' : 'Emby'} 账号',
+                  hint: isUgreen
+                      ? '影视中心媒体服务器账号（非 NAS 管理员）'
+                      : '${_kind == ServerKind.jellyfin ? 'Jellyfin' : 'Emby'} 账号',
                 ),
                 _Field(
                   controller: _pwd,
@@ -1030,7 +1215,9 @@ class _ServerSheetState extends State<_ServerSheet> {
                           Text(
                             _ignoreSsl && !isLanHost(_host.text)
                                 ? '⚠ 非局域网地址：关闭校验有中间人风险，建议仅局域网使用'
-                                : '自签 HTTPS 源需开启；建议仅局域网使用，默认关闭',
+                                : (isUgreen
+                                    ? '绿联影视中心为自签证书，接入必须开启（已自动勾选）'
+                                    : '自签 HTTPS 源需开启；建议仅局域网使用，默认关闭'),
                             style: TextStyle(
                               fontSize: 10,
                               color: _ignoreSsl && !isLanHost(_host.text)
@@ -1052,8 +1239,8 @@ class _ServerSheetState extends State<_ServerSheet> {
                   const Padding(
                     padding: EdgeInsets.only(top: 8),
                     child: Text(
-                      '检测到绿联影视中心（HTTPS 9443）：请勾选上方开关，'
-                      '影视中心账号即 Emby 管理员账号。',
+                      '⚠ 绿联影视中心 / 自签 HTTPS 源必须开启忽略证书校验，'
+                      '关闭后将在 TLS 握手阶段直接失败。',
                       style: TextStyle(fontSize: 10, color: AppColors.warn),
                     ),
                   ),
@@ -1093,9 +1280,12 @@ class _ServerSheetState extends State<_ServerSheet> {
                   onTap: _loading ? null : _submit,
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  '配置会保存在本地，可添加多个 Emby / Jellyfin 服务器随时切换',
-                  style: TextStyle(fontSize: 10, color: AppColors.muted),
+                Text(
+                  isUgreen
+                      ? '绿联影视中心为 Emby 接口子集：不支持播放进度同步，'
+                          '观看记录仅保存在本机观影日历。'
+                      : '配置会保存在本地，可添加多个 Emby / Jellyfin 服务器随时切换',
+                  style: const TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
               ],
             ),
