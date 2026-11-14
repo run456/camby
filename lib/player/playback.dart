@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../widgets/subtitle_style_sheet.dart';
+import 'playback_plan.dart';
 
 /// 播放器对外声明的 User-Agent。
 ///
@@ -65,6 +66,7 @@ abstract class PlaybackController {
     String url, {
     String? subtitleUrl,
     String? audioCodec,
+    PlaybackPlan? plan,
   });
   Future<void> play();
   Future<void> pause();
@@ -190,7 +192,10 @@ class ExoController implements PlaybackController {
     String url, {
     String? subtitleUrl,
     String? audioCodec,
+    PlaybackPlan? plan,
   }) async {
+    // Exo/video_player 没有暴露色调映射或色彩空间参数，plan 对它无意义。
+    // HDR/DV 片源由播放决策层强制切到 MPV（见 resolvePlaybackPlan）。
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     _c = c;
     await c.initialize();
@@ -266,12 +271,31 @@ class ExoController implements PlaybackController {
 
 /// MPV / libmpv（media_kit）
 class MpvController implements PlaybackController {
-  MpvController({bool hardwareDecode = true, int cacheMb = 512})
-    : _hwdec = hardwareDecode,
-      _cacheMb = cacheMb {
+  MpvController({
+    bool hardwareDecode = true,
+    int cacheMb = 512,
+    bool useGpuNext = false,
+  }) : _hwdec = hardwareDecode,
+       _cacheMb = cacheMb,
+       _useGpuNext = useGpuNext {
     _player = Player();
-    _vc = VideoController(_player);
+    // DV Profile 5 的 IPTPQc2 → BT.2020 转换只有 vo=gpu-next + libplacebo
+    // 会读 RPU 做重塑；普通 vo=gpu 会把它当 YCbCr 解，画面发绿发紫。
+    // 只对 DV 片源开，避免改变所有片源的渲染路径。
+    _vc = useGpuNext
+        ? VideoController(
+            _player,
+            configuration: const VideoControllerConfiguration(vo: 'gpu-next'),
+          )
+        : VideoController(_player);
   }
+
+  final bool _useGpuNext;
+
+  bool get gpuNextEnabled => _useGpuNext;
+
+  /// 最近一次 HDR 处理说明，播放信息面板展示（尽力而为）。
+  static String lastHdrDiagnostic = '';
 
   /// 网络缓冲上限（MB），对应 libmpv 的 `demuxer-max-bytes`。
   /// 设置页「缓存大小」四个档位就是改这个值：越大越抗卡顿，常驻内存越多。
@@ -497,11 +521,44 @@ class MpvController implements PlaybackController {
     );
   }
 
+  /// v2.0.83：把 HDR / DV 正确 tone-map 到 SDR。
+  ///
+  /// Flutter texture 不具备 HDR 直通能力（media-kit 官方结论），所以目标
+  /// 色彩空间必须显式钉死为 bt.709 / bt.1886，让 mpv 自己完成转换；否则
+  /// 它会按 BT.2020 输出，DV Profile 5 的 IPTPQc2 一旦没被 RPU 重塑就是
+  /// 整屏发绿发紫。所有属性都「写后回读 / 失败静默」——老版 libmpv 不认
+  /// 时不影响起播，只是退化成默认处理。
+  Future<void> _applyHdrToneMapping(NativePlayer platform) async {
+    Future<void> set(String name, String value) async {
+      try {
+        await platform.setProperty(name, value);
+      } catch (_) {}
+    }
+
+    await set('target-prim', 'bt.709');
+    await set('target-trc', 'bt.1886');
+    // spline 依赖 libplacebo（gpu-next）；老 vo=gpu 不认时回退 hable。
+    await set('tone-mapping', 'spline');
+    try {
+      final cur = await platform.getProperty('tone-mapping');
+      if (cur.isEmpty || !cur.toLowerCase().contains('spline')) {
+        await set('tone-mapping', 'hable');
+      }
+    } catch (_) {
+      await set('tone-mapping', 'hable');
+    }
+    await set('tone-mapping-mode', 'auto');
+    await set('hdr-compute-peak', 'yes');
+    await set('hdr10-opt', 'yes');
+    await set('gamut-mapping-mode', 'relative');
+  }
+
   @override
   Future<void> open(
     String url, {
     String? subtitleUrl,
     String? audioCodec,
+    PlaybackPlan? plan,
   }) async {
     // libmpv 默认 hwdec=no（纯软解）。设置页「硬件解码优先」打开时走
     // MediaCodec 硬解，解码失败 mpv 会自动回退软解（auto-safe 语义）。
@@ -531,13 +588,32 @@ class MpvController implements PlaybackController {
         // 播放器不支持 DV 时自动转为 SDR/标准色域。无 DV 的片源此属性为
         // no-op，不影响普通 HDR/SDR 画面。
         await platform.setProperty('dovi', 'yes');
+        // v2.0.83：HDR / DV 显式色调映射到 SDR。SDR 片一个参数都不碰，
+        // 避免为了修偏色把普通片子的观感也改了。
+        if (plan?.toneMapToSdr ?? false) {
+          await _applyHdrToneMapping(platform);
+          try {
+            final vo = await platform.getProperty('current-vo');
+            lastHdrDiagnostic = vo.isEmpty
+                ? 'MPV 色调映射 → SDR'
+                : 'MPV $vo · 色调映射 → SDR';
+          } catch (_) {
+            lastHdrDiagnostic = 'MPV 色调映射 → SDR';
+          }
+        } else {
+          lastHdrDiagnostic = 'SDR 直通';
+        }
         // v2.0.25：TrueHD / DTS-HD MA 等无损多声道经 ffmpeg 解码后是 7.1 PCM，
         // Android 的 AudioTrack 常因声道掩码不支持而直接不出声（表现即「无声」）。
-        // 仅对这类编码强制立体声下混，保证有声音；其余编码保持原声道不动。
-        if (audioCodec != null &&
-            (audioCodec.contains('TrueHD') ||
-                audioCodec.contains('DTS-HD') ||
-                audioCodec.contains('DTS-HDMA'))) {
+        // v2.0.83：判据换成决策层的完整编码集合（补了 DTS / DTS:X / 多声道
+        // FLAC / LPCM / ≥8 声道），旧判断只留作 plan 缺席时的兜底。
+        final needStereo =
+            plan?.stereoDownmix ??
+            (audioCodec != null &&
+                (audioCodec.contains('TrueHD') ||
+                    audioCodec.contains('DTS-HD') ||
+                    audioCodec.contains('DTS-HDMA')));
+        if (needStereo) {
           await platform.setProperty('audio-channels', 'stereo');
         }
       }

@@ -16,6 +16,8 @@ import '../app_state.dart';
 import '../models.dart';
 import '../player/boot_watch.dart';
 import '../player/playback.dart';
+import '../player/playback_plan.dart';
+import '../player/display_caps.dart';
 import '../player/subtitle_pick.dart';
 import '../subtitles/subtitles.dart';
 import '../subtitles/online_subtitle.dart';
@@ -73,6 +75,17 @@ class PlayerPageState extends State<PlayerPage>
   /// 起播内核。设置页「默认播放内核」0=Exo / 1=MPV —— 之前在 initState 里
   /// 硬写 exo，导致设置项形同虚设（v1.7.29 bug1 的同类问题，本次一并根治）
   PlaybackEngine _engine = PlaybackEngine.exo;
+
+  /// v2.0.83：本次播放的内核 / 色调映射 / 音频转码决策。
+  late PlaybackPlan _plan;
+
+  /// 实际起播地址（协商 / 转码 URL），切内核时必须复用它，
+  /// 不能再用 item.videoUrl 把用户打回原片直连。
+  String? _currentUrl;
+
+  /// 协商结果，播放信息面板展示播放方式与诊断。
+  PlaybackRoute? _route;
+
   bool _initializing = true;
   bool _fallback = false;
   bool _controlsVisible = true;
@@ -233,6 +246,9 @@ class PlayerPageState extends State<PlayerPage>
   @override
   void initState() {
     super.initState();
+    // 先用默认值占位，_applySavedPreferences() 读完设置后按真实内核重算。
+    // 这样即使 SharedPreferences 异常，后续访问 _plan 也不会崩。
+    _plan = resolvePlaybackPlan(item: widget.item, preferMpv: false);
     // v2.0.2：监听前后台切换 —— 用户直接上滑杀掉 App（或切到后台很久）
     // 时不会走 dispose，服务端就永远收不到 Stopped，活动日志里只剩
     // 「开始播放」，观看时长对不上。退到后台时补发一次 Stopped。
@@ -387,6 +403,9 @@ class PlayerPageState extends State<PlayerPage>
         widget.state.reportServerPlaybackStart(
           widget.item.id,
           positionTicks: (_positionSeconds * 10000000).round(),
+          playMethod: _route?.playMethod ?? 'DirectPlay',
+          mediaSourceId: widget.mediaSourceId ?? widget.item.mediaSourceId,
+          audioStreamIndex: widget.item.audioStreamIndex,
         ),
       );
     }
@@ -499,6 +518,8 @@ class PlayerPageState extends State<PlayerPage>
   /// 不能让一个 SharedPreferences 异常把整个播放页卡在黑幕里。
   Future<void> _boot() async {
     await _applySavedPreferences();
+    // 设备 HDR 能力只读一次，供播放信息面板解释「为什么是 SDR 输出」。
+    unawaited(DisplayCaps.load());
     if (!mounted) return;
     // 外部显式传了 subtitle（详情页点某条字幕进入）就不覆盖用户意图
     if (widget.subtitle == null && !_userPickedSub) {
@@ -545,6 +566,18 @@ class PlayerPageState extends State<PlayerPage>
       // 表现为「设置选了 MPV，播放页却显示 Exo」，用户当成 bug 上报。
       _engine = eng == 1 ? PlaybackEngine.mpv : PlaybackEngine.exo;
       _cacheBytes = _cacheSizes[cache.clamp(0, _cacheSizes.length - 1)];
+      // v2.0.83：DV 保底转码开关。设备的 libmpv 不带 gpu-next 时，
+      // 让服务端把视频重编码成 SDR，牺牲画质换取绝不偏色。
+      final dvTranscode = prefs.getBool('set_dv_transcode') ?? false;
+      _plan = resolvePlaybackPlan(
+        item: widget.item,
+        preferMpv: _engine == PlaybackEngine.mpv,
+        forceVideoTranscode:
+            dvTranscode && widget.item.effectiveRange.isDolbyVision,
+      );
+      // Exo 侧没有任何色调映射 / DV 参数入口，HDR 与 DV 一律切 MPV。
+      // 用户仍可在本页手动切回 Exo（尊重选择），但播放信息会给出提示。
+      if (_plan.forceMpv) _engine = PlaybackEngine.mpv;
       // v1.7.50：自动连播 / strm 优先 Exo / ASS 特效的设置行已按设计稿移除，
       // 行为固定取默认值（开 / 开 / 开），字段保留供播放流程引用。
     } catch (_) {}
@@ -800,38 +833,66 @@ class PlayerPageState extends State<PlayerPage>
 
   Future<void> _tryOpen() async {
     final srv = widget.state.server;
-    // 额外部分（-Cd1 / -Cd2 等分段）：直接按指定 MediaSource 起播，
-    // 不走「主版本 → HLS 回退」，否则会去播主版本。
-    final sourceId = widget.mediaSourceId;
-    if (sourceId != null && sourceId.isNotEmpty && srv != null) {
-      if (await _start(
-        _engine,
-        srv.streamUrl(widget.item.id, mediaSourceId: sourceId),
-      )) {
-        return;
-      }
-      if (await _start(
-        _engine,
-        srv.streamUrl(widget.item.id, mediaSourceId: sourceId, direct: false),
-      )) {
-        return;
-      }
-      _fallback = true;
+    // 额外部分（-Cd1 / -Cd2 等分段）优先用它自己的 MediaSourceId。
+    final sourceId = widget.mediaSourceId ?? widget.item.mediaSourceId;
+
+    // v2.0.83：按片源能力**先算出正确地址**，不再「先直连、等无声或
+    // 黑屏十几秒再回退」。协商出的 URL 自带 MediaSourceId /
+    // PlaySessionId / StartTimeTicks，转码流续播也不会被打回片头。
+    PlaybackRoute? route;
+    if (srv != null) {
+      try {
+        route = await srv.resolvePlayback(
+          item: widget.item,
+          plan: _plan,
+          startSeconds: widget.startSeconds,
+          mediaSourceId: sourceId,
+        );
+      } catch (_) {}
+    }
+    _route = route;
+
+    final primary = route?.url ?? widget.item.videoUrl;
+    final direct =
+        route?.fallbackUrl ??
+        (srv != null
+            ? srv.streamUrl(widget.item.id, mediaSourceId: sourceId)
+            : null);
+    final hls = srv != null
+        ? srv.streamUrl(widget.item.id, mediaSourceId: sourceId, direct: false)
+        : null;
+
+    if (primary != null && await _start(_engine, primary)) return;
+    if (direct != null &&
+        direct != primary &&
+        await _start(
+          _engine,
+          direct,
+          useGpuNextOverride: _plan.useGpuNext ? false : null,
+        )) {
       return;
     }
-    final url = widget.item.videoUrl;
-    if (url == null) {
-      _fallback = true;
+    if (hls != null &&
+        hls != primary &&
+        hls != direct &&
+        await _start(
+          _engine,
+          hls,
+          useGpuNextOverride: _plan.useGpuNext ? false : null,
+        )) {
       return;
     }
-    if (await _start(_engine, url)) return;
-    if (srv != null &&
-        await _start(_engine, srv.streamUrl(widget.item.id, direct: false)))
-      return;
     _fallback = true;
   }
 
-  Future<bool> _start(PlaybackEngine engine, String url) async {
+  /// [useGpuNextOverride] 只用于回退：DV 片优先试 gpu-next，
+  /// 万一设备捆绑的 libmpv 不支持它，后续尝试用普通 vo 重建，
+  /// 不让整条回退链都卡在同一个起不来的 VideoController 上。
+  Future<bool> _start(
+    PlaybackEngine engine,
+    String url, {
+    bool? useGpuNextOverride,
+  }) async {
     PlaybackController? p;
     try {
       if (engine == PlaybackEngine.exo) {
@@ -843,6 +904,7 @@ class PlayerPageState extends State<PlayerPage>
         p = MpvController(
           hardwareDecode: prefs.getBool('set_hw_decode') ?? true,
           cacheMb: _cacheBytes,
+          useGpuNext: useGpuNextOverride ?? _plan.useGpuNext,
         );
       }
       p.fit = _fit;
@@ -855,6 +917,7 @@ class PlayerPageState extends State<PlayerPage>
             ? _subtitle?.url
             : null,
         audioCodec: widget.item.audioCodec,
+        plan: _plan,
       );
       await p.setSpeed(_playbackSpeed);
       if (!mounted) {
@@ -865,6 +928,7 @@ class PlayerPageState extends State<PlayerPage>
       if (sub != null && !(p.nativeSubtitles && _isAssUrl(sub.url))) {
         unawaited(_loadCuesFor(sub));
       }
+      _currentUrl = url;
       final prev = _player;
       // p 在 setState 闭包里不会被提升到非空，这里先取出来
       final hw = p.hardwareDecode;
@@ -909,6 +973,15 @@ class PlayerPageState extends State<PlayerPage>
         ? PlaybackEngine.mpv
         : PlaybackEngine.exo;
     if (!mounted) return;
+    // v2.0.83：Exo 没有色调映射入口，HDR/DV 片切过去大概率发灰或发绿发紫。
+    // 只提示、不拦着 —— 用户可能有自己的理由。
+    if (!silent && target == PlaybackEngine.exo && _plan.range.isHdr) {
+      showToast(
+        context,
+        'HDR / DV 片源建议用 MPV，Exo 可能偏色',
+        icon: Icons.info_outline_rounded,
+      );
+    }
     // 先给一条「正在切换」的即时反馈：换内核要重建播放器，冷启动可能 1–3 秒，
     // 期间画面还是旧内核的帧，没有提示用户会以为点空了
     if (!silent) {
@@ -937,7 +1010,7 @@ class PlayerPageState extends State<PlayerPage>
     }
     final pos = _positionSeconds;
     final wasPlaying = _isPlaying;
-    final url = widget.item.videoUrl;
+    final url = _currentUrl ?? widget.item.videoUrl;
     if (url == null) {
       setState(() => _engine = target);
       return;
@@ -989,6 +1062,9 @@ class PlayerPageState extends State<PlayerPage>
           widget.state.reportServerPlaybackStart(
             widget.item.id,
             positionTicks: (_positionSeconds * 10000000).round(),
+            playMethod: _route?.playMethod ?? 'DirectPlay',
+            mediaSourceId: widget.mediaSourceId ?? widget.item.mediaSourceId,
+            audioStreamIndex: widget.item.audioStreamIndex,
           ),
         );
       }
@@ -1902,10 +1978,23 @@ class PlayerPageState extends State<PlayerPage>
               v: item.resolutionKnown ? '${item.videoHeight}p' : '未知',
             ),
             _InfoRow(k: '视频编码', v: item.videoCodec.toUpperCase()),
-            _InfoRow(
-              k: '动态范围',
-              v: item.hasDolbyVision ? 'Dolby Vision' : 'SDR',
-            ),
+            _InfoRow(k: '动态范围', v: item.effectiveRange.label),
+            if (item.effectiveRange.isHdr) ...[
+              _InfoRow(
+                k: '画面处理',
+                v: _engine == PlaybackEngine.mpv
+                    ? _plan.displayNote
+                    : 'Exo 无色调映射（可能偏色）',
+              ),
+              _InfoRow(k: '设备能力', v: DisplayCaps.label),
+            ],
+            if (_route != null)
+              _InfoRow(
+                k: '播放方式',
+                v:
+                    '${_route!.playMethod}'
+                    '${_route!.negotiated ? ' · 能力协商' : ''}',
+              ),
             _InfoRow(
               k: '音频',
               v: '${item.audioCodec} · ${item.audioChannels}ch',

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import 'player/playback_plan.dart';
 
 /// Emby REST API 客户端
 /// 文档：https://<host>:<port>/emby/<endpoint>?api_key=<key>
@@ -27,11 +28,7 @@ const _kItemFields =
 /// 一个字段；电影的 `SeriesName` 因此永远为空。网页端详情页的「所属合集」
 /// 区块展示的就是这类对象。
 class BoxSetInfo {
-  const BoxSetInfo({
-    required this.id,
-    required this.name,
-    this.childCount = 0,
-  });
+  const BoxSetInfo({required this.id, required this.name, this.childCount = 0});
 
   final String id;
   final String name;
@@ -59,6 +56,22 @@ class EmbyServer {
 
   String? _token;
   String? _userId;
+
+  /// 本次会话的 PlayMethod（DirectPlay / DirectStream / Transcode）。
+  /// v2.0.83：以前 /Sessions/Playing 恒报 DirectPlay，走 HLS 转码时
+  /// 服务端仍以为客户端在直放，活动日志与转码会话都对不上。
+  String _sessionPlayMethod = 'DirectPlay';
+
+  /// 最近一次播放路由的诊断说明，播放信息面板展示（尽力而为文本）。
+  String lastPlaybackDiagnostic = '';
+
+  /// 播放 URL 与 /Sessions/* 上报必须共用同一个 PlaySessionId。
+  /// v2.0.83 前这个字段只在上报里生成，播放 URL 完全没有带 ——
+  /// Emby 官方把 PlaySessionId 列为 stream 端点必需参数。
+  String ensurePlaySessionId() =>
+      _playSessionId ??= 'camby_${DateTime.now().microsecondsSinceEpoch}';
+
+  String? get playSessionId => _playSessionId;
 
   bool get isConnected => _token != null;
 
@@ -197,9 +210,119 @@ class EmbyServer {
   /// direct=false → HLS 自适应流（兼容性最好）
   String streamUrl(String itemId, {String? mediaSourceId, bool direct = true}) {
     final ms = mediaSourceId != null ? '&MediaSourceId=$mediaSourceId' : '';
+    final sid = '&PlaySessionId=${ensurePlaySessionId()}';
     return direct
-        ? '$baseUrl/Videos/$itemId/stream?Static=true$ms&api_key=$_token'
-        : '$baseUrl/Videos/$itemId/master.m3u8$ms&api_key=$_token';
+        ? '$baseUrl/Videos/$itemId/stream?Static=true$ms$sid&api_key=$_token'
+        : '$baseUrl/Videos/$itemId/master.m3u8$ms$sid&api_key=$_token';
+  }
+
+  /// 拼一条带鉴权的播放 URL（统一走 Uri，避免手拼 & 时漏转义）。
+  String _playbackUrl(String path, Map<String, String> params) =>
+      Uri.parse('$baseUrl$path')
+          .replace(queryParameters: {...params, 'api_key': _token ?? ''})
+          .toString();
+
+  /// PlaybackInfo 返回的 TranscodingUrl 可能是相对路径，也可能不带
+  /// api_key（libmpv / Exo 只会带 UA 头，没有 Emby 鉴权头 → 直接 401）。
+  String _ensurePlaybackAuth(String raw) {
+    final abs = _absolutize(raw);
+    final uri = Uri.parse(abs);
+    if (uri.queryParameters.containsKey('api_key') ||
+        uri.queryParameters.containsKey('X-Emby-Token')) {
+      return abs;
+    }
+    return uri
+        .replace(
+          queryParameters: {...uri.queryParameters, 'api_key': _token ?? ''},
+        )
+        .toString();
+  }
+
+  /// v2.0.83：按客户端真实能力决定播放地址。
+  ///
+  /// 能解码 → 直连（不再等失败才回退）；音轨不支持 → 先走
+  /// `POST PlaybackInfo` + DeviceProfile 让服务端给出「视频 copy + 音频
+  /// 转 AAC」的 DirectStream URL，协商失败再退回显式 HLS 参数，最后才是
+  /// 原片直连兜底。整条链路都不需要用户先熬过一段无声/黑屏。
+  Future<PlaybackRoute> resolvePlayback({
+    required MediaItem item,
+    required PlaybackPlan plan,
+    double startSeconds = 0,
+    String? mediaSourceId,
+  }) async {
+    final sid = ensurePlaySessionId();
+    final msId = mediaSourceId ?? item.mediaSourceId;
+    final ticks = ticksFromSeconds(startSeconds);
+    final direct = _playbackUrl(
+      '/Videos/${item.id}/stream',
+      directPlayParams(playSessionId: sid, mediaSourceId: msId),
+    );
+    lastPlaybackDiagnostic = '';
+    if (plan.audioDelivery == AudioDelivery.direct) {
+      return PlaybackRoute(
+        url: direct,
+        fallbackUrl: direct,
+        playMethod: 'DirectPlay',
+        playSessionId: sid,
+        negotiated: false,
+      );
+    }
+
+    // ① 正式能力协商
+    try {
+      final res = await _postJsonReturning(
+        '$baseUrl/Items/${item.id}/PlaybackInfo',
+        playbackInfoBody(
+          userId: _userId ?? '',
+          startTimeTicks: ticks,
+          mediaSourceId: msId,
+          audioStreamIndex: item.audioStreamIndex,
+        ),
+      );
+      final serverSid = res['PlaySessionId'] as String?;
+      if (serverSid != null && serverSid.isNotEmpty) {
+        _playSessionId = serverSid;
+      }
+      final sources = (res['MediaSources'] as List? ?? const [])
+          .whereType<Map<String, dynamic>>();
+      for (final ms in sources) {
+        final t = ms['TranscodingUrl'] as String?;
+        if (t != null && t.isNotEmpty) {
+          lastPlaybackDiagnostic = 'PlaybackInfo 协商';
+          return PlaybackRoute(
+            url: _ensurePlaybackAuth(t),
+            fallbackUrl: direct,
+            playMethod: plan.playMethod,
+            playSessionId: _playSessionId ?? sid,
+            negotiated: true,
+            diagnostic: lastPlaybackDiagnostic,
+          );
+        }
+      }
+      lastPlaybackDiagnostic = 'PlaybackInfo 未给转码地址，回退显式参数';
+    } catch (e) {
+      lastPlaybackDiagnostic = 'PlaybackInfo 不可用（$e），回退显式参数';
+    }
+
+    // ② 显式 HLS 参数（协商失败时的确定性兜底）
+    final explicit = _playbackUrl(
+      '/Videos/${item.id}/master.m3u8',
+      audioTranscodeParams(
+        playSessionId: _playSessionId ?? sid,
+        startTimeTicks: ticks,
+        mediaSourceId: msId,
+        audioStreamIndex: item.audioStreamIndex,
+        videoTranscode: plan.audioDelivery == AudioDelivery.fullTranscode,
+      ),
+    );
+    return PlaybackRoute(
+      url: explicit,
+      fallbackUrl: direct,
+      playMethod: plan.playMethod,
+      playSessionId: _playSessionId ?? sid,
+      negotiated: false,
+      diagnostic: lastPlaybackDiagnostic,
+    );
   }
 
   /// 从文件名推断分辨率高度（2160 / 1080 / 720 / 576 / 480 …）。
@@ -324,17 +447,25 @@ class EmbyServer {
   Future<void> reportPlaybackStart(
     String itemId, {
     int positionTicks = 0,
+    String? playMethod,
+    String? mediaSourceId,
+    int? audioStreamIndex,
   }) async {
-    _playSessionId = 'camby_${DateTime.now().microsecondsSinceEpoch}';
+    // 必须与播放 URL 用同一个 PlaySessionId，否则服务端把 Playing
+    // 事件和转码会话当成两段独立播放。
+    ensurePlaySessionId();
     _sessionItemId = itemId;
+    _sessionPlayMethod = playMethod ?? _sessionPlayMethod;
     await _postSession(
       itemId,
       'Playing',
       label: '开始播放上报',
       extra: {
         'PositionTicks': positionTicks,
-        'PlayMethod': 'DirectPlay',
+        'PlayMethod': _sessionPlayMethod,
         'CanSeek': true,
+        if (mediaSourceId != null) 'MediaSourceId': mediaSourceId,
+        if (audioStreamIndex != null) 'AudioStreamIndex': audioStreamIndex,
       },
     );
   }
@@ -358,6 +489,7 @@ class EmbyServer {
         'PositionTicks': positionTicks,
         'IsPaused': paused,
         'CanSeek': true,
+        'PlayMethod': _sessionPlayMethod,
       },
     );
   }
@@ -377,7 +509,11 @@ class EmbyServer {
       itemId,
       'Stopped',
       label: '停止播放上报',
-      extra: {'PositionTicks': positionTicks, if (played) 'Played': true},
+      extra: {
+        'PositionTicks': positionTicks,
+        'PlayMethod': _sessionPlayMethod,
+        if (played) 'Played': true,
+      },
     );
     _playSessionId = null;
     _sessionItemId = null;
@@ -481,6 +617,8 @@ class EmbyServer {
     int height = 1080;
     bool heightFound = false;
     bool hdr = false;
+    VideoRange range = VideoRange.unknown;
+    int? audioStreamIndex;
     for (final s in streams) {
       final m = s as Map<String, dynamic>;
       final t = m['Type'] as String?;
@@ -491,11 +629,17 @@ class EmbyServer {
           height = h;
           heightFound = true;
         }
-        final range = m['VideoRangeType'] as String?;
-        hdr = range == 'HDR10' || range == 'DOVI';
+        // v2.0.83：动态范围只读视频流。以前 `hasDolbyVision` 竟是用
+        // 音轨里的 TrueHD/ATMOS 推断的，导致 SDR 片误报 DV、真 HDR10
+        // 片一律显示 SDR。旧版字段 VideoRange 也一并兼容。
+        range = parseVideoRange(
+          (m['VideoRangeType'] as String?) ?? (m['VideoRange'] as String?),
+        );
+        hdr = range.isHdr;
       } else if (t == 'Audio') {
         audioCodec = m['Codec'] as String? ?? audioCodec;
         channels = (m['Channels'] as int?) ?? channels;
+        audioStreamIndex ??= (m['Index'] as num?)?.toInt();
       }
     }
     // MediaStreams 里没有有效 Height（刮削失败 / strm / NFO 导入的条目很常见）：
@@ -662,8 +806,7 @@ class EmbyServer {
         '$baseUrl/Items/$id/Images/Backdrop/$i?maxWidth=1280&api_key=$_token&tag=${backdropTags[i]}',
     ];
     // 远程预告片（Emby RemoteTrailers，多为 YouTube 外链）
-    final remoteTrailers =
-        (j['RemoteTrailers'] as List<dynamic>? ?? const []);
+    final remoteTrailers = (j['RemoteTrailers'] as List<dynamic>? ?? const []);
     final trailerUrls = <String>[
       for (final t in remoteTrailers)
         if (t is Map && (t['Url'] as String?)?.isNotEmpty == true)
@@ -697,8 +840,10 @@ class EmbyServer {
       audioChannels: channels,
       container: msContainer.isNotEmpty ? msContainer.toUpperCase() : 'MKV',
       isHdr: hdr,
-      hasDolbyVision:
-          audioCodec.contains('TrueHD') || audioCodec.contains('ATMOS'),
+      hasDolbyVision: range.isDolbyVision,
+      videoRange: range,
+      audioStreamIndex: audioStreamIndex,
+      mediaSourceId: sourceId,
       seriesId: j['SeriesId'] as String?,
       seasonNumber: j['ParentIndexNumber'] as int?,
       episodeNumber: j['IndexNumber'] as int?,
@@ -941,7 +1086,8 @@ class EmbyServer {
       final id = m['Id']?.toString() ?? '';
       final name = (m['Name'] as String? ?? '').trim();
       if (id.isEmpty || name.isEmpty) continue;
-      final count = (m['ChildCount'] as num?)?.toInt() ??
+      final count =
+          (m['ChildCount'] as num?)?.toInt() ??
           (m['RecursiveItemCount'] as num?)?.toInt() ??
           0;
       out.add(BoxSetInfo(id: id, name: name, childCount: count));
@@ -1048,6 +1194,9 @@ class EmbyServer {
         container: e.container,
         isHdr: e.isHdr,
         hasDolbyVision: e.hasDolbyVision,
+        videoRange: e.videoRange,
+        audioStreamIndex: e.audioStreamIndex,
+        mediaSourceId: e.mediaSourceId,
         resumeProgress: e.resumeProgress,
         resumeSeconds: e.resumeSeconds,
         episodeTitle: e.episodeTitle,
@@ -1093,7 +1242,8 @@ class EmbyServer {
   /// `Type=Video` + `ExtraType=Trailer`；放在 `trailer/` 子目录时路径里也带
   /// `trailer`。任一命中即视为预告片。抽成静态方法便于单测。
   @visibleForTesting
-  static bool looksLikeTrailer(Map<String, dynamic> j) {    final type = ((j['Type'] as String?) ?? '').toLowerCase();
+  static bool looksLikeTrailer(Map<String, dynamic> j) {
+    final type = ((j['Type'] as String?) ?? '').toLowerCase();
     final extra = ((j['ExtraType'] as String?) ?? '').toLowerCase();
     if (extra == 'trailer' || type == 'trailer') return true;
     // 路径 / 名称 / 媒体源路径任一含 trailer（覆盖 trailer(s)/ 子目录、
@@ -1160,51 +1310,62 @@ class EmbyServer {
     for (final b in bases) {
       final tag = b == baseUrl ? '' : '[根] ';
       probes
-        ..add(_TrailerProbe(
-          '${tag}Items/{id}/LocalTrailers',
-          '$b/Items/$itemId/LocalTrailers',
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Items/{id}/Trailer',
-          '$b/Items/$itemId/Trailer',
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Items/{id}/SpecialFeatures',
-          '$b/Items/$itemId/SpecialFeatures',
-          filter: true,
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Users/{uid}/Items/{id}/LocalTrailers',
-          '$b/Users/$_userId/Items/$itemId/LocalTrailers',
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
-          '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
-          filter: true,
-        ));
+        ..add(
+          _TrailerProbe(
+            '${tag}Items/{id}/LocalTrailers',
+            '$b/Items/$itemId/LocalTrailers',
+          ),
+        )
+        ..add(
+          _TrailerProbe('${tag}Items/{id}/Trailer', '$b/Items/$itemId/Trailer'),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Items/{id}/SpecialFeatures',
+            '$b/Items/$itemId/SpecialFeatures',
+            filter: true,
+          ),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Users/{uid}/Items/{id}/LocalTrailers',
+            '$b/Users/$_userId/Items/$itemId/LocalTrailers',
+          ),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
+            '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
+            filter: true,
+          ),
+        );
       for (final rec in const ['false', 'true']) {
         probes
-          ..add(_TrailerProbe(
-            '${tag}子项 Users/Items Recursive=$rec',
-            '$b/Users/$_userId/Items',
-            query: {
-              'ParentId': itemId,
-              'Recursive': rec,
-              'Fields': childFields,
-            },
-            filter: true,
-          ))
-          ..add(_TrailerProbe(
-            '${tag}子项 Items Recursive=$rec',
-            '$b/Items',
-            query: {
-              'ParentId': itemId,
-              'Recursive': rec,
-              'userId': _userId!,
-              'Fields': childFields,
-            },
-            filter: true,
-          ));
+          ..add(
+            _TrailerProbe(
+              '${tag}子项 Users/Items Recursive=$rec',
+              '$b/Users/$_userId/Items',
+              query: {
+                'ParentId': itemId,
+                'Recursive': rec,
+                'Fields': childFields,
+              },
+              filter: true,
+            ),
+          )
+          ..add(
+            _TrailerProbe(
+              '${tag}子项 Items Recursive=$rec',
+              '$b/Items',
+              query: {
+                'ParentId': itemId,
+                'Recursive': rec,
+                'userId': _userId!,
+                'Fields': childFields,
+              },
+              filter: true,
+            ),
+          );
       }
     }
     return probes;
@@ -1228,7 +1389,9 @@ class EmbyServer {
       if (excludeTrailer && isTrailer) continue;
       try {
         res.add(_fromJson(e));
-      } catch (_) {/* 跳过脏数据 */}
+      } catch (_) {
+        /* 跳过脏数据 */
+      }
     }
     return res;
   }
@@ -1286,11 +1449,14 @@ class EmbyServer {
             'Fields': 'Path,ExtraType',
           },
         );
-        final hits = _parseAnyItems(resp, filterTrailer: true)
-            .where((e) => e.filePath.toLowerCase().startsWith(prefix))
-            .toList();
+        final hits = _parseAnyItems(
+          resp,
+          filterTrailer: true,
+        ).where((e) => e.filePath.toLowerCase().startsWith(prefix)).toList();
         if (hits.isNotEmpty) return hits;
-      } catch (_) {/* 该类型查询失败，退下一个 */}
+      } catch (_) {
+        /* 该类型查询失败，退下一个 */
+      }
     }
     return const <MediaItem>[];
   }
@@ -1334,11 +1500,15 @@ class EmbyServer {
             try {
               final m = _fromJson(e);
               if (m.id.isNotEmpty && seen.add(m.id)) out.add(m);
-            } catch (_) {/* 跳过脏数据 */}
+            } catch (_) {
+              /* 跳过脏数据 */
+            }
           }
         }
       }
-    } catch (_) {/* 详情拿不到就只靠入口探测 */}
+    } catch (_) {
+      /* 详情拿不到就只靠入口探测 */
+    }
     if (out.isNotEmpty) return out;
 
     for (final p in _trailerProbes(itemId)) {
@@ -1371,7 +1541,8 @@ class EmbyServer {
     final origin = '${secure ? 'https' : 'http'}://$host:$port';
     final bases = <String>[baseUrl];
     if (origin != baseUrl) bases.add(origin);
-    const childFields = 'Path,ExtraType,MediaSources,MediaStreams,'
+    const childFields =
+        'Path,ExtraType,MediaSources,MediaStreams,'
         'Overview,RunTimeTicks';
     final probes = <_TrailerProbe>[];
     for (final b in bases) {
@@ -1380,51 +1551,63 @@ class EmbyServer {
         // Emby 官方的「附加内容」接口：网页版详情页「附加媒体」就是取它。
         // 分段（-cd1/-cd2）若被服务端登记成 AdditionalPart，只有这里能拿到，
         // 而 MediaSources / SpecialFeatures 都可能是空的。
-        ..add(_TrailerProbe(
-          '${tag}Videos/{id}/AdditionalParts',
-          '$b/Videos/$itemId/AdditionalParts',
-          query: {'Fields': childFields},
-          excludeTrailer: true,
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Items/{id}/AdditionalParts',
-          '$b/Items/$itemId/AdditionalParts',
-          query: {'Fields': childFields},
-          excludeTrailer: true,
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Items/{id}/SpecialFeatures',
-          '$b/Items/$itemId/SpecialFeatures',
-          excludeTrailer: true,
-        ))
-        ..add(_TrailerProbe(
-          '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
-          '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
-          excludeTrailer: true,
-        ));
+        ..add(
+          _TrailerProbe(
+            '${tag}Videos/{id}/AdditionalParts',
+            '$b/Videos/$itemId/AdditionalParts',
+            query: {'Fields': childFields},
+            excludeTrailer: true,
+          ),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Items/{id}/AdditionalParts',
+            '$b/Items/$itemId/AdditionalParts',
+            query: {'Fields': childFields},
+            excludeTrailer: true,
+          ),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Items/{id}/SpecialFeatures',
+            '$b/Items/$itemId/SpecialFeatures',
+            excludeTrailer: true,
+          ),
+        )
+        ..add(
+          _TrailerProbe(
+            '${tag}Users/{uid}/Items/{id}/SpecialFeatures',
+            '$b/Users/$_userId/Items/$itemId/SpecialFeatures',
+            excludeTrailer: true,
+          ),
+        );
       for (final rec in const ['false', 'true']) {
         probes
-          ..add(_TrailerProbe(
-            '${tag}子项 Users/Items Recursive=$rec',
-            '$b/Users/$_userId/Items',
-            query: {
-              'ParentId': itemId,
-              'Recursive': rec,
-              'Fields': childFields,
-            },
-            excludeTrailer: true,
-          ))
-          ..add(_TrailerProbe(
-            '${tag}子项 Items Recursive=$rec',
-            '$b/Items',
-            query: {
-              'ParentId': itemId,
-              'Recursive': rec,
-              'userId': _userId!,
-              'Fields': childFields,
-            },
-            excludeTrailer: true,
-          ));
+          ..add(
+            _TrailerProbe(
+              '${tag}子项 Users/Items Recursive=$rec',
+              '$b/Users/$_userId/Items',
+              query: {
+                'ParentId': itemId,
+                'Recursive': rec,
+                'Fields': childFields,
+              },
+              excludeTrailer: true,
+            ),
+          )
+          ..add(
+            _TrailerProbe(
+              '${tag}子项 Items Recursive=$rec',
+              '$b/Items',
+              query: {
+                'ParentId': itemId,
+                'Recursive': rec,
+                'userId': _userId!,
+                'Fields': childFields,
+              },
+              excludeTrailer: true,
+            ),
+          );
       }
     }
     return probes;
@@ -1478,9 +1661,13 @@ class EmbyServer {
         try {
           final m = _fromJson(e);
           if (seen.add(m.id)) out.add(m);
-        } catch (_) {/* 跳过脏数据 */}
+        } catch (_) {
+          /* 跳过脏数据 */
+        }
       }
-    } catch (_) {/* 全库扫描不可用，返回已拿到的 */}
+    } catch (_) {
+      /* 全库扫描不可用，返回已拿到的 */
+    }
     return out;
   }
 
@@ -1565,7 +1752,9 @@ class EmbyServer {
       // ChildCount 缺省时按 -1（未知）处理，避免误判成「没有子条目」
       final cc = (item['ChildCount'] as num?)?.toInt() ?? -1;
       return (dir, cc);
-    } catch (_) {/* 读不到就当没有 */}
+    } catch (_) {
+      /* 读不到就当没有 */
+    }
     return ('', 0);
   }
 
@@ -1651,9 +1840,9 @@ class EmbyServer {
           p.path,
           query: {...?p.query, 'api_key': _token!},
         ).timeout(const Duration(seconds: 4));
-        final raws = _rawItems(
-          resp,
-        ).where((e) => (e['Id'] as String?) != itemId).toList();
+        final raws = _rawItems(resp)
+            .where((e) => (e['Id'] as String?) != itemId)
+            .toList();
         final got = _parseAnyItems(
           resp,
           excludeTrailer: true,
@@ -1680,9 +1869,8 @@ class EmbyServer {
     // 分段（-cd2）无论被服务端存成 AdditionalPart、Extra 还是独立条目，
     // 只要文件进了库就一定落在这里。这一段最能一锤定音。
     try {
-      final (dir, _) = await _movieDirInfo(itemId).timeout(
-        const Duration(seconds: 4),
-      );
+      final (dir, _) = await _movieDirInfo(itemId)
+          .timeout(const Duration(seconds: 4));
       if (dir.isEmpty) {
         log.add('[同目录] 读取影片路径失败，跳过');
       } else {
@@ -2010,7 +2198,7 @@ class EmbyServer {
         query: const {
           'Fields':
               'ProviderIds,Genres,Tags,Studios,People,GenreItems,'
-                  'ArtistItems,AlbumArtists,PlaylistItems',
+              'ArtistItems,AlbumArtists,PlaylistItems',
         },
       );
       m['Name'] = name;
@@ -2046,14 +2234,13 @@ class EmbyServer {
         target = await createPlaylist(name, itemIds ?? oldItems);
       }
       if (target == null) {
-        lastPlaylistError =
-            '改名失败: 重建播放列表失败（$lastErr / $lastPlaylistError）';
+        lastPlaylistError = '改名失败: 重建播放列表失败（$lastErr / $lastPlaylistError）';
         return null;
       }
       if (!await deletePlaylist(playlistId)) {
         lastPlaylistError =
             '改名失败: 新列表已建但删除旧列表失败（$lastPlaylistError），'
-                '下轮同步自动重试';
+            '下轮同步自动重试';
         return null;
       }
       return target;
@@ -2155,10 +2342,7 @@ class EmbyServer {
   /// 与 [_getJson] 同款（鉴权 + 超时 + 瞬断重试），但**不强制返回 Map**：
   /// 有些 Emby 端点（如 `/Items/{id}/Trailer`）直接返回 JSON 数组，
   /// 强行 `as Map` 会抛错被上层吞掉，这里原样返回 `dynamic`。
-  Future<dynamic> _getJsonAny(
-    String path, {
-    Map<String, String>? query,
-  }) async {
+  Future<dynamic> _getJsonAny(String path, {Map<String, String>? query}) async {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
     final uri = buildRequestUri(path, query, _token!);
     for (var attempt = 0; ; attempt++) {

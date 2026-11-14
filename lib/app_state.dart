@@ -204,7 +204,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
-  LibraryStats get stats => _statsCache ??= LibraryStats.compute(_items, _playCount);
+  LibraryStats get stats =>
+      _statsCache ??= LibraryStats.compute(_items, _playCount);
 
   /// 本机播放次数：每次在 App 内起播记一次，落盘持久化。
   /// 与服务器 `userPlayCount` 取较大值用于「偏好影片」统计（见 models.dart）。
@@ -227,10 +228,7 @@ class AppState extends ChangeNotifier {
     if (disablePersistence) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'play_count_json',
-        jsonEncode(_playCount),
-      );
+      await prefs.setString('play_count_json', jsonEncode(_playCount));
     } catch (_) {}
   }
 
@@ -422,8 +420,17 @@ class AppState extends ChangeNotifier {
   Future<void> reportServerPlaybackStart(
     String itemId, {
     int positionTicks = 0,
+    String? playMethod,
+    String? mediaSourceId,
+    int? audioStreamIndex,
   }) {
-    return _server?.reportPlaybackStart(itemId, positionTicks: positionTicks) ??
+    return _server?.reportPlaybackStart(
+          itemId,
+          positionTicks: positionTicks,
+          playMethod: playMethod,
+          mediaSourceId: mediaSourceId,
+          audioStreamIndex: audioStreamIndex,
+        ) ??
         Future.value();
   }
 
@@ -823,9 +830,7 @@ class AppState extends ChangeNotifier {
       final p = remoteByName[f.name];
       if (p == null || matchedRemote.contains(p.id)) return createOnServer(f);
       matchedRemote.add(p.id);
-      final toAdd = f.itemIds
-          .where((e) => !p.itemIds.contains(e))
-          .toList();
+      final toAdd = f.itemIds.where((e) => !p.itemIds.contains(e)).toList();
       var ok = true;
       if (toAdd.isNotEmpty && !await s.addToPlaylist(p.id, toAdd)) {
         ok = false;

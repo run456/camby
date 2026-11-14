@@ -10,6 +10,52 @@ enum MediaType { movie, series, episode }
 /// - jellyfin：根路径
 enum ServerKind { emby, jellyfin }
 
+/// 视频动态范围（Emby `MediaStreams[].VideoRangeType`）。
+///
+/// v2.0.83：以前 `hasDolbyVision` 是用音轨里的 TrueHD/ATMOS 猜出来的，
+/// 真 HDR10 片一律显示 SDR、带 TrueHD 音轨的 SDR 片反倒显示 Dolby Vision。
+/// 动态范围只可能来自**视频流**，与音轨无关，这里作为唯一判据。
+enum VideoRange { sdr, hdr10, hdr10Plus, hlg, dovi, unknown }
+
+/// 兼容 Emby 各版本的 `VideoRangeType` / 旧 `VideoRange` 字段取值：
+/// SDR / HDR10 / HDR10Plus / HLG / DOVI / DOVIWithHDR10 / DOVIWithHLG …
+/// 大小写、下划线、连字符、空格一律归一；认不出来返回 unknown（不猜）。
+VideoRange parseVideoRange(String? raw) {
+  if (raw == null) return VideoRange.unknown;
+  final s = raw.toUpperCase().replaceAll(RegExp(r'[\s_\-+]'), '');
+  if (s.isEmpty || s == 'UNKNOWN' || s == 'NONE') return VideoRange.unknown;
+  // DOVIWithHDR10 同时含 DOVI 与 HDR10，必须先判 DV。
+  if (s.contains('DOVI') || s.contains('DOLBYVISION') || s == 'DV') {
+    return VideoRange.dovi;
+  }
+  if (s.contains('HDR10PLUS')) return VideoRange.hdr10Plus;
+  if (s.contains('HDR10')) return VideoRange.hdr10;
+  if (s.contains('HLG')) return VideoRange.hlg;
+  if (s == 'HDR') return VideoRange.hdr10; // 旧版 VideoRange 字段
+  if (s == 'SDR') return VideoRange.sdr;
+  return VideoRange.unknown;
+}
+
+extension VideoRangeX on VideoRange {
+  bool get isHdr => this != VideoRange.sdr && this != VideoRange.unknown;
+
+  bool get isDolbyVision => this == VideoRange.dovi;
+
+  /// DV Profile 5 用 IPTPQc2 色彩空间，必须靠 vo=gpu-next + libplacebo
+  /// 读 RPU 做 IPT→BT.2020 转换；普通 vo=gpu 会把它当 YCbCr 解码，
+  /// 表现就是整屏发绿发紫。
+  bool get needsGpuNext => isDolbyVision;
+
+  String get label => switch (this) {
+    VideoRange.sdr => 'SDR',
+    VideoRange.hdr10 => 'HDR10',
+    VideoRange.hdr10Plus => 'HDR10+',
+    VideoRange.hlg => 'HLG',
+    VideoRange.dovi => 'Dolby Vision',
+    VideoRange.unknown => 'SDR',
+  };
+}
+
 /// 已保存的服务器配置（支持多个）
 class ServerProfile {
   const ServerProfile({
@@ -563,9 +609,7 @@ class MediaExtraPart {
     ];
     final spec = parts.join(' ');
     final m = runtimeMin;
-    final dur = m <= 0
-        ? ''
-        : (m >= 60 ? '${m ~/ 60}小时${m % 60}分钟' : '$m分钟');
+    final dur = m <= 0 ? '' : (m >= 60 ? '${m ~/ 60}小时${m % 60}分钟' : '$m分钟');
     return [spec, dur].where((e) => e.isNotEmpty).join(' · ');
   }
 
@@ -732,6 +776,9 @@ class MediaItem {
     this.container = 'MKV',
     this.isHdr = false,
     this.hasDolbyVision = false,
+    this.videoRange = VideoRange.unknown,
+    this.audioStreamIndex,
+    this.mediaSourceId,
     this.resumeProgress,
     this.resumeSeconds,
     this.episodeTitle,
@@ -780,6 +827,16 @@ class MediaItem {
   final String container;
   final bool isHdr;
   final bool hasDolbyVision;
+
+  /// 视频动态范围（v2.0.83）。unknown 表示老缓存 / 服务端未给，
+  /// 展示与播放决策统一走 [effectiveRange] 降级，不直接读这个字段。
+  final VideoRange videoRange;
+
+  /// 首选音轨在 MediaStreams 里的 Index，构造转码 URL 时要精确指定。
+  final int? audioStreamIndex;
+
+  /// MediaSources[0].Id，直连与转码 URL 都需要（Emby 文档列为必需参数）。
+  final String? mediaSourceId;
   final double? resumeProgress;
 
   /// 上次播放到的位置（秒），用于「继续播放」时定位；为 null 表示没看过
@@ -866,6 +923,15 @@ class MediaItem {
     return p.endsWith('.strm') || container.toUpperCase() == 'STRM';
   }
 
+  /// 兼容老缓存：没有 videoRange 时由旧的 isHdr / hasDolbyVision 反推。
+  /// 新数据一律以 [videoRange] 为准，两个旧 bool 只作为统计与筛选的镜像值。
+  VideoRange get effectiveRange {
+    if (videoRange != VideoRange.unknown) return videoRange;
+    if (hasDolbyVision) return VideoRange.dovi;
+    if (isHdr) return VideoRange.hdr10;
+    return VideoRange.sdr;
+  }
+
   bool get hasAtmos =>
       audioCodec.contains('TrueHD') ||
       audioCodec.contains('ATMOS') ||
@@ -890,7 +956,8 @@ class MediaItem {
 
   List<String> get specBadges => [
     if (isTrue4K) '真4K',
-    if (hasDolbyVision) 'DV+ATMOS',
+    // v2.0.83：DV 是视频动态范围，ATMOS 是音轨，不能混成一个标签。
+    if (effectiveRange.isHdr) effectiveRange.label,
     if (audioChannels >= 8) '${(audioChannels / 2).toStringAsFixed(1)}',
     videoCodec.toUpperCase() == 'H265' ? 'HEVC' : videoCodec.toUpperCase(),
   ];
@@ -913,6 +980,9 @@ class MediaItem {
     int? fileSizeBytes,
     String? filePath,
     bool? resolutionKnown,
+    VideoRange? videoRange,
+    int? audioStreamIndex,
+    String? mediaSourceId,
   }) {
     return MediaItem(
       id: id,
@@ -936,6 +1006,9 @@ class MediaItem {
       container: container ?? this.container,
       isHdr: isHdr,
       hasDolbyVision: hasDolbyVision,
+      videoRange: videoRange ?? this.videoRange,
+      audioStreamIndex: audioStreamIndex ?? this.audioStreamIndex,
+      mediaSourceId: mediaSourceId ?? this.mediaSourceId,
       resumeProgress: resumeProgress ?? this.resumeProgress,
       resumeSeconds: resumeSeconds ?? this.resumeSeconds,
       episodeTitle: episodeTitle,
@@ -1004,6 +1077,9 @@ class MediaItem {
     'container': container,
     'isHdr': isHdr,
     'hasDolbyVision': hasDolbyVision,
+    'videoRange': videoRange.name,
+    'audioStreamIndex': audioStreamIndex,
+    'mediaSourceId': mediaSourceId,
     'resumeProgress': resumeProgress,
     'resumeSeconds': resumeSeconds,
     'episodeTitle': episodeTitle,
@@ -1065,6 +1141,9 @@ class MediaItem {
       container: j['container'] as String? ?? 'MKV',
       isHdr: j['isHdr'] as bool? ?? false,
       hasDolbyVision: j['hasDolbyVision'] as bool? ?? false,
+      videoRange: _videoRangeFromJson(j),
+      audioStreamIndex: (j['audioStreamIndex'] as num?)?.toInt(),
+      mediaSourceId: j['mediaSourceId'] as String?,
       resumeProgress: (j['resumeProgress'] as num?)?.toDouble(),
       resumeSeconds: (j['resumeSeconds'] as num?)?.toDouble(),
       episodeTitle: j['episodeTitle'] as String?,
@@ -1692,7 +1771,8 @@ class LibraryStats {
 
     // 缺海报 / 缺简介的标题
     const noOverview = '暂无简介';
-    final missPoster = items        .where((e) => e.posterUrl == null)
+    final missPoster = items
+        .where((e) => e.posterUrl == null)
         .map((e) => e.name)
         .toList();
     final missOverview = items
@@ -1841,4 +1921,19 @@ bool itemHasChineseSubtitle(MediaItem item) {
     if (s.isChinese) return true;
   }
   return false;
+}
+
+/// v2.0.83 老缓存兼容：没有 videoRange 字段时，用旧的 isHdr /
+/// hasDolbyVision 反推，避免全库条目一夜之间统一显示成 SDR。
+VideoRange _videoRangeFromJson(Map<String, dynamic> j) {
+  final raw = j['videoRange'];
+  if (raw is String && raw.isNotEmpty) {
+    return VideoRange.values.firstWhere(
+      (e) => e.name == raw,
+      orElse: () => parseVideoRange(raw),
+    );
+  }
+  if (j['hasDolbyVision'] == true) return VideoRange.dovi;
+  if (j['isHdr'] == true) return VideoRange.hdr10;
+  return VideoRange.unknown;
 }

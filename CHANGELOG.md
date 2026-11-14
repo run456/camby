@@ -1,10 +1,48 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.82 (282)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.83 (283)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.83 (283) 修正 HDR / DV 显示与音频转码
+
+真机反馈 HDR 片**发绿发紫**，另有 TrueHD / DTS-HD 无声、HLS 回退不可控。
+根因是两处结构性错误：动态范围竟由音轨推断，客户端从不向 Emby 声明能力。
+
+- **A · 元数据**：新增 `VideoRange` 枚举与 `parseVideoRange()`，兼容 Emby
+  的 `VideoRangeType`（SDR / HDR10 / HDR10+ / HLG / DOVI / DOVIWithHDR10…）
+  与旧 `VideoRange` 字段。`hasDolbyVision` 改为只读**视频流**，不再用
+  `audioCodec.contains('TrueHD') || contains('ATMOS')` 猜。播放信息、
+  规格角标、推荐权重、统计占比随之全部变准；老缓存按 `isHdr` /
+  `hasDolbyVision` 降级映射，不会一夜之间全变 SDR。
+- **B · 画面**：HDR / DV 片源自动切 MPV（Exo 没有任何色调映射入口）。
+  DV 用 `vo=gpu-next` 让 libplacebo 读 RPU 完成 IPTPQc2 → BT.2020 转换，
+  这是发绿发紫的正解；`MpvController.open()` 按片源下发
+  `target-prim=bt.709` / `target-trc=bt.1886` / `tone-mapping`（spline，
+  老 vo 回退 hable）/ `hdr-compute-peak` / `hdr10-opt`，把 HDR 正确
+  tone-map 到 SDR。SDR 片一个参数都不碰。全部属性写后回读、失败静默。
+  **平台限制**：Flutter texture 不支持 HDR 直通，目标是「正确映射到 SDR」
+  而非真 10-bit PQ 输出；设置页新增「DV 片源保底转码」用于设备实在
+  处理不了时让服务端转成 SDR（有损画质，默认关）。
+- **C · 音频转码**：新增播放决策层 `lib/player/playback_plan.dart`。
+  可解码音轨保持原直连；TrueHD / DTS-HD MA / DTS:X / DTS / 多声道
+  FLAC / LPCM / ≥8 声道**主动**走转码，不再等无声十几秒才回退。
+  起播先 `POST /Items/{Id}/PlaybackInfo` + `DeviceProfile`（视频全放行、
+  音频只声明 AAC/AC3/EAC3，字幕全外挂）拿到「视频 copy + 音频转 AAC」
+  的 DirectStream 地址；协商失败回退显式 HLS 参数，再失败才回原片直连。
+  URL 补齐全 `MediaSourceId` / `PlaySessionId` / `AudioStreamIndex` /
+  `StartTimeTicks`（转码流不支持客户端 seek）；`PlayMethod` 按实际上报，
+  不再恒报 `DirectPlay`。`audio-channels=stereo` 保留为直连兜底并补齐
+  编码集合。切内核改用实际起播 URL，不会把用户打回原片直连。
+- **诊断**：原生层读 `Display.getHdrCapabilities()`，播放信息面板展示
+  设备 HDR 能力 / 画面处理方式 / 播放方式；HDR 片手动切回 Exo 时提示风险。
+
+**验证**：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
+`perf_audit.py` 0 命中；`aapt` 复核 `versionCode=283 / versionName=2.0.83`。
+本地提交，不推 GitHub。**待实机验证**：DV P5 是否因捆绑 libmpv 不含
+gpu-next 仍偏色，如是则打开「DV 片源保底转码」。
 
 ### v2.0.82 (282) 统一所有弹窗样式（以「选择字幕」为标准）+ 动作文字统一蓝字
 

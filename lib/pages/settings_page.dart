@@ -61,6 +61,9 @@ class _SettingsPageState extends State<SettingsPage> {
         'play_engine': prefs.getInt('set_play_engine') ?? 0,
         'hw_decode': prefs.getBool('set_hw_decode') ?? true,
         'cache_size': prefs.getInt('set_cache_size') ?? 0,
+        // v2.0.83：设备的 libmpv 不带 gpu-next 时，让服务端把 DV 片
+        // 重编码成 SDR，牺牲画质换取绝不发绿发紫。默认关。
+        'dv_transcode': prefs.getBool('set_dv_transcode') ?? false,
         'record_history': prefs.getBool('set_record_history') ?? true,
         // v2.0.64 质感包：默认开，系统层面是否震动仍由 Android 决定。
         'haptics': prefs.getBool('set_haptics') ?? true,
@@ -172,6 +175,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 'cache_size',
                 ((_s['cache_size'] as int) + 1) % _caches.length,
               ),
+            ),
+          ),
+          _RowItem(
+            title: 'DV 片源保底转码',
+            desc: '若杜比视界仍发绿发紫，由服务端转成 SDR（会损失画质）',
+            trailing: _Toggle(
+              value: _s['dv_transcode'],
+              onChanged: (v) => _set('dv_transcode', v),
             ),
             last: true,
           ),

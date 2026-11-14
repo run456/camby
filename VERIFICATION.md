@@ -2711,3 +2711,41 @@ v2.0.62 引用的官方说法「we don't currently do anything with the `<set>` 
 验证（v2.0.82）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
 `perf_audit.py` 0 命中；`aapt dump badging` 确认
 `versionCode='282' versionName='2.0.82'`。本地提交 + tag `v2.0.82`，未推 GitHub。
+
+## §97 发布 v2.0.83（HDR / DV 显示修正 + 音频转码）
+
+用户确认：范围 A+B+C 全做、HDR 允许直接切 MPV、症状是**发绿发紫**。
+
+发绿发紫的机理：DV Profile 5 用 IPTPQc2 色彩空间且无 HDR10 基层，播放器
+若不解析 RPU 就会把数据当 Rec.2020 / YCbCr420 解，得到紫绿偏色
+（[原理](https://tsight.io/articles/20213954)）；mpv 侧需要 `vo=gpu-next`
++ libplacebo 才会读动态元数据并正确重塑
+（[mpv 各 Profile 支持情况](https://salivity.github.io/mpv/article/does-mpv-support-dolby-vision-metadata)）。
+另据 [media-kit issue #615](https://github.com/media-kit/media-kit/issues/615)，
+Flutter textures 在 Android/iOS/macOS 均无 HDR 能力，**实际 HDR passthrough
+不可行**，HDR 内容只能 tone-map 到 SDR —— 故本版不尝试 HDR 直通。
+
+- A：`models.dart` 新增 `VideoRange` / `parseVideoRange` / `effectiveRange` /
+  `audioStreamIndex` / `mediaSourceId`，`toJson` / `fromJson` / `copyWith` 全同步；
+  `emby_client._fromJson` 改从视频流解析，`hasDolbyVision` 与音轨彻底解耦。
+- B：`playback.dart` 新增 `_applyHdrToneMapping()`（target-prim / target-trc /
+  tone-mapping spline→hable 回退 / hdr-compute-peak / hdr10-opt /
+  gamut-mapping-mode），`MpvController` 支持 `useGpuNext` 构造参数；
+  `player_page` 对 `range.isHdr` 强制 MPV，播放信息加「画面处理 / 设备能力 /
+  播放方式」三行；`settings_page` 加 `set_dv_transcode`。
+- C：`playback_plan.dart` 提供 `resolvePlaybackPlan` / `audioTranscodeParams` /
+  `directPlayParams` / `cambyDeviceProfile` / `playbackInfoBody` / `PlaybackRoute`；
+  `EmbyServer.resolvePlayback` 实现「PlaybackInfo 协商 → 显式 HLS → Static
+  直连」三级回退；`reportPlaybackStart` 复用同一 `PlaySessionId` 并按实际
+  `PlayMethod` 上报；`app_state` 透传参数；`_switchTo` 复用 `_currentUrl`。
+- 诊断：`MainActivity.kt` 加 `hdrCapabilities` 方法通道（只读，不做直通），
+  `display_caps.dart` 消费；HDR 片手动切 Exo 时 toast 提示偏色风险。
+- 回归守卫：`test/hdr_audio_playback_test.dart` 覆盖 VideoRange 全取值、
+  老缓存降级、音频编码集合、决策矩阵、转码参数完整性、DeviceProfile、
+  PlayMethod 映射，以及「不许再用音轨猜 DV」等 6 组源码守卫。
+
+不动：动效、毛玻璃、弹窗样式；SDR 片播放路径与参数保持原样。
+
+验证（v2.0.83）：`flutter analyze` 0 error / 0 warning；`flutter test` 全过；
+`perf_audit.py` 0 命中；`aapt dump badging` 确认
+`versionCode='283' versionName='2.0.83'`。本地提交 + tag `v2.0.83`，未推 GitHub。
