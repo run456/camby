@@ -42,6 +42,11 @@ class Subtitles {
     /// 体积超限 / 服务器返回视频本体这类判定发生在 [fetcher] 内部，
     /// 不把原因取出来，UI 只能显示笼统的「下载失败」，用户没法自查。
     String Function()? diagOf,
+
+    /// v2.0.87：兜底直连通道是否跳过 TLS 证书校验。
+    /// 默认 false —— 只有用户对该服务器显式勾选「忽略 SSL 证书校验」才放行，
+    /// 不能让字幕下载成为证书策略的后门。
+    bool ignoreSsl = false,
   }) async {
     lastDiag = '';
     final urls = <String>[
@@ -56,7 +61,7 @@ class Subtitles {
       return const [];
     }
     for (final u in urls) {
-      var bytes = await _fetchBytes(u, fetcher);
+      var bytes = await _fetchBytes(u, fetcher, ignoreSsl);
       if (bytes == null) {
         final reason = diagOf?.call() ?? '';
         if (reason.isNotEmpty) {
@@ -71,7 +76,7 @@ class Subtitles {
         // 拿到的是 ASS：先试 Emby 的 .srt 转码端点
         final alt = _toSrtUrl(u);
         if (alt != null && alt != u) {
-          final bytes2 = await _fetchBytes(alt, fetcher);
+          final bytes2 = await _fetchBytes(alt, fetcher, ignoreSsl);
           if (bytes2 != null) {
             final raw2 = _decode(bytes2);
             if (!_looksBinaryOrAss(raw2)) raw = raw2;
@@ -93,8 +98,9 @@ class Subtitles {
   static Future<List<int>?> _fetchBytes(
     String url,
     Future<List<int>?> Function(String)? fetcher,
+    bool ignoreSsl,
   ) async {
-    // 优先走注入的鉴权通道（与视频同款鉴权 + 忽略 LAN 自签证书）
+    // 优先走注入的鉴权通道（与视频同款鉴权 + 按服务器配置决定是否跳过证书）
     if (fetcher != null) {
       try {
         final r = await fetcher(url);
@@ -103,10 +109,10 @@ class Subtitles {
     }
     HttpClient? client;
     try {
-      client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10)
-        // 家庭媒体服务器多为自签/Let's Encrypt 证书，直连需忽略证书错误
-        ..badCertificateCallback = (_, __, ___) => true;
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      if (ignoreSsl) {
+        client.badCertificateCallback = (_, __, ___) => true;
+      }
       final req = await client.getUrl(Uri.parse(url));
       req.headers.set(HttpHeaders.acceptHeader, '*/*');
       final res = await req.close().timeout(const Duration(seconds: 15));

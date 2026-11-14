@@ -7,6 +7,14 @@ import android.view.Display
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 class MainActivity : FlutterActivity() {
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -29,6 +37,56 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "setIgnoreSsl") {
+                    result.success(setIgnoreSsl(call.argument<Boolean>("enabled") == true))
+                } else {
+                    result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * v2.0.87：让 Android 原生网络栈接受自签证书。
+     *
+     * `video_player` / ExoPlayer 的 `DefaultHttpDataSource` 基于
+     * `HttpsURLConnection`，与 Dart 的 `HttpClient` 是两套独立的 TLS 栈。
+     * 绿联影视中心固定 HTTPS 9443 + 自签证书，Dart 层登录 / 拉库 / 海报
+     * 都能过，唯独 Exo 取流会 SSLHandshakeException → 能刷库但播放黑屏。
+     * 这里换掉进程级默认 SSLSocketFactory / HostnameVerifier，Exo 随之放行。
+     *
+     * 作用域控制：只有用户在该服务器配置里勾选「忽略 SSL 证书校验」时由
+     * AppState 打开；切回普通服务器 / 断开连接都会恢复系统默认，不会长期
+     * 降低整个进程的安全等级。MPV 走 libmpv 自带网络栈，不受影响。
+     */
+    private fun setIgnoreSsl(enabled: Boolean): Map<String, Any> {
+        return try {
+            if (enabled) {
+                val factory = trustAllFactory ?: createTrustAllFactory().also {
+                    trustAllFactory = it
+                }
+                HttpsURLConnection.setDefaultSSLSocketFactory(factory)
+                HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
+            } else {
+                HttpsURLConnection.setDefaultSSLSocketFactory(defaultSocketFactory)
+                HttpsURLConnection.setDefaultHostnameVerifier(defaultHostnameVerifier)
+            }
+            mapOf("enabled" to enabled)
+        } catch (e: Throwable) {
+            mapOf("enabled" to false, "error" to "$e")
+        }
+    }
+
+    private fun createTrustAllFactory(): SSLSocketFactory {
+        val tm = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        return SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(tm), SecureRandom())
+        }.socketFactory
     }
 
     /**
@@ -119,5 +177,15 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val CHANNEL = "cn.camby.camby/display"
         private const val NETWORK_CHANNEL = "cn.camby.camby/network"
+        private const val SECURITY_CHANNEL = "cn.camby.camby/security"
+
+        // 类加载时记下系统默认值，关闭开关时原样恢复。
+        private val defaultSocketFactory: SSLSocketFactory =
+            HttpsURLConnection.getDefaultSSLSocketFactory()
+        private val defaultHostnameVerifier: HostnameVerifier =
+            HttpsURLConnection.getDefaultHostnameVerifier()
+
+        @Volatile
+        private var trustAllFactory: SSLSocketFactory? = null
     }
 }

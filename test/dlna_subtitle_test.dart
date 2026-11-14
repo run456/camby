@@ -337,13 +337,13 @@ void main() {
       expect(s.contains('widget.buildUrl(c.compatibleMode)'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.86', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.86+286'), isTrue);
-      expect(src('README.md').contains('v2.0.86 (286)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.86 (286)'), isTrue);
+    test('版本与文档同步到 v2.0.87', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.87+287'), isTrue);
+      expect(src('README.md').contains('v2.0.87 (287)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.87 (287)'), isTrue);
       expect(src('VERIFICATION.md').contains('§99'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.86 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.87 "),
         isTrue,
       );
     });

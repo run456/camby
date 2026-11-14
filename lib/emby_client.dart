@@ -76,7 +76,8 @@ class EmbyServer {
     required this.username,
     this.password = '',
     this.kind = ServerKind.emby,
-  });
+    this.ignoreSsl = false,
+  }) : _basePath = kind == ServerKind.jellyfin ? '' : '/emby';
 
   final String host;
   final int port;
@@ -86,6 +87,19 @@ class EmbyServer {
 
   /// Emby / Jellyfin：仅影响基础路径与少量接口差异
   final ServerKind kind;
+
+  /// v2.0.87：跳过 TLS 证书校验。**默认 false**。
+  ///
+  /// 此前本文件 8 处 `HttpClient()` 全都无条件写了
+  /// `badCertificateCallback = (_, __, ___) => true`，等于全站默认信任任意
+  /// 证书且用户无从关闭。现在统一收口到 [_newClient]：只有用户在该服务器
+  /// 配置里勾选「忽略 SSL 证书校验」才放行，并且由
+  /// `NativeSsl.setIgnoreCertificateErrors` 同步到 Android 播放器原生栈。
+  final bool ignoreSsl;
+
+  /// 探测出的 API 前缀。标准 Emby 是 `/emby`，Jellyfin 与部分 Emby 兼容实现
+  /// （绿联影视中心等）走根路径；登录遇到 404/405 时会自动切一次。
+  String _basePath = '';
 
   String? _token;
   String? _userId;
@@ -111,8 +125,22 @@ class EmbyServer {
   /// 当前会话令牌；NFO / 字幕等走服务端代理端点时要用。
   String? get token => _token;
 
-  String get baseUrl =>
-      '${secure ? 'https' : 'http'}://$host:$port${kind == ServerKind.jellyfin ? '' : '/emby'}';
+  String get rootUrl => '${secure ? 'https' : 'http'}://$host:$port';
+
+  /// API 基址 = [rootUrl] + 探测出的 [_basePath]。
+  /// v2.0.87：登录会把前缀结果定下来，全文件 60+ 处拼 URL 的地方自动跟随。
+  String get baseUrl => '$rootUrl$_basePath';
+
+  /// 本类唯一允许创建 [HttpClient] 的地方（v2.0.87）。
+  ///
+  /// 以前 8 处各自 `..badCertificateCallback = (_, __, ___) => true`，
+  /// 证书校验被无条件关掉且无法关闭。现在只有 [ignoreSsl] 为真才放行。
+  HttpClient _newClient({Duration? connectionTimeout}) {
+    final c = HttpClient();
+    if (connectionTimeout != null) c.connectionTimeout = connectionTimeout;
+    if (ignoreSsl) c.badCertificateCallback = (_, __, ___) => true;
+    return c;
+  }
 
   /// 把服务器返回的相对地址补成绝对地址。
   ///
@@ -120,12 +148,10 @@ class EmbyServer {
   /// 直接交给下载器会解析失败，必须先拼上主机。
   String _absolutize(String u) {
     if (u.startsWith('http://') || u.startsWith('https://')) return u;
-    final origin = '${secure ? 'https' : 'http'}://$host:$port';
     final path = u.startsWith('/') ? u : '/$u';
     // 服务器已经带了 /emby 前缀时直接拼 origin，避免出现 /emby/emby
-    if (path.startsWith('/emby/')) return '$origin$path';
-    final prefix = kind == ServerKind.jellyfin ? '' : '/emby';
-    return '$origin$prefix$path';
+    if (path.startsWith('/emby/')) return '$rootUrl$path';
+    return '$rootUrl$_basePath$path';
   }
 
   /// 认证：POST /Users/AuthenticateByName
@@ -135,7 +161,33 @@ class EmbyServer {
   /// 2. Jellyfin 12 / 新版 Emby 默认禁用旧头，只认标准 Authorization 头
   /// 3. 部分版本还会从 URL query 读取 X-Emby-Client 等参数
   /// 因此这里三种方式同时发送。
+  ///
+  /// v2.0.87：额外做 **API 前缀探测**。标准 Emby 用 `/emby`，Jellyfin 与绿联
+  /// 影视中心这类兼容实现可能只认根路径。先试 `/emby`，404/405 或返回非 JSON
+  /// 时自动用根路径再试一次；命中的前缀存进 [_basePath]，之后拉库、海报、
+  /// 播放 URL 全部跟随。证书错误 / 超时 / 密码错不会被误判成路径问题，
+  /// 直接抛给用户，避免重试之后给出误导性报错。
   Future<void> authenticate() async {
+    final candidates = kind == ServerKind.jellyfin
+        ? const <String>['']
+        : const <String>['/emby', ''];
+    Object? lastMiss;
+    for (final prefix in candidates) {
+      _basePath = prefix;
+      try {
+        await _authenticateOnce();
+        return;
+      } on _PathMiss catch (e) {
+        lastMiss = e;
+      }
+    }
+    throw EmbyException(
+      '登录地址不可用（$lastMiss）：服务器既不响应 /emby 也不响应根路径，'
+      '请检查协议与端口（绿联影视中心须为 HTTPS 9443）',
+    );
+  }
+
+  Future<void> _authenticateOnce() async {
     final uri = Uri.parse('$baseUrl/Users/AuthenticateByName').replace(
       queryParameters: const {
         'X-Emby-Client': 'Camby',
@@ -144,7 +196,7 @@ class EmbyServer {
         'X-Emby-Client-Version': '1.0.0',
       },
     );
-    final client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient();
     try {
       // 第一轮：JSON body（官方标准方式）
       var res = await _sendAuth(
@@ -164,10 +216,19 @@ class EmbyServer {
         );
       }
       final body = await res.transform(utf8.decoder).join();
+      if (res.statusCode == 404 || res.statusCode == 405) {
+        throw _PathMiss(res.statusCode);
+      }
       if (res.statusCode != 200) {
         throw EmbyException('登录失败 (${res.statusCode})：$body');
       }
-      final json = jsonDecode(body) as Map<String, dynamic>;
+      final Map<String, dynamic> json;
+      try {
+        json = jsonDecode(body) as Map<String, dynamic>;
+      } on FormatException {
+        // 反代把未知路径回落到 SPA 首页（200 + HTML）也说明前缀不对
+        throw const _PathMiss(200);
+      }
       _token = json['AccessToken'] as String?;
       _userId = (json['User'] as Map<String, dynamic>?)?['Id'] as String?;
       if (_token == null || _userId == null) {
@@ -453,9 +514,9 @@ class EmbyServer {
   /// 正是「另一台手机没记录」的隐性根因之一。现在非 2xx 直接抛异常，让重试
   /// 与状态上报能真正生效。
   Future<void> _postJson(String url, Map<String, dynamic> body) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 6)
-      ..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient(
+      connectionTimeout: const Duration(seconds: 6),
+    );
     try {
       final req = await client.postUrl(Uri.parse(url));
       req.headers.set(
@@ -629,9 +690,9 @@ class EmbyServer {
     String url,
     Map<String, dynamic> body,
   ) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8)
-      ..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
     try {
       final req = await client.postUrl(Uri.parse(url));
       req.headers.set(
@@ -2100,9 +2161,9 @@ class EmbyServer {
   ) async {
     final qp = <String, String>{...query, 'X-Emby-Token': _token!};
     final uri = Uri.parse(path).replace(queryParameters: qp);
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8)
-      ..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
     try {
       final req = await client.postUrl(uri);
       req.headers.set(
@@ -2396,9 +2457,9 @@ class EmbyServer {
     final uri = buildRequestUri(path, query, _token!);
     for (var attempt = 0; ; attempt++) {
       // 连接超时：避免某个库的请求挂起把首页其它行的加载一起堵住
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10)
-        ..badCertificateCallback = (_, __, ___) => true;
+      final client = _newClient(
+        connectionTimeout: const Duration(seconds: 10),
+      );
       try {
         final req = await client.getUrl(uri);
         req.headers.set('X-Emby-Token', _token!);
@@ -2457,9 +2518,9 @@ class EmbyServer {
 
   Future<List<int>?> _fetchBytesOnce(String url) async {
     if (_token == null) return null;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10)
-      ..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient(
+      connectionTimeout: const Duration(seconds: 10),
+    );
     try {
       final req = await client.getUrl(Uri.parse(url));
       req.headers.set('X-Emby-Token', _token!);
@@ -2920,9 +2981,9 @@ class EmbyServer {
     if (_token == null || _userId == null) throw EmbyException('请先登录');
     final uri = buildRequestUri(path, query, _token!);
     for (var attempt = 0; ; attempt++) {
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10)
-        ..badCertificateCallback = (_, __, ___) => true;
+      final client = _newClient(
+        connectionTimeout: const Duration(seconds: 10),
+      );
       try {
         final req = await client.getUrl(uri);
         req.headers.set('X-Emby-Token', _token!);
@@ -2949,7 +3010,7 @@ class EmbyServer {
   }
 
   Future<void> _request(String url, {String method = 'GET'}) async {
-    final client = HttpClient()..badCertificateCallback = (_, __, ___) => true;
+    final client = _newClient();
     try {
       final req = await client.openUrl(method, Uri.parse(url));
       req.headers.set(
@@ -3002,6 +3063,17 @@ class EmbyServer {
     final h = id.isEmpty ? 0 : id.codeUnits.fold(0, (a, b) => a + b);
     return palette[h % palette.length];
   }
+}
+
+/// 登录端点路径不匹配（404/405 或反代回落的 HTML 页面）。
+/// 只用于 [EmbyServer.authenticate] 内部决定是否换 API 前缀重试，
+/// 不会当成账号/证书错误暴露给用户。
+class _PathMiss implements Exception {
+  const _PathMiss(this.status);
+  final int status;
+
+  @override
+  String toString() => 'HTTP $status';
 }
 
 class EmbyException implements Exception {

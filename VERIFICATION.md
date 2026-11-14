@@ -2911,3 +2911,52 @@ WatchEvent 序列化与纯计算 / 月历聚合与 6 档徽章 / 本机起播退
 普通账号可能拿不到明细；这时日历主要靠本机记录与「同步最近一年」回填。
 「估算」记录只有最后一次播放日期、时长按片长，不代表真实观看时长，
 UI 已单独标注。分享图里的海报依赖网络图缓存，未加载完成时是占位色块。
+
+## §101 发布 v2.0.87（绿联 NAS 影视中心接入 · 方案 A）
+
+需求：按用户给的建议，采用**方案 A**（原 Emby 添加页加「忽略 SSL 证书校验」
+复选框，默认关闭），给出并落地连接绿联 NAS 的解决方案。
+
+依据：绿联社区 tid=6281 正文与回复（2026-09-03）+ 其引用的 tid=6256。
+原文确认「绿联走的就是 emby 的格式」「必须选择 https 模式」「要打开
+【跳过 SSL 证书验证】功能」「现在没办法同步播放进度」，回复补充
+「外网有公网正常用，走不了 ugren link」「音乐现在的版本没有服务器」。
+
+**代码事实澄清（与建议不一致处，均已修）**：
+
+| 建议假设 | 工程实际 | 处理 |
+|---|---|---|
+| 需要新增忽略证书开关 | 8 处 `HttpClient` 已无条件信任任意证书，且无法关闭 | 收口到 `_newClient()`，按 profile 开关控制 |
+| 用户填 `https://ip:9443` 即可 | `_cleanHost` 不拆端口，会拼成 `ip:9443:8096` | `parseServerAddress()` 自动拆协议/端口/主机 |
+| 自动发现对绿联无效 | 项目本来没有 Emby discovery | 无需改动，仅补提示 |
+| 直链播放正常 | ExoPlayer 走 Android TLS 栈，Dart 层忽略证书管不到 | `MainActivity.setIgnoreSsl` 同步原生栈 |
+| — | Emby 模式固定 `/emby` 前缀 | 登录 404/405 自动回退根路径 |
+
+**进度降级**：`isUgreenCompatSource(HTTPS + 9443)` → 关掉 `/Sessions/*`
+上报与重试队列，设置页显示 `kUgreenProgressHint`；本机 `WatchEvent`
+仍照常落盘，观影日历不受影响。
+
+**安全**：开关默认关闭、旧配置默认 false；非局域网主机勾选时显示
+中间人风险警告；断开 / 切回普通服务器恢复系统默认 SSL 策略。
+
+**验证（v2.0.87）**：`flutter analyze` 0 error / 0 warning（418 项全为 info）；
+`flutter test` **641 全过**（新增 27 条 `test/ugreen_ssl_test.dart`，覆盖完整 URL 拆解、
+IPv6、端口越界、绿联源判据、局域网判据、证书开关序列化与旧配置兼容、
+`/emby` 前缀探测的本地 HttpServer 实测、进度降级与原生通道源码守卫）；
+`tools/perf_audit.py` 未命中红线。
+
+**实机待确认**：绿联影视中心的 API 前缀（`/emby` 还是根路径）由登录探测
+自动决定，未拿到真机抓包；Android 的 trust-all 默认 SSLSocketFactory 对
+ExoPlayer 是否生效需在真机验证（若仍黑屏，切到 MPV 内核可绕开该栈）。
+不同 UGOS Pro 版本的 `/Sessions/*` 表现不一，本版按「不支持」保守降级，
+若某版本实际可用，需要放宽 `isUgreenCompatSource` 判定。
+
+**交付**：`camby-2.0.87-release-arm64.apk`（39 MB）。`aapt dump badging`：
+`versionCode='287' versionName='2.0.87'`，权限与 v2.0.86 一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 命中 `Camby/2.0.87` / `ignore_ssl` /
+`parseServerAddress` / `setIgnoreSsl` / `cn.camby.camby/security` 与
+「忽略 SSL 证书校验」「当前服务器不支持进度同步」「中间人风险」「HTTPS 9443」
+等中文文案；`classes.dex` 命中 `setIgnoreSsl` / `setDefaultSSLSocketFactory` /
+`SSLContext` / `X509TrustManager`，且 v2.0.83 的 `hdrCapabilities`、
+v2.0.84 的 `createMulticastLock` 均未破坏。本地提交 + tag `v2.0.87`，
+未推 GitHub。

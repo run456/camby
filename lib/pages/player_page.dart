@@ -1924,6 +1924,7 @@ class PlayerPageState extends State<PlayerPage>
       fetcher: _subFetcher,
       fallbackUrl: track.url,
       diagOf: () => widget.state.server?.subtitleDiag ?? '',
+      ignoreSsl: widget.state.ignoreSslErrors,
     );
     if (!mounted || _subtitle?.url != track.url) return const [];
     setState(() {
@@ -1953,6 +1954,7 @@ class PlayerPageState extends State<PlayerPage>
       fetcher: _subFetcher,
       fallbackUrl: track.url,
       diagOf: () => widget.state.server?.subtitleDiag ?? '',
+      ignoreSsl: widget.state.ignoreSslErrors,
     );
     if (!mounted || _subtitle?.url != track.url) return;
     setState(() => _cues = cues);

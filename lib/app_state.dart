@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'emby_client.dart';
 import 'models.dart';
+import 'player/native_ssl.dart';
+import 'server_address.dart';
 import 'watch_history.dart';
 import 'widgets/haptics.dart';
 
@@ -35,6 +37,11 @@ class AppState extends ChangeNotifier {
   bool _demoMode = true;
   bool _loading = false;
   String? _error;
+
+  /// v2.0.87：当前服务器是否支持进度同步。绿联影视中心（HTTPS 9443）不开放
+  /// `/Sessions/*` 与进度接口，判成 false 后跳过上报与重试队列，只保留本机
+  /// 观影日历记录；避免无效请求堆积，也避免用户以为「进度丢了是 bug」。
+  bool _progressSyncSupported = true;
   String? _userName;
   List<LibraryView> _views = [];
   String? _selectedViewId;
@@ -335,6 +342,13 @@ class AppState extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
   EmbyServer? get server => _server;
+
+  /// 当前服务器是否支持播放进度同步（绿联兼容源为 false）。
+  bool get progressSyncSupported => _progressSyncSupported;
+
+  /// 当前连接是否跳过了 TLS 证书校验（诊断 / 设置页提示用）。
+  bool get ignoreSslErrors => _server?.ignoreSsl ?? false;
+
   List<LibraryView> get views => _views;
   String? get selectedViewId => _selectedViewId;
   String get sourceLabel =>
@@ -512,7 +526,9 @@ class AppState extends ChangeNotifier {
     bool played = false,
   }) async {
     final s = _server;
-    if (s == null) return;
+    // v2.0.87：绿联影视中心不开放进度接口，直接跳过，避免每次播放都往
+    // 持久化重试队列里堆一条永远发不出去的记录。
+    if (s == null || !_progressSyncSupported) return;
     final ok = await s.reportProgress(itemId, positionTicks, played: played);
     // v1.7.73：UserData 直写之外同步发一次会话心跳，让服务器活动日志
     // 记录本 APP 的播放事件（统计页「每日观看时长/播放时段」的数据源）。
@@ -531,7 +547,9 @@ class AppState extends ChangeNotifier {
   /// 冲刷待上报队列：连接成功 / 下拉刷新 / 回到前台时调用。
   Future<void> flushPendingProgress() async {
     final s = _server;
-    if (s == null || _pendingProgress.isEmpty) return;
+    if (s == null || !_progressSyncSupported || _pendingProgress.isEmpty) {
+      return;
+    }
     final pending = Map<String, _PendingProgress>.from(_pendingProgress);
     for (final entry in pending.entries) {
       final ok = await s.reportProgress(
@@ -567,7 +585,9 @@ class AppState extends ChangeNotifier {
     int? audioStreamIndex,
   }) {
     // v2.0.86：起播先记会话，退出时与 Stop 配对成一条本地观看事件。
+    // 这条**与服务端无关**：绿联源关掉上报后，观影日历仍要能记下这一场。
     _watchSessions[itemId] = _WatchSession(DateTime.now(), positionTicks);
+    if (!_progressSyncSupported) return Future.value();
     return _server?.reportPlaybackStart(
           itemId,
           positionTicks: positionTicks,
@@ -586,6 +606,7 @@ class AppState extends ChangeNotifier {
     bool played = false,
   }) {
     _recordLocalWatch(itemId, positionTicks, played: played);
+    if (!_progressSyncSupported) return Future.value();
     return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
         Future.value();
   }
@@ -1299,6 +1320,7 @@ class AppState extends ChangeNotifier {
       username: profile.username,
       password: profile.password,
       kind: profile.kind,
+      ignoreSsl: profile.ignoreSsl,
       silent: silent,
     );
     if (ok) {
@@ -1363,10 +1385,14 @@ class AppState extends ChangeNotifier {
     required String password,
     bool silent = false,
     ServerKind kind = ServerKind.emby,
+    bool ignoreSsl = false,
   }) async {
     _loading = true;
     _error = null;
     notifyListeners();
+    // v2.0.87：先同步 Android 播放器原生栈的证书策略，再发任何请求。
+    // 连接失败也要同步（关掉开关时必须恢复系统默认），所以放在 try 外。
+    await NativeSsl.setIgnoreCertificateErrors(ignoreSsl);
     try {
       final server = EmbyServer(
         host: host,
@@ -1375,6 +1401,7 @@ class AppState extends ChangeNotifier {
         username: username,
         password: password,
         kind: kind,
+        ignoreSsl: ignoreSsl,
       );
       await server.authenticate();
       final items = await server.items();
@@ -1384,6 +1411,12 @@ class AppState extends ChangeNotifier {
       _demoMode = false;
       _offline = false;
       _userName = username;
+      // 绿联影视中心（HTTPS 9443）不开放 /Sessions/* 与进度接口：
+      // 连上就关掉服务端上报，只留本机观影日历，并让设置页给出说明。
+      _progressSyncSupported = !isUgreenCompatSource(
+        port: port,
+        secure: secure,
+      );
       _loading = false;
       _invalidateDerived();
       notifyListeners();
@@ -1434,6 +1467,9 @@ class AppState extends ChangeNotifier {
     _activeServerId = null;
     await _saveServers();
     _server = null;
+    // 断开后恢复系统证书校验，别让「信任任意证书」留在进程里
+    unawaited(NativeSsl.setIgnoreCertificateErrors(false));
+    _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];
     _viewCache.clear();
@@ -1451,6 +1487,8 @@ class AppState extends ChangeNotifier {
 
   void useDemo() {
     _server = null;
+    unawaited(NativeSsl.setIgnoreCertificateErrors(false));
+    _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];
     _viewCache.clear();

@@ -12,6 +12,7 @@ import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
 import '../models.dart';
+import '../server_address.dart';
 import '../theme.dart';
 import '../widgets/glass_sheet.dart';
 
@@ -443,6 +444,32 @@ class _ServersSection extends StatelessWidget {
             ),
             const SizedBox(height: 8),
           ],
+        // v2.0.87：绿联影视中心不开放进度接口，连上就明确告知，
+        // 避免用户把「进度不同步」当成 bug 反馈。
+        if (connected && !state.progressSyncSupported) ...[
+          const SizedBox(height: 2),
+          Glass(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 15,
+                  color: AppColors.warn,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    kUgreenProgressHint,
+                    style: TextStyle(fontSize: 10.5, color: AppColors.ink),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
         if (connected) ...[
           const SizedBox(height: 2),
           LiquidPress(
@@ -722,6 +749,13 @@ class _ServerSheetState extends State<_ServerSheet> {
   late final TextEditingController _pwd;
   late bool _secure;
   late ServerKind _kind;
+
+  /// v2.0.87 方案 A：忽略 SSL 证书校验，默认关闭。
+  late bool _ignoreSsl;
+
+  /// 防止「粘贴完整地址 → 自动拆分 → 重写 TextField」触发监听器重入。
+  bool _splitting = false;
+
   bool _loading = false;
   String? _result;
   bool _resultOk = false;
@@ -739,10 +773,13 @@ class _ServerSheetState extends State<_ServerSheet> {
     _pwd = TextEditingController(text: p?.password ?? '');
     _kind = p?.kind ?? widget.presetKind ?? ServerKind.emby;
     _secure = p?.secure ?? false;
+    _ignoreSsl = p?.ignoreSsl ?? false;
+    _host.addListener(_onHostChanged);
   }
 
   @override
   void dispose() {
+    _host.removeListener(_onHostChanged);
     _name.dispose();
     _host.dispose();
     _port.dispose();
@@ -751,13 +788,26 @@ class _ServerSheetState extends State<_ServerSheet> {
     super.dispose();
   }
 
-  /// 清洗地址：剥离 http(s):// 前缀与路径，只留主机名/IP
-  String _cleanHost(String raw) {
-    var h = raw.trim();
-    final idx = h.indexOf('://');
-    if (idx >= 0) h = h.substring(idx + 3);
-    h = h.split('/').first;
-    return h.trim();
+  /// v2.0.87：允许直接粘贴 `https://nasip:9443` 这种完整地址。
+  /// 旧版只剥 `://` 和路径、不拆端口，会拼出 `https://ip:9443:8096/emby`
+  /// 这种必然连不上的地址 —— 正是绿联接入的第一步坑。
+  /// 粘贴后自动把协议/端口拆到对应控件，用户仍可手动改。
+  void _onHostChanged() {
+    if (_splitting) return;
+    final raw = _host.text;
+    if (!raw.contains('://') && !raw.contains(':')) return;
+    final parsed = parseServerAddress(
+      raw,
+      fallbackPort: int.tryParse(_port.text.trim()) ?? 8096,
+      fallbackSecure: _secure,
+    );
+    if (parsed.host.isEmpty) return;
+    _splitting = true;
+    _host.text = parsed.host;
+    _port.text = '${parsed.port}';
+    _secure = parsed.secure;
+    _splitting = false;
+    if (mounted) setState(() {});
   }
 
   /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。
@@ -777,6 +827,11 @@ class _ServerSheetState extends State<_ServerSheet> {
       reason = '网络不可达';
     } else if (low.contains('cleartext')) {
       reason = '系统禁止明文 HTTP';
+    } else if (low.contains('handshake') ||
+        low.contains('certificate') ||
+        low.contains('ssl') ||
+        low.contains('cert')) {
+      reason = '证书校验失败（自签证书请勾选「忽略 SSL 证书校验」）';
     } else {
       reason = m;
     }
@@ -798,7 +853,12 @@ class _ServerSheetState extends State<_ServerSheet> {
   }
 
   Future<void> _submit() async {
-    final host = _cleanHost(_host.text);
+    final addr = parseServerAddress(
+      _host.text,
+      fallbackPort: int.tryParse(_port.text.trim()) ?? 8096,
+      fallbackSecure: _secure,
+    );
+    final host = addr.host;
     final user = _user.text.trim();
     if (host.isEmpty || user.isEmpty) {
       setState(() {
@@ -815,11 +875,12 @@ class _ServerSheetState extends State<_ServerSheet> {
       id: widget.profile?.id ?? 's${DateTime.now().microsecondsSinceEpoch}',
       name: _name.text.trim().isEmpty ? host : _name.text.trim(),
       host: host,
-      port: int.tryParse(_port.text.trim()) ?? 8096,
-      secure: _secure,
+      port: addr.port,
+      secure: addr.secure,
       username: user,
       password: _pwd.text,
       kind: _kind,
+      ignoreSsl: _ignoreSsl,
     );
     final ok = await widget.state.connectProfile(p);
     if (!mounted) return;
@@ -828,6 +889,7 @@ class _ServerSheetState extends State<_ServerSheet> {
       _resultOk = ok;
       _result = ok
           ? '连接成功，已载入 ${widget.state.items.length} 个条目'
+                '${isUgreenCompatSource(port: addr.port, secure: addr.secure) ? '\n$kUgreenProgressHint' : ''}'
           : _friendlyConnectError(host, widget.state.error);
     });
     if (ok) {
@@ -839,6 +901,8 @@ class _ServerSheetState extends State<_ServerSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final detectedPort = int.tryParse(_port.text.trim()) ?? 8096;
+    final ugreen = isUgreenCompatSource(port: detectedPort, secure: _secure);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -945,7 +1009,73 @@ class _ServerSheetState extends State<_ServerSheet> {
                   hint: '••••••',
                   obscure: true,
                 ),
-                const SizedBox(height: 6),
+
+                // ── v2.0.87 方案 A：忽略 SSL 证书校验（默认关闭）──
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '忽略 SSL 证书校验',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            _ignoreSsl && !isLanHost(_host.text)
+                                ? '⚠ 非局域网地址：关闭校验有中间人风险，建议仅局域网使用'
+                                : '自签 HTTPS 源需开启；建议仅局域网使用，默认关闭',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _ignoreSsl && !isLanHost(_host.text)
+                                  ? AppColors.warn
+                                  : AppColors.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _Toggle(
+                      value: _ignoreSsl,
+                      onChanged: (v) => setState(() => _ignoreSsl = v),
+                    ),
+                  ],
+                ),
+                if (ugreen && !_ignoreSsl)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '检测到绿联影视中心（HTTPS 9443）：请勾选上方开关，'
+                      '影视中心账号即 Emby 管理员账号。',
+                      style: TextStyle(fontSize: 10, color: AppColors.warn),
+                    ),
+                  ),
+                if (detectedPort == 9443 && !_secure)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '绿联影视中心只提供 HTTPS，请把「协议」切到 HTTPS；'
+                      'HTTP 与 8096 端口均不可用。',
+                      style: TextStyle(fontSize: 10, color: AppColors.warn),
+                    ),
+                  ),
+                if (ugreen)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '该源不广播 Emby 发现包，请手动填地址；'
+                      '且不支持播放进度同步，观看记录仅保存在本机观影日历。',
+                      style: TextStyle(fontSize: 10, color: AppColors.muted),
+                    ),
+                  ),
+                const SizedBox(height: 10),
                 if (_result != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),

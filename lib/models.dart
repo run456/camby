@@ -69,6 +69,7 @@ class ServerProfile {
     required this.username,
     this.password = '',
     this.kind = ServerKind.emby,
+    this.ignoreSsl = false,
   });
 
   final String id;
@@ -79,6 +80,10 @@ class ServerProfile {
   final String username;
   final String password;
   final ServerKind kind;
+
+  /// v2.0.87：是否跳过 TLS 证书校验。**默认关闭**，仅绿联影视中心这类
+  /// 局域网自签 HTTPS 源需要手动打开；见 `server_address.dart` 的风险说明。
+  final bool ignoreSsl;
 
   String get kindLabel => switch (kind) {
     ServerKind.jellyfin => 'Jellyfin',
@@ -94,6 +99,7 @@ class ServerProfile {
     String? username,
     String? password,
     ServerKind? kind,
+    bool? ignoreSsl,
   }) => ServerProfile(
     id: id,
     name: name ?? this.name,
@@ -103,6 +109,7 @@ class ServerProfile {
     username: username ?? this.username,
     password: password ?? this.password,
     kind: kind ?? this.kind,
+    ignoreSsl: ignoreSsl ?? this.ignoreSsl,
   );
 
   Map<String, dynamic> toJson() => {
@@ -114,6 +121,7 @@ class ServerProfile {
     'username': username,
     'password': password,
     'kind': kind.name,
+    'ignore_ssl': ignoreSsl,
   };
 
   factory ServerProfile.fromJson(Map<String, dynamic> j) => ServerProfile(
@@ -128,6 +136,8 @@ class ServerProfile {
     kind: (j['kind'] as String?) == 'jellyfin'
         ? ServerKind.jellyfin
         : ServerKind.emby,
+    // 旧配置没有这个键 → 默认关闭，不会把旧版「隐式全开」继承过来
+    ignoreSsl: j['ignore_ssl'] as bool? ?? false,
   );
 }
 

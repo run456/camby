@@ -1,10 +1,65 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.86 (286)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.87 (287)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.87 (287) 接入绿联 NAS 影视中心（方案 A：忽略 SSL 证书校验）
+
+依据 [绿联社区 tid=6281](https://club.ugnas.com/forum.php?mod=viewthread&tid=6281)
+与其引用的 [tid=6256](https://club.ugnas.com/forum.php?mod=viewthread&tid=6256)：
+影视中心对外是 Emby 兼容接口，抓包可证，**必须 HTTPS**、**必须跳过 SSL 证书
+验证**；不广播 Emby 发现包；楼主原话「现在没办法同步播放进度」。
+
+采用**方案 A**（不新增服务器类型），原有「添加服务器」表单加一个
+「忽略 SSL 证书校验」复选框，**默认关闭**。填 `https://nasip:9443`、勾上即可接入。
+
+**代码里 4 个与建议冲突 / 会直接导致连不上的现状，一并修掉：**
+
+1. **证书校验原本是「隐式全局开启」**：`emby_client.dart` 里 8 处
+   `HttpClient()` 全写了 `badCertificateCallback = (_, __, ___) => true`，
+   用户根本无从关闭。现在收口到唯一工厂 `_newClient()`，只有该服务器
+   配置 `ignoreSsl == true` 才放行；字幕下载的兜底直连通道同样接上开关，
+   不留后门。旧配置缺这个键时默认 false。
+2. **地址栏不认完整 URL**：旧 `_cleanHost()` 只剥 `://` 和路径，用户按建议
+   粘贴 `https://192.168.1.24:9443` 会拼成 `https://ip:9443:8096/emby`。
+   新增 `lib/server_address.dart` 的 `parseServerAddress()`，粘贴后自动把
+   协议 / 端口 / 主机拆到对应控件，IPv6 也不会被误拆。
+3. **ExoPlayer 不走 Dart 的 TLS 栈**：`video_player` 基于 Android
+   `HttpsURLConnection`，Dart 层忽略证书管不到它，自签 HTTPS 片源会
+   「列表海报正常、点播放黑屏」。`MainActivity.kt` 新增 `setIgnoreSsl`
+   通道，开关打开时换默认 `SSLSocketFactory` / `HostnameVerifier`，
+   切回普通服务器或断开时恢复系统默认；MPV 走 libmpv 自带网络栈，不受影响。
+4. **API 前缀**：Camby 的 Emby 模式固定拼 `/emby`，兼容实现可能只认根路径。
+   `authenticate()` 现在先试 `/emby`，遇 404/405 或反代回落的 HTML 自动用
+   根路径重试，命中结果记进 `_basePath`，后续拉库 / 海报 / 播放 URL 全跟随；
+   证书、超时、密码错误不会被误判成路径问题。
+
+**另外两条按建议处理：**
+
+- **自动发现**：Camby 本来就没有 Emby discovery（只有 DLNA 的 SSDP），
+  天然只能手动填地址，无需改动；表单检测到 9443 时给出对应提示。
+- **进度上报降级**（最大坑）：`isUgreenCompatSource(HTTPS + 9443)` 命中后，
+  `AppState.progressSyncSupported = false`，跳过 `/Sessions/*` 会话上报与
+  UserData 进度重试队列，避免无效请求和队列堆积；设置页明确显示
+  「当前服务器不支持进度同步」，观影日历仍照常记录**本机**观看事件。
+
+**安全**：开关默认关闭；勾选后若主机不是局域网地址（`10.x` / `192.168.x` /
+`172.16-31.x` / `.local` 等），表单直接显示「外网穿透 + 自签证书 +
+关闭校验有中间人风险」警告；证书失败的错误文案也会提示去勾开关。
+
+**用户操作**：我的 → 我的服务器 → 添加服务器 → 地址栏粘贴
+`https://<NAS 局域网 IP>:9443`（协议自动切 HTTPS、端口自动填 9443）→
+类型选 Emby → 用户名/密码填**影视中心里设置的账号**（即 Emby 管理员账号）
+→ 勾选「忽略 SSL 证书校验」→ 保存并连接。
+
+**边界**：帖子实测「播放本地视频、strm 直连正常」，外网需公网 IP /
+端口映射，`ugreen link` 不可用；音乐库当前版本没有对外服务器；
+绿联未开放进度接口，观看记录只在本机，换设备不同步。
+`nfo_reader.dart` 的 NFO 代理走 `package:http`、未纳管证书开关，
+绿联下该兜底元数据可能取不到（不影响刷库与播放）。
 
 ### v2.0.86 (286) 最近添加虚拟媒体库 + 观影日历
 
