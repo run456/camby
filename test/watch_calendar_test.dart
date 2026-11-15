@@ -540,12 +540,12 @@ void main() {
     });
 
     test('版本与文档同步到 v2.0.90', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.90+290'), isTrue);
-      expect(src('README.md').contains('v2.0.90 (290)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.90 (290)'), isTrue);
+      expect(src('pubspec.yaml').contains('version: 2.0.91+291'), isTrue);
+      expect(src('README.md').contains('v2.0.91 (291)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.91 (291)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.90 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.91 "),
         isTrue,
       );
     });

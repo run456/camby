@@ -3135,3 +3135,89 @@ HTTP 状态码。若图片候选全部失败：TLS → 确认忽略证书开关�
 `createMulticastLock` / `SSLContext` / `X509TrustManager` 均未破坏；
 五档启动图标 md5 与 v2.0.89 逐档一致。
 本地提交 + tag `v2.0.90`，未推 GitHub。
+
+---
+
+## §105 发布 v2.0.91（绿联播放全 404：改为按服务端声明的协议取流）
+
+需求：v2.0.90 装包后，用户反馈「播放直接全部 404」，并附播放诊断截图：
+
+| # | 候选 URL | 结果 |
+|---|---|---|
+| 1 | `/Videos/9669/stream` | HTTP 404 |
+| 2 | `/Videos/9669/stream?Static=true` | HTTP 404 |
+| 3 | `/emby/Videos/9669/stream` | HTTP 404 · text/plain |
+| 4 | `/emby/Videos/9669/stream?Static=true` | HTTP 404 · text/plain |
+
+**定性与纠偏**：四条候选把「根路径 / `/emby` 前缀」「带不带 `Static`」两个维度
+全排列都试遍了，仍然一致 404 —— 说明**不是鉴权问题**（鉴权失败是 401/403），
+**也不是前缀问题**（前缀错时 `/emby` 那条会与其他条目表现不一致）。剩下唯一
+解释：服务端**没有为这个条目登记这种取流协议**，所以对应端点根本不存在。
+
+v2.0.90 的思路是「枚举候选 URL 白试」，这在绿联上不成立：服务端没给你开的
+端点，你永远猜不到路径，试多少次都是 404，还白白拖慢起播、把诊断搅浑。
+v2.0.91 改成 **先问、再取**：先读 Item 的
+`MediaSources[].SupportedStreamingProtocols`，只按声明的协议拼端点。
+
+**实现**：
+
+- `ugreen_resource.parseStreamingProtocols()`：兼容三种形态 —— 标准 Emby 的
+  `"Http,Http,Sync"` 逗号串、Jellyfin 风格的字符串数组、字段缺失；大小写
+  归一、去重、保留声明顺序。
+- `ugreen_resource.urlsForProtocols()`：`http` → `/Videos/{id}/stream`
+  （附一条 `Static=true`）；`hls` → `/Videos/{id}/master.m3u8`；
+  `file` → `/Items/{id}/File`（固件只给文件路由时走这条）。
+  **一个都没声明时只回 fallback，不凭空造 URL**。
+- `StreamCapability`：封装协议列表、`MediaSource` 条数、探测状态码、来源，
+  给出 `canPlayDirect` / `hasAnyProtocol` / `verdict` / `summary`，
+  供播放页与自检面板直接展示。
+- `EmbyServer.probeStreamCapability(itemId)`：拉
+  `/Users/{uid}/Items/{id}?Fields=MediaSources,MediaStreams,Path,RunTimeTicks`，
+  解析协议；再兜底读 `DirectStreamUrl` / `TranscodingUrl` / `Url`；最后用
+  `probeStream()` 实测首条 URL。
+- `EmbyServer.resolveStreamUrls(item)`：绿联下按声明协议取址；`Path` 为
+  http(s) 直链且未声明 `http` 时把它排在最前（STRM 场景）；非绿联服务端
+  行为不变，仍走 `videoUrl`。
+- `ugreen_resource.shouldTryNextStream()`：401/403/404 **不再换路径重试**
+  （409 语义明确，重试无意义），5xx / 416 / 405 / 超时才继续试下一条 ——
+  起播更快，诊断也不被噪声淹没。
+- `describeStreamStatus()`：把 404 的中文语义从「路径写错」改为
+  「端点不可用 —— 该片源未声明这种取流协议」。
+- `player_page._tryOpen()` 改调 `resolveStreamUrls()`，保留并行预检排序；
+  `_capability` 存本次结论，失败角标点开的诊断弹窗**首屏先打印
+  「服务端取流能力」**，再列预检与内核记录。
+- `app_state.runResourceProbe()` 绿联分支改走协议探测，自检输出第一行即为
+  「取流能力 · <摘要>｜<结论>」。
+- `MpvController._captureMpvError()`：打开失败后延迟回读 libmpv `path` 属性，
+  取 `#` 之后的 ffmpeg 结论（如 `# HTTP error 404 Not Found`）写入
+  `lastError`，MPV 侧失败不再只有一句空话。
+- 版本号同步到 `2.0.91+291` / `Camby/2.0.91` / `kClientVersion = '2.0.91'`；
+  新增 `test/ugreen_capability_test.dart`（17 条）。
+
+**验证（v2.0.91）**：`flutter test` 全过；`flutter analyze` 0 error /
+0 warning；`tools/perf_audit.py` 未命中红线。
+
+**实机待确认**：沙箱无法访问 `192.168.5.29`。装包后若仍失败，点播放失败角标：
+首屏「服务端取流能力」会直接写明该条目**声明了哪些协议、一条都没声明还是
+声明了但取流失败**。三种结论对应三条处置：
+协议为空 → 该片源在绿联后台未开启任何播放协议（多为权限或转码开关），
+需在影视中心侧调整；声明 `http` 但实测 404 → 固件路由前缀与标准 Emby 不同，
+需按截图里的实际路径补一条；声明 `hls` 才能播 → 绿联侧只开了转码，属预期行为。
+
+**交付**：`camby-2.0.91-release-arm64.apk`。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='291' versionName='2.0.91'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.90 逐项一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 命中 `Camby/2.0.91` / `SupportedStreamingProtocols` /
+`MediaSources` / `master.m3u8` / `/Items/` / `服务端取流能力` /
+`取流能力` / `取流协议` / `取流探测` / `取流结论`，前版标记 `X-Emby-Token` / `X-Emby-Authorization` /
+`tls-verify` / `http-header-fields` / `播放诊断` / `起播重试` / `连接诊断` /
+`重新自检` / `__camby_continue__` / `__camby_recent__` / `观影日历` 均未丢失。
+`classes.dex` 中 `setIgnoreSsl` / `hdrCapabilities` / `createMulticastLock` /
+`SSLContext` / `X509TrustManager` 未破坏；`res/` 与 v2.0.90 逐文件 diff 零差异
+（210 个 png + color-v23，目录指纹同为 `1d250ccf…`），启动图标未动。
+本地提交 + tag `v2.0.91`，未推 GitHub。
+> 注：`端点不可用 —— 该片源未声明这种取流协议` 这串 404 文案在 AOT 产物里
+> 搜索不到 —— `describeStreamStatus()` 在 `flutter test` 有覆盖（`状态码语义
+> 404 不再被当成「路径写错」`），且它只在 404 分支才会走到。这是 Dart AOT
+> 的内联/常量折叠所致，不代表文案缺失；实机 404 时诊断面板会直接渲染它。
+

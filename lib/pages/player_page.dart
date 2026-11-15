@@ -100,6 +100,9 @@ class PlayerPageState extends State<PlayerPage>
   /// 取流预检结果（v2.0.90），诊断面板与失败角标共用。
   final List<String> _probes = <String>[];
 
+  /// 绿联取流能力探测结论（v2.0.91）。
+  StreamCapability? _capability;
+
   bool _initializing = true;
   bool _fallback = false;
   bool _controlsVisible = true;
@@ -881,27 +884,24 @@ class PlayerPageState extends State<PlayerPage>
         ? srv.streamUrl(widget.item.id, mediaSourceId: sourceId, direct: false)
         : null;
 
-    // 绿联：前缀 / Static / STRM 原文 / HLS 全列出来逐个试。固件之间的
-    // stream 路径宽容度不一致，写死一条就等于把「换个固件就播不了」变成
-    // 用户侧的玄学。
+    // 绿联：**先问服务端声明了哪些取流协议**，按协议拼端点再试。
+    // v2.0.90 是猜几条常见路径，真机全 404 —— 因为绿联只在
+    // MediaSources[].SupportedStreamingProtocols 登记过的协议才暴露端点，
+    // 没登记就 404（不是 403）。所以猜测这条路是死的，必须按声明走。
     final urls = <String>[];
+    StreamCapability? cap;
     if (srv != null && srv.isUgreen) {
-      final base = primary ?? direct;
-      if (base != null) {
-        urls.addAll(
-          playbackCandidates(
-            streamUrl: base,
-            filePath: widget.item.filePath,
-            hlsUrl: hls,
-            enabled: true,
-          ),
-        );
-      }
+      try {
+        final resolved = await srv.resolveStreamUrls(widget.item);
+        urls.addAll(resolved);
+      } catch (_) {}
+      cap = srv.lastStreamCapability;
     } else {
       for (final u in <String?>[primary, direct, hls]) {
         if (u != null && u.isNotEmpty && !urls.contains(u)) urls.add(u);
       }
     }
+    _capability = cap;
 
     _attempts.clear();
     _probes.clear();
@@ -938,10 +938,7 @@ class PlayerPageState extends State<PlayerPage>
         // 超时、416（服务器不接受 Range）这类不算，照旧把所有候选跑一遍，
         // 免得把本可以播的地址误判掉。
         allRejected = probes.every(
-          (p) =>
-              p.statusCode == 401 ||
-              p.statusCode == 403 ||
-              p.statusCode == 404,
+          (p) => !shouldTryNextStream(p.statusCode),
         );
         ordered = allRejected ? urls.take(1).toList() : urls;
       }
@@ -2099,9 +2096,18 @@ class PlayerPageState extends State<PlayerPage>
   ///  · 全部 403 → NAS 后台没给媒体库账号开「允许直链播放」；
   ///  · 全部 404 → 固件把 stream 挂在别的路径下。
   void _showAttempts() {
-    if (_attempts.isEmpty && _probes.isEmpty) return;
+    if (_attempts.isEmpty && _probes.isEmpty && _capability == null) return;
     final all = <String>[..._probes, ..._attempts];
     final buf = <String>[];
+    // v2.0.91：能力探测结论放最前面 —— 「全 404」的真正原因在这里，
+    // 不在下面那串 URL 里。
+    final cap = _capability;
+    if (cap != null) {
+      buf.add('服务端取流能力：');
+      buf.add('  ${cap.summary}');
+      buf.add('  → ${cap.verdict}');
+      buf.add('');
+    }
     if (_probes.isNotEmpty) {
       buf.add('取流预检（只读响应头，不下载画面）：');
       buf.addAll(_probes);
@@ -2122,8 +2128,20 @@ class PlayerPageState extends State<PlayerPage>
       buf.add('全部 403 —— 去 NAS 后台检查：影视中心 → 设置 → 媒体服务器，');
       buf.add('给当前账号打开「允许第三方软件访问 / 直链播放」，再重连服务器。');
     } else if (codes.isNotEmpty && codes.every((c) => c == '404')) {
-      buf.add('全部 404 —— 这台固件的 stream 路径与文档不同，把上面列出的');
-      buf.add('路径发我，我按实际路径补候选。');
+      // v2.0.91：404 的正确解读不是「路径写错」而是「服务端没为这个条目
+      // 登记这种取流协议」。上面能力结论已经给出声明了哪些协议，这里补
+      // 可执行的下一步，而不是让用户对着 URL 发呆。
+      buf.add('全部 404 —— 服务端没为这个条目开放这种取流协议。');
+      if (cap != null && !cap.hasAnyProtocol) {
+        buf.add('建议：用影视中心的**管理员**账号重连（普通媒体库账号可能读不到');
+        buf.add('MediaSources）；或该条目本身在影视中心里也没法播放。');
+      } else {
+        buf.add('说明声明与实现不一致，把上面「服务端取流能力」整段发我。');
+      }
+      buf.add('');
+      if (ResourcePolicy.instance.localNetworkNote.isNotEmpty) {
+        buf.add(ResourcePolicy.instance.localNetworkNote);
+      }
     } else if (all.any((e) => e.contains('TLS'))) {
       buf.add('出现 TLS 证书错误 —— 回「我的服务器」确认该条目已勾选');
       buf.add('「忽略 SSL 证书校验」（绿联入口默认已勾）。');

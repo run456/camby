@@ -77,11 +77,18 @@ class ResourcePolicy {
     return lines.join('\n');
   }
 
+  /// 最近一次改走本地局域网的网络自检结论（v2.0.91）。
+  ///
+  /// 有些网络里，手机与本机相同网段的请求会被系统 VPN / 分流规则接管，
+  /// 走远端出口再绕回来，表现为「登录能通、取流 404」。这里记录对比结果。
+  String localNetworkNote = '';
+
   void reset() {
     ugreenMode = false;
     preferredImageIndex = null;
     lastProbe = const <ResourceProbeResult>[];
     sampleImageUrl = null;
+    localNetworkNote = '';
   }
 }
 
@@ -194,19 +201,205 @@ bool sameOrigin(String url, String rootUrl) {
   return a.port == b.port;
 }
 
-/// 绿联取流候选（v2.0.90）。
+/// 取流 HTTP 状态的含义（v2.0.91）。
 ///
-/// 与图片同理：不同 UGOS 固件对 stream 端点的前缀、`Static` 参数宽容度
-/// 不一致，与其猜一个，不如按「最可能成功」排好序逐个试：
+/// **404 不等于「路径写错」**：绿联这类兼容实现只在
+/// Item 的 `MediaSources[].SupportedStreamingProtocols` 里登记了某种协议时
+/// 才暴露对应的流端点，未登记就直接 404（而不是 403）。所以点播放前必须先
+/// 看服务端声明支持什么，不能再按「几个常见 URL 挨个试」的思路处理。
+String describeStreamStatus(int? code) {
+  switch (code) {
+    case 200:
+      return '可用';
+    case 206:
+      return '可用（分段）';
+    case 401:
+      return '未授权 —— 令牌失效或该账号无此库权限';
+    case 403:
+      return '被拒 —— 检查「允许第三方软件访问 / 直链播放」';
+    case 404:
+      return '端点不可用 —— 该片源未声明这种取流协议（不是路径拼错）';
+    case 405:
+      return '方法不允许 —— 端点存在但不接受 GET';
+    case 416:
+      return '分段越界 —— 端点通常是通的，可忽略';
+    case 500:
+      return '服务端错误 —— 多半在尝试转码';
+    default:
+      return '未知状态';
+  }
+}
+
+/// 是否属于「可以再试下一个地址」的状态（v2.0.91）。
 ///
-///  1. **STRM 原始地址** —— Item 的 `Path` 若本身就是 http(s)（.strm 条目），
-///     直连原始地址最稳（文档 5.5：绿联的 stream 代理有 403 / 性能限制）。
-///  2. 根路径 `/Videos/{id}/stream`（文档 6.3 坑 1 的标准答案）。
-///  3. 根路径 + `Static=true`（部分固件要靠它才给原片而不是转码）。
-///  4. `/emby` 前缀的两种形式（少数固件把兼容层挂在 Emby 原路径下）。
-///  5. 最后兜 HLS `/master.m3u8`（有转码能力的固件才认）。
+/// 401/403 是账号权限问题，换路径没用；404 是协议未登记，换同协议的其它
+/// 路径同样没用。只有 5xx / 416 / 超时这类才值得继续试。
+bool shouldTryNextStream(int? code) {
+  if (code == null) return true;
+  return code >= 500 || code == 416 || code == 405;
+}
+
+/// 一次取流能力探测的完整结果（v2.0.91）。
 ///
-/// [enabled] 为 false 时只回原地址，标准 Emby / Jellyfin 行为不变。
+/// 与 [ResourceProbeResult] 的区别：这里除了状态码，还要保留**服务端到底
+/// 声明了什么**——`MediaSources[0]` 的 `SupportedStreamingProtocols` 是全网
+/// 唯一能解释「为什么 404」的证据，必须原样展示给用户。
+class StreamCapability {
+  const StreamCapability({
+    this.protocols = const <String>[],
+    this.statusCode,
+    this.contentType,
+    this.error,
+    this.mediaSourceCount = 0,
+    this.reason = '',
+  });
+
+  /// 服务端声明的取流协议，例如 `Http` / `Hls` / `File`。
+  final List<String> protocols;
+
+  /// 服务端能拿到的 `MediaSources` 条数。
+  final int mediaSourceCount;
+
+  /// 依据协议实际发出的探测请求状态（全部候选里最好的那个）。
+  final int? statusCode;
+  final String? contentType;
+  final String? error;
+
+  /// 结论：direct / hls / file / none。
+  final String reason;
+
+  /// 是否能直接播（Http 或 File 任一可用）。
+  bool get canPlayDirect => statusCode != null && statusCode! >= 200 && statusCode! < 300;
+
+  bool get hasAnyProtocol => protocols.isNotEmpty;
+
+  /// 给用户与管理端看的一句话结论。
+  String get verdict {
+    if (!hasAnyProtocol && mediaSourceCount == 0) {
+      return '服务端没有返回 MediaSources —— 换用管理员账号，或该条目的'
+          '媒体源对当前账号不可见。';
+    }
+    if (!hasAnyProtocol) {
+      return 'MediaSources 里没有 SupportedStreamingProtocols 字段 —— '
+          '这台固件未声明取流协议，需要抓一次影视中心自身的播放请求。';
+    }
+    if (protocols.contains('file')) {
+      return statusCode == null
+          ? '服务端只声明了 File 协议，正在尝试 /Items/{id}/File。'
+          : '服务端只提供 File 协议（点播原文），已按该端点播放。';
+    }
+    switch (statusCode) {
+      case 200:
+      case 206:
+        return '服务端声明 ${protocols.join(' / ')}，对应端点可用。';
+      case 401:
+      case 403:
+        return '服务端声明 ${protocols.join(' / ')}，但返回 $statusCode：'
+            '请在影视中心 → 设置 → 媒体服务器，为当前账号开启'
+            '「允许第三方软件访问 / 直链播放」。';
+      case 404:
+        return '服务端声明 ${protocols.join(' / ')}，探测却 404 —— '
+            '说明声明与实现不一致，请把这段发给开发者。';
+      default:
+        return '服务端声明 ${protocols.join(' / ')}，探测结果：'
+            '${error ?? 'HTTP $statusCode'}。';
+    }
+  }
+
+  String get summary {
+    final p = hasAnyProtocol ? protocols.join(' / ') : '（未声明）';
+    final s = error != null
+        ? '✗ $error'
+        : (statusCode == null ? '未探测' : 'HTTP $statusCode');
+    final ct = contentType == null ? '' : ' · $contentType';
+    return '声明协议：$p · 探测：$s$ct · MediaSources $mediaSourceCount 条';
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'protocols': protocols,
+        'mediaSourceCount': mediaSourceCount,
+        'statusCode': statusCode,
+        'contentType': contentType,
+        'error': error,
+        'reason': reason,
+      };
+}
+
+/// 从 `MediaSources` 里读出 `SupportedStreamingProtocols`（v2.0.91）。
+///
+/// 该字段在标准 Emby 里是 `Http,Http,Sync` 这样的逗号串（可能是大小写混杂、
+/// 也可能是数组），绿联只认它登记过的协议。任何形态都归一成小写去重列表。
+List<String> parseStreamingProtocols(dynamic mediaSources) {
+  final out = <String>[];
+  final list = mediaSources is List ? mediaSources : const <dynamic>[];
+  for (final ms in list) {
+    if (ms is! Map) continue;
+    final raw = ms['SupportedStreamingProtocols'];
+    final parts = <String>[];
+    if (raw is String) {
+      parts.addAll(raw.split(','));
+    } else if (raw is List) {
+      parts.addAll(raw.map((e) => '$e'));
+    }
+    for (final p in parts) {
+      final v = p.trim().toLowerCase();
+      if (v.isEmpty) continue;
+      if (!out.contains(v)) out.add(v);
+    }
+  }
+  return out;
+}
+
+/// 依据服务端声明的协议决定取流端点（v2.0.91）。
+///
+/// 这是「全 404」的正解：不再猜路径，而是**按服务端登记过的协议**去请求。
+///
+///  · 声明 `http` → `<root>/Videos/{id}/stream`（+ `Static=true` 两种）
+///  · 声明 `hls`  → `<root>/Videos/{id}/master.m3u8`
+///  · 只声明 `file` → `<root>/Items/{id}/File`（点播原文，无 stream 路由）
+///  · 一个都没声明 → 返回空列表，交给调用方走「诊断 + 提示」而不是瞎试
+///
+/// [enabled] 为 false 且未声明协议时原样返回 [fallback]，标准 Emby 不受影响。
+List<String> urlsForProtocols({
+  required List<String> protocols,
+  required String rootUrl,
+  required String itemId,
+  String apiKey = '',
+  String? fallback,
+  bool enabled = false,
+}) {
+  final q = apiKey.isEmpty ? '' : '?api_key=$apiKey';
+  final out = <String>[];
+  void add(String u) {
+    if (!out.contains(u)) out.add(u);
+  }
+
+  final hasHttp = protocols.contains('http');
+  final hasHls = protocols.contains('hls');
+  final hasFile = protocols.contains('file');
+
+  if (hasHttp) {
+    add('$rootUrl/Videos/$itemId/stream$q');
+    add('$rootUrl/Videos/$itemId/stream?Static=true'
+        '${apiKey.isEmpty ? '' : '&api_key=$apiKey'}');
+  }
+  if (hasHls) add('$rootUrl/Videos/$itemId/master.m3u8$q');
+  if (hasFile || (!enabled && out.isEmpty)) add('$rootUrl/Items/$itemId/File$q');
+
+  if (out.isEmpty && fallback != null && fallback.isNotEmpty) add(fallback);
+  return out;
+}
+
+/// 绿联取流候选（v2.0.90 引入，v2.0.91 起**已退出取流链路**）。
+///
+/// ⚠️ 不要再在业务代码里调用它。v2.0.90 装包实测：四条候选（根路径 /
+/// `/emby` 前缀 × 带不带 `Static`）全部 404 —— 绿联对「没登记协议」的端点
+/// 返回 404 而非 403，意味着枚举路径永远试不出来，只会拖慢起播、把诊断
+/// 搅成一团 noise。v2.0.91 起取流一律走 `urlsForProtocols()`：
+/// 先读 `MediaSources[].SupportedStreamingProtocols`，只拼服务端声明过的端点。
+///
+/// 保留本函数仅为兼容既有测试与历史记录，后续版本会移除。
+@Deprecated('v2.0.91 起改走 urlsForProtocols()：先读 SupportedStreamingProtocols 再取址')
 List<String> playbackCandidates({
   required String streamUrl,
   String filePath = '',

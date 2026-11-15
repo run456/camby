@@ -105,15 +105,24 @@ void main() {
       expect(s.contains('_player.stream.error.listen'), isTrue);
     });
 
-    test('播放页：按 url 取头、绿联走候选、失败后自动切 MPV', () {
+    test('播放页：按 url 取头、绿联走协议取址、失败后自动切 MPV', () {
       final s = src('lib/pages/player_page.dart');
       expect(s.contains('headersFor(url)'), isTrue);
-      expect(s.contains('playbackCandidates('), isTrue);
+      // v2.0.91：不再枚举候选路径，改为按服务端声明的协议取址
+      expect(s.contains('resolveStreamUrls('), isTrue);
+      expect(s.contains('playbackCandidates('), isFalse);
       expect(s.contains('_triedMpvOnFailure'), isTrue);
       expect(s.contains('probeStream('), isTrue);
       expect(s.contains('_showAttempts'), isTrue);
       // 取流鉴权状态直接展示在播放信息里，避免再靠猜
       expect(s.contains("'取流鉴权'"), isTrue);
+    });
+
+    test('旧的候选枚举已标记弃用，避免后人再走死路', () {
+      final s = src('lib/ugreen_resource.dart');
+      expect(s.contains("@Deprecated('v2.0.91 起改走 urlsForProtocols()"), isTrue);
+      expect(
+          s.contains('List<String> playbackCandidates({'), isTrue);
     });
 
     test('emby_client：鉴权头收口到 streamHeaders + headersFor', () {
@@ -127,7 +136,7 @@ void main() {
     });
 
     test('版本号只有一处来源：kClientVersion', () {
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.90'"),
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.91'"),
           isTrue);
       // 图片鉴权头里不该再出现硬编码版本
       expect(src('lib/ugreen_resource.dart').contains('Version="2.0.'), isFalse);
@@ -135,12 +144,12 @@ void main() {
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.90', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.90+290'), isTrue);
-      expect(src('README.md').contains('v2.0.90 (290)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.90 (290)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§104'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.90'),
+    test('版本与文档同步到 v2.0.91', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.91+291'), isTrue);
+      expect(src('README.md').contains('v2.0.91 (291)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.91 (291)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§105'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.91'),
           isTrue);
     });
   });

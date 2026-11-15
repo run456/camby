@@ -157,6 +157,11 @@ class EmbyServer {
       '证书校验：${ignoreSsl ? '已跳过（仅限局域网）' : '系统默认'}',
       '登录状态：${_token == null ? '未登录' : '已取得令牌'}',
       '取流请求头：${streamHeaders.isEmpty ? '无（未登录）' : 'X-Emby-Token + X-Emby-Authorization'}',
+      if (isUgreen && lastStreamCapability != null) ...[
+        '取流协议：${lastStreamCapability!.protocols.isEmpty ? '服务端未声明' : lastStreamCapability!.protocols.join(' / ')}',
+        '取流探测：${lastStreamCapability!.error ?? 'HTTP ${lastStreamCapability!.statusCode ?? '未探测'}'}',
+        '取流结论：${lastStreamCapability!.verdict}',
+      ],
       if (isUgreen)
         '图片模板：${policy.preferredImageIndex == null ? '尚未自检出可用模板' : '候选 ${policy.preferredImageIndex! + 1}'}',
       '',
@@ -396,6 +401,129 @@ class EmbyServer {
   Map<String, String> headersFor(String url) {
     if (!sameOrigin(url, rootUrl)) return const <String, String>{};
     return streamHeaders;
+  }
+
+  /// 取流能力探测（v2.0.91）——解决「点播放全部 404」。
+  ///
+  /// 绿联这类兼容实现**只在 Item 的 `MediaSources[].SupportedStreamingProtocols`
+  /// 里登记了某协议时，才暴露对应的流端点**；没登记就直接 404，而不是 403。
+  /// 所以「再猜几个 URL」是死路：得先问服务端「你给我的这个条目支持怎么取流」。
+  ///
+  /// 流程：
+  ///  1. 单条查 `Users/{uid}/Items/{id}`，拿完整 `MediaSources`；
+  ///  2. 解析 `SupportedStreamingProtocols`（顺带兜底读 `MediaSourceInfo` 里
+  ///     可能出现的 `DirectStreamUrl` / `TranscodingUrl`）；
+  ///  3. 按声明的协议拼端点（http → /Videos/{id}/stream，hls → master.m3u8，
+  ///     只有 file → /Items/{id}/File），发一次 `Range: bytes=0-0` 验证；
+  ///  4. 把「声明了什么 + 实际返回什么」一起交给调用方，用户能看懂、我也能
+  ///     据此继续修。
+  Future<StreamCapability> probeStreamCapability(
+    String itemId, {
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    List<String> protocols = const <String>[];
+    var sourceCount = 0;
+    String? serverUrl;
+    try {
+      final item = await _getJson(
+        '$baseUrl/Users/$_userId/Items/$itemId',
+        query: {'Fields': 'MediaSources,MediaStreams,Path,RunTimeTicks'},
+      );
+      final sources = item['MediaSources'];
+      sourceCount = sources is List ? sources.length : 0;
+      protocols = parseStreamingProtocols(sources);
+      // 部分固件把一个可直取地址直接塞进 MediaSources，优先用它
+      if (sources is List) {
+        for (final ms in sources) {
+          if (ms is! Map) continue;
+          for (final k in <String>[
+            'DirectStreamUrl',
+            'TranscodingUrl',
+            'Url',
+          ]) {
+            final v = ms[k];
+            if (v is String && v.isNotEmpty) {
+              serverUrl ??= _ensurePlaybackAuth(v);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      return StreamCapability(
+        error: '取 MediaSources 失败：${'$e'.replaceAll(RegExp(r'\s+'), ' ')}',
+        reason: 'none',
+      );
+    }
+
+    // 服务端自己给了地址就用它，省得我们再猜
+    final urls = <String>[
+      if (serverUrl != null) serverUrl,
+      ...urlsForProtocols(
+        protocols: protocols,
+        rootUrl: assetUrl,
+        itemId: itemId,
+        apiKey: _token ?? '',
+        fallback: streamUrl(itemId),
+        enabled: true,
+      ),
+    ].toSet().toList();
+    if (urls.isEmpty) {
+      return StreamCapability(
+        protocols: protocols,
+        mediaSourceCount: sourceCount,
+        reason: protocols.contains('file') ? 'file' : 'none',
+      );
+    }
+
+    // 只探测第一条：协议已经决定了端点形态，再试别的只是重复 404
+    final first = await probeStream(urls.first, label: '', timeout: timeout);
+    final reason = protocols.contains('http')
+        ? 'direct'
+        : protocols.contains('hls')
+            ? 'hls'
+            : 'file';
+    final cap = StreamCapability(
+      protocols: protocols,
+      mediaSourceCount: sourceCount,
+      statusCode: first.statusCode,
+      contentType: first.contentType,
+      error: first.error,
+      reason: reason,
+    );
+    lastStreamCapability = cap;
+    return cap;
+  }
+
+  /// 最近一次 [probeStreamCapability] 的结论（播放诊断 / 设置页展示）。
+  StreamCapability? lastStreamCapability;
+
+  /// 按能力探测结论给出该条目的取流地址（v2.0.91）。
+  ///
+  /// 绿联：先问服务端声明了哪些协议，再按协议拼端点；只有服务端**没声明
+  /// http** 且条目 Path 是 http(s)（strm 条目）时，才把原文地址放第一位。
+  /// 标准 Emby / Jellyfin 不探测，直接回 videoUrl，行为与旧版一致。
+  Future<List<String>> resolveStreamUrls(MediaItem item) async {
+    if (!isUgreen) {
+      return <String>[
+        if (item.videoUrl != null && item.videoUrl!.isNotEmpty) item.videoUrl!,
+      ];
+    }
+    final cap = await probeStreamCapability(item.id);
+    final declared = urlsForProtocols(
+      protocols: cap.protocols,
+      rootUrl: assetUrl,
+      itemId: item.id,
+      apiKey: _token ?? '',
+      fallback: streamUrl(item.id),
+      enabled: true,
+    );
+    final p = item.filePath.trim();
+    final isHttpPath = p.startsWith('http://') || p.startsWith('https://');
+    if (isHttpPath && !cap.protocols.contains('http')) {
+      return <String>[p, ...declared];
+    }
+    if (declared.isNotEmpty) return declared;
+    return <String>[if (isHttpPath) p];
   }
 
   /// 取流预检（v2.0.90）：只读响应头，不下载画面。

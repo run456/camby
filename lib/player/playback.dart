@@ -703,6 +703,10 @@ class MpvController implements PlaybackController {
     _lastHeaders = h;
     await _player.open(Media(url, httpHeaders: h), play: true);
     _opened = true;
+    // v2.0.91：libmpv 收到 404 时 stream.error 常常是空的，只在日志里留一句。
+    // 起播后回读 `path` 属性，`#` 后面那截是 ffmpeg 的错误描述
+    // （例如 `EDemuxerNo` / `HTTP error 404 Not Found`），补进诊断。
+    unawaited(_captureMpvError());
     if (subtitleUrl != null && subtitleUrl.isNotEmpty) {
       try {
         await _player.setSubtitleTrack(SubtitleTrack.uri(subtitleUrl));
@@ -712,6 +716,31 @@ class MpvController implements PlaybackController {
 
   @override
   Future<void> play() async => _player.play();
+
+  /// 回读 `path` 属性里的失败原因（v2.0.91）。
+  ///
+  /// libmpv 的 `path` 在打开失败后形如
+  /// `https://… # HTTP error 404 Not Found`，`#` 之后就是 ffmpeg 的
+  /// 结论。成功时它不含 `#`，这里不覆盖任何东西。
+  Future<void> _captureMpvError() async {
+    // 给 libmpv 一点时间把失败写进属性；成功场景下这段等待不产生副作用
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final platform = _player.platform;
+    if (platform is! NativePlayer) return;
+    for (final prop in <String>['path', 'media-title']) {
+      try {
+        final v = await platform.getProperty(prop);
+        final i = v.indexOf('#');
+        if (i > 0 && i < v.length - 1) {
+          final tail = v.substring(i + 1).trim();
+          if (tail.isNotEmpty) {
+            _lastError = tail;
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+  }
 
   @override
   Future<void> pause() async => _player.pause();

@@ -1,10 +1,45 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.90 (290)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.91 (291)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.91 (291) 绿联播放全 404：改为按服务端声明的协议取流
+
+v2.0.90 补上 `X-Emby-Token` 后，真机播放诊断仍然全 404：
+
+```
+✗ /Videos/9669/stream                  HTTP 404
+✗ /Videos/9669/stream?Static=true      HTTP 404
+✗ /emby/Videos/9669/stream             HTTP 404 · text/plain
+✗ /emby/Videos/9669/stream?Static=true HTTP 404 · text/plain
+```
+
+而登录、拉库、海报一切正常——说明 404 不是鉴权问题，也不是我们把前缀拼错
+（`/emby` 与根路径都试过，全挂）。真正的机制是：
+
+> 绿联只在 Item 的 `MediaSources[].SupportedStreamingProtocols` 里**登记过**
+> 某种流协议时，才暴露对应的端点；没登记就返回 **404**（不是 403）。
+
+也就是说，「再枚举几个 URL」这条路本身就是死路——你永远猜不到服务端没给你
+开哪个端点。v2.0.91 改成**先问、再取**：
+
+- **读声明**：点播放前先单条查 `Users/{uid}/Items/{id}?Fields=MediaSources,…`，
+  解析 `SupportedStreamingProtocols`（兼容逗号串 / 数组、大小写、重复与多条
+  MediaSource 合并）。
+- **按协议拼端点**：`http` → `/Videos/{id}/stream`（含 `Static=true`）；
+  `hls` → `/Videos/{id}/master.m3u8`；**只声明 `file`** → `/Items/{id}/File`。
+  一个都没声明时不造 URL，直接给结论。
+- **不再无脑重试**：401/403/404 换路径没用（`shouldTryNextStream` 判定），
+  只对 5xx / 416 / 超时继续试，起播更快。
+- **诊断给出机制解释**：播放诊断最前面新增「服务端取流能力」——声明了哪些
+  协议、探测结果、以及一句人话结论（未声明 → 换管理员账号；声明了却 404 →
+  声明与实现不一致，可上报）。
+- **设置页自检同步**：绿联不再拿一串 URL 白试，直接给能力结论 + 按协议探测。
+- **MPV 错误可读**：打开失败后回读 libmpv `path` 属性，取 `#` 之后的
+  ffmpeg 结论（如 `HTTP error 404 Not Found`），不再只剩「未知错误」。
 
 ### v2.0.90 (290) 绿联取流补鉴权头 + 播放内核自动回退
 

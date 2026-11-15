@@ -422,15 +422,44 @@ class AppState extends ChangeNotifier {
 
     final server = _server;
     if (server != null) {
-      final candidates = streamUrlCandidates(
-        server.streamUrl(first.id),
-        enabled: true,
-      );
-      for (var i = 0; i < candidates.length; i++) {
-        final r = await ImageSsl.probe(candidates[i], label: '播放候选 ${i + 1}');
-        results.add(r);
+      // v2.0.91：不再猜路径。先问服务端「这个条目声明了哪些取流协议」，
+      // 按声明拼端点再验证；协议一个都没声明时直接给出结论，而不是拿
+      // 一串注定 404 的 URL 让用户白看。
+      if (server.isUgreen) {
+        final cap = await server.probeStreamCapability(first.id);
+        results.add(ResourceProbeResult(
+          label: '取流能力',
+          url: '${cap.summary}｜${cap.verdict}',
+        ));
         publish();
-        if (r.ok) break;
+        final urls = await server.resolveStreamUrls(first);
+        if (urls.isEmpty) {
+          results.add(const ResourceProbeResult(
+            label: '播放端点',
+            url: '',
+            error: '服务端未声明任何取流协议，且该条目没有可直连地址',
+          ));
+          publish();
+          return;
+        }
+        for (var i = 0; i < urls.length; i++) {
+          final r = await ImageSsl.probe(urls[i], label: '播放候选 ${i + 1}');
+          results.add(r);
+          publish();
+          if (r.ok) break;
+        }
+      } else {
+        final candidates = streamUrlCandidates(
+          server.streamUrl(first.id),
+          enabled: true,
+        );
+        for (var i = 0; i < candidates.length; i++) {
+          final r =
+              await ImageSsl.probe(candidates[i], label: '播放候选 ${i + 1}');
+          results.add(r);
+          publish();
+          if (r.ok) break;
+        }
       }
     }
   }
