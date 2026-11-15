@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'emby_client.dart';
 import 'models.dart';
 import 'player/native_ssl.dart';
+import 'ugreen_resource.dart';
 import 'watch_history.dart';
 import 'widgets/haptics.dart';
 import 'widgets/image_ssl.dart';
@@ -352,11 +353,87 @@ class AppState extends ChangeNotifier {
   /// 绿联接入诊断文本（设置页「连接诊断」入口展示，含拼好的图片/播放 URL）。
   String get serverDiagnostics => _server?.diagnostics(
         sampleItemId: _items.isEmpty ? null : _items.first.id,
+        samplePosterUrl: _items.isEmpty ? null : _items.first.posterUrl,
       ) ??
       '尚未连接服务器。';
 
   /// 当前是否为绿联影视中心（独立服务器类型，v2.0.88）。
   bool get isUgreenServer => _server?.isUgreen ?? false;
+
+  /// v2.0.89：绿联资源自检报告（设置页「连接诊断」展示）。
+  String get resourceProbeReport => ResourcePolicy.instance.probeReport;
+
+  /// v2.0.89：用与图片组件**完全相同**的证书策略和鉴权头，逐个探测
+  /// 图片 / 播放候选，把第一个真正返回图片的模板记进 [ResourcePolicy]。
+  ///
+  /// 只取响应头就立刻取消 body 订阅，不会下载海报或视频内容。
+  /// 连接成功后自动跑一次，也可在诊断面板点「重新自检」手动跑。
+  Future<void> runResourceProbe() async {
+    final policy = ResourcePolicy.instance;
+    policy.preferredImageIndex = null;
+    policy.lastProbe = const <ResourceProbeResult>[];
+    if (_items.isEmpty) {
+      policy.lastProbe = const <ResourceProbeResult>[
+        ResourceProbeResult(
+          label: '图片候选',
+          url: '',
+          error: '媒体库为空，没有可用于自检的条目',
+        ),
+      ];
+      return;
+    }
+    final first = _items.first;
+    final poster = first.posterUrl;
+    final results = <ResourceProbeResult>[];
+    void publish() =>
+        policy.lastProbe = List<ResourceProbeResult>.unmodifiable(results);
+
+    if (poster == null || poster.isEmpty) {
+      results.add(const ResourceProbeResult(
+        label: '图片候选',
+        url: '',
+        error: '首条条目没有海报 URL（ImageTags.Primary 缺失）',
+      ));
+      publish();
+    } else {
+      policy.sampleImageUrl = poster;
+      final candidates = imageUrlCandidates(poster, enabled: true);
+      for (var i = 0; i < candidates.length; i++) {
+        final r = await ImageSsl.probe(candidates[i], label: '图片候选 ${i + 1}');
+        results.add(r);
+        publish();
+        final ct = r.contentType ?? '';
+        if (r.ok && (ct.startsWith('image/') || ct.isEmpty)) {
+          policy.preferredImageIndex = i;
+          break;
+        }
+      }
+      // 2xx 但 content-type 是 HTML（多半被重定向到登录页）时，
+      // 仍留一个兜底下标，避免每张海报都把整条候选链重走一遍。
+      if (policy.preferredImageIndex == null) {
+        for (var i = 0; i < results.length; i++) {
+          if (results[i].ok) {
+            policy.preferredImageIndex = i;
+            break;
+          }
+        }
+      }
+    }
+
+    final server = _server;
+    if (server != null) {
+      final candidates = streamUrlCandidates(
+        server.streamUrl(first.id),
+        enabled: true,
+      );
+      for (var i = 0; i < candidates.length; i++) {
+        final r = await ImageSsl.probe(candidates[i], label: '播放候选 ${i + 1}');
+        results.add(r);
+        publish();
+        if (r.ok) break;
+      }
+    }
+  }
 
   List<LibraryView> get views => _views;
   String? get selectedViewId => _selectedViewId;
@@ -1405,6 +1482,9 @@ class AppState extends ChangeNotifier {
     // 所以放在 try 外。
     await NativeSsl.setIgnoreCertificateErrors(ignoreSsl);
     ImageSsl.setIgnoreCertificateErrors(ignoreSsl);
+    // v2.0.89：绿联资源端点 / 鉴权方式因固件而异，开启候选自适应；
+    // 标准 Emby 保持单 URL，行为不变。
+    ResourcePolicy.instance.ugreenMode = kind == ServerKind.ugreen;
     try {
       final server = EmbyServer(
         host: host,
@@ -1429,6 +1509,10 @@ class AppState extends ChangeNotifier {
       _loading = false;
       _invalidateDerived();
       notifyListeners();
+
+      // v2.0.89：连上绿联后异步跑一次资源自检，找出这台 NAS 真正认的
+      // 图片 / 播放模板；不阻塞连接流程，结果在「连接诊断」里可查看。
+      if (kind == ServerKind.ugreen) unawaited(runResourceProbe());
 
       // 加载媒体库视图（电影/剧集等库分组）
       try {
@@ -1461,6 +1545,7 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _loading = false;
       _error = e.toString();
+      ResourcePolicy.instance.ugreenMode = false;
       if (!silent) notifyListeners();
       debugPrint('Emby connect failed: $e');
       return false;
@@ -1479,6 +1564,7 @@ class AppState extends ChangeNotifier {
     // 断开后恢复系统证书校验，别让「信任任意证书」留在进程里
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
     ImageSsl.setIgnoreCertificateErrors(false);
+    ResourcePolicy.instance.reset();
     _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];
@@ -1499,6 +1585,7 @@ class AppState extends ChangeNotifier {
     _server = null;
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
     ImageSsl.setIgnoreCertificateErrors(false);
+    ResourcePolicy.instance.reset();
     _progressSyncSupported = true;
     _items = demoLibrary;
     _views = [];

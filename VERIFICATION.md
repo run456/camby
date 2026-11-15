@@ -3016,3 +3016,60 @@ Dart AOT 的 UTF-16LE 编码全部命中「绿联影视中心」「连接诊断 
 `setIgnoreSsl` / `setDefaultSSLSocketFactory` / `SSLContext` /
 `X509TrustManager` 均未破坏；五档启动图标 md5 与 v2.0.87 逐档一致。
 本地提交 + tag `v2.0.88`，未推 GitHub。
+
+## §103 发布 v2.0.89（绿联资源候选自适应 + 一键自检）
+
+需求：用户反馈 v2.0.88 仍「无法获取图片和访问」，但第三方播放器能拿到海报
+（同样无法播放），并贴出连接诊断全文与首条 Item 原始 JSON。
+
+**真机证据**：`服务器类型 ugreen`；`站点根地址 https://192.168.5.29:9443`；
+`API 基址 .../emby`；`资源基址 .../9443`；`API 前缀 /emby`；`证书校验 已跳过`；
+`登录状态 已取得令牌`。Item JSON 有 `ImageTags.Primary` / `BackdropImageTags`、
+`ServerId = ugreen-video-serv`、**无 `MediaSources`**、`CanDownload = false`。
+
+**代码事实澄清**：
+
+| 环节 | v2.0.87 | v2.0.88 | v2.0.89 |
+|---|---|---|---|
+| 图片资源路径 | `baseUrl`（含 `/emby`） | 强制根路径 | 6 条候选，逐个试并记住 |
+| 图片请求鉴权 | 仅 `api_key` query | 仅 `api_key` query | query + `X-Emby-Token` / `X-Emby-Authorization` 头 |
+| 图片层 TLS | 未收口，握手被拒 | `ImageSsl.manager` 已修 | 沿用，且自检用同一套 client |
+| 播放地址 | 标准 Emby 参数 | 根路径最简直链 | 保持，另列 4 条候选供自检 |
+| 诊断图片 URL | 无面板 | 手拼、**不带 tag** | 直接展示真实 `posterUrl`（带 tag） |
+
+即：两次发版各修对了一半——87 证书没管图片层、88 改对了证书却把资源路径写死；
+同时图片请求一直缺 Emby 鉴权头。用户诊断里的 `API 前缀 /emby` 说明这台 NAS
+确实接受 `/emby` 路径，不能以文档模板为准排他。
+
+**实现**：新增 `lib/ugreen_resource.dart`（候选生成 / 鉴权头 / `ResourcePolicy`）；
+`image_ssl.dart` 增 `probe()`（取响应头即取消 body，不下载海报或视频）；
+`cached_image.dart` 增 `httpHeaders`、失败切候选、统一 `cacheKey`；
+`app_state.dart` 连接后异步自检、暴露 `resourceProbeReport`、断开复位；
+`emby_client.diagnostics()` 接收 `samplePosterUrl` 并列出播放候选；
+`settings_page.dart` 诊断弹窗改 `bodyBuilder` + `_DiagnosticsBody`，带「重新自检」按钮。
+
+**验证（v2.0.89）**：`flutter test` **680 全过**（新增
+`test/ugreen_resource_test.dart` 15 条与 `ugreen_independent_test.dart` 1 条：
+覆盖 6 条图片 / 4 条播放候选的组合与去重、鉴权头注入、
+`ResourceProbeResult` 判定与报告文案、**本地 HttpServer 实测
+`ImageSsl.probe()` 返回 200 `image/jpeg` 与 404**、4 组源码守卫；
+既有 6 个版本守卫同步到 89）；`flutter analyze` 0 error / 0 warning
+（419 项全为 info）；`tools/perf_audit.py` 未命中红线。
+
+**实机待确认**：真机 NAS 无法在沙箱内访问，候选是否命中需装包后看诊断面板的
+HTTP 状态码。若图片候选全部失败：TLS → 确认忽略证书开关；403 → 影视中心
+媒体库账号权限；404 → 固件图片端点不同，把诊断报告发回即可按真实路径补一条候选。
+播放若同样全部 403，基本可判定为 NAS 侧「允许第三方软件访问 / 直链播放」
+未开启或该固件未提供 `stream` 端点——第三方播放器也播不了，与客户端拼接无关。
+
+**交付**：`camby-2.0.89-release-arm64.apk`（39 MB）。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='289' versionName='2.0.89'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.88 逐项一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 命中 `Camby/2.0.89` / `X-Emby-Token` /
+`X-Emby-Authorization` / `重新自检（图片与播放候选）` /
+`资源自检 · 真实 HTTP 状态码` / `允许第三方软件访问` / `TLS 证书被拒` /
+`请勿外传`；`__camby_continue__` / `__camby_recent__` / `绿联影视中心` /
+`观影日历` / `ignore_ssl` 等前版标记未丢失。`classes.dex` 中 `setIgnoreSsl` /
+`hdrCapabilities` / `createMulticastLock` / `SSLContext` / `X509TrustManager`
+均未破坏；五档启动图标 md5 与 v2.0.88 逐档一致。
+本地提交 + tag `v2.0.89`，未推 GitHub。

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models.dart';
 import 'player/playback_plan.dart';
+import 'ugreen_resource.dart';
 import 'watch_history.dart';
 
 /// Emby REST API 客户端
@@ -137,10 +138,16 @@ class EmbyServer {
   /// 把「拼好的图片 URL / 播放 URL / API 前缀」原样列出来，用户可以直接
   /// 贴进浏览器或 Postman 逐条验证：能返回图片说明是 App 侧问题，403 是
   /// 账号没开直链，404 是路径拼接错。URL 含令牌，面板里已提醒勿外传。
-  String diagnostics({String? sampleItemId}) {
+  String diagnostics({String? sampleItemId, String? samplePosterUrl}) {
     final id = sampleItemId ?? '{itemId}';
-    final pic = '$assetUrl/Items/$id/Images/Primary'
-        '?maxWidth=400&api_key=${_token ?? ''}';
+    // v2.0.89：以前这里手拼了一条不带 tag 的 URL，和 App 实际用的
+    // posterUrl 不是同一个（真实 URL 带 ImageTags.Primary 的 tag），
+    // 用户拿去浏览器测 404 会误导排查。优先展示真实 URL。
+    final pic = samplePosterUrl ??
+        '$assetUrl/Items/$id/Images/Primary'
+            '?maxWidth=400&tag={ImageTag}&api_key=${_token ?? ''}';
+    final streams = streamUrlCandidates(streamUrl(id), enabled: isUgreen);
+    final policy = ResourcePolicy.instance;
     return <String>[
       '服务器类型：${kind.name}${isUgreen ? '（绿联影视中心）' : ''}',
       '站点根地址：$rootUrl',
@@ -149,12 +156,21 @@ class EmbyServer {
       'API 前缀：${_basePath.isEmpty ? '根路径' : _basePath}',
       '证书校验：${ignoreSsl ? '已跳过（仅限局域网）' : '系统默认'}',
       '登录状态：${_token == null ? '未登录' : '已取得令牌'}',
+      if (isUgreen)
+        '图片模板：${policy.preferredImageIndex == null ? '尚未自检出可用模板' : '候选 ${policy.preferredImageIndex! + 1}'}',
       '',
       '① 图片自检（浏览器打开应返回图片）：',
       pic,
+      if (isUgreen)
+        '   App 请求额外带 X-Emby-Token 头，并会自动尝试 /emby 前缀、'
+            'X-Emby-Token 参数、无 tag 等候选。',
       '',
       '② 播放自检（浏览器/播放器打开应能拉流）：',
-      streamUrl(id),
+      for (var i = 0; i < streams.length; i++)
+        '${streams.length > 1 ? '  ${i + 1}. ' : ''}${streams[i]}',
+      if (isUgreen)
+        '   若全部 403：影视中心 → 设置 → 媒体服务器，确认媒体库账号已开'
+            '「允许第三方软件访问 / 直链播放」。',
       '',
       '③ 首条 Item 原始 JSON 片段（看 ImageTags / MediaSources）：',
       _sampleItemJson.isEmpty ? '（尚未拉到条目）' : _sampleItemJson,

@@ -148,8 +148,9 @@ void main() {
       expect(s.imageUrl('a').contains('/emby'), isFalse);
     });
 
-    test('诊断面板列出自检 URL 且不含 /emby，并提醒令牌保密', () {
-      final d = ugreen().diagnostics(sampleItemId: 'it42');
+    test('诊断面板展示真实 URL、播放候选与令牌提醒', () {
+      final s = ugreen();
+      final d = s.diagnostics(sampleItemId: 'it42');
       expect(d.contains('服务器类型：ugreen'), isTrue);
       expect(d.contains('绿联影视中心'), isTrue);
       expect(d.contains('资源基址：https://10.0.0.7:9443'), isTrue);
@@ -158,8 +159,23 @@ void main() {
       expect(d.contains('② 播放自检'), isTrue);
       expect(d.contains('/Items/it42/Images/Primary'), isTrue);
       expect(d.contains('/Videos/it42/stream'), isTrue);
-      expect(d.contains('/emby'), isFalse);
+      // 实际生成的资源地址仍不带 /emby；诊断里出现 /emby 只是候选清单。
+      expect(s.imageUrl('it42').contains('/emby'), isFalse);
+      expect(s.streamUrl('it42').contains('/emby'), isFalse);
+      expect(d.contains('X-Emby-Token'), isTrue);
+      expect(d.contains('允许第三方软件访问'), isTrue);
       expect(d.contains('请勿外传'), isTrue);
+    });
+
+    test('诊断面板优先展示 App 真实使用的海报 URL（含 tag）', () {
+      const realPoster = 'https://10.0.0.7:9443/Items/it42/Images/Primary'
+          '?maxWidth=800&api_key=TOKEN&tag=abc123';
+      final d = ugreen().diagnostics(
+        sampleItemId: 'it42',
+        samplePosterUrl: realPoster,
+      );
+      expect(d.contains(realPoster), isTrue);
+      expect(d.contains('tag={ImageTag}'), isFalse);
     });
   });
 
@@ -264,12 +280,12 @@ void main() {
   });
 
   group('版本与文档同步', () {
-    test('版本、UA、文档均为 v2.0.88', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.88+288'), isTrue);
-      expect(src('README.md').contains('v2.0.88 (288)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.88 (288)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§102'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.88'),
+    test('版本、UA、文档均为 v2.0.89', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.89+289'), isTrue);
+      expect(src('README.md').contains('v2.0.89 (289)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.89 (289)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§103'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.89'),
           isTrue);
     });
   });

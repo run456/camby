@@ -539,13 +539,13 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.88', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.88+288'), isTrue);
-      expect(src('README.md').contains('v2.0.88 (288)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.88 (288)'), isTrue);
+    test('版本与文档同步到 v2.0.89', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.89+289'), isTrue);
+      expect(src('README.md').contains('v2.0.89 (289)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.89 (289)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.88 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.89 "),
         isTrue,
       );
     });

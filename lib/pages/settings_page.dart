@@ -579,19 +579,7 @@ class _ServersSection extends StatelessWidget {
             onTap: () => showAppDialog<void>(
               context: context,
               title: '连接诊断',
-              body: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 340),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    state.serverDiagnostics,
-                    style: const TextStyle(
-                      fontSize: 10.5,
-                      height: 1.55,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                ),
-              ),
+              bodyBuilder: (ctx) => _DiagnosticsBody(state: state),
               actions: const [AppDialogAction(label: '知道了', value: null)],
             ),
             radius: 8,
@@ -606,6 +594,78 @@ class _ServersSection extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// v2.0.89：连接诊断弹窗正文。除静态 URL 外，提供「重新自检」并把每个
+/// 候选的真实 HTTP 状态码列出来，不再靠猜判断是路径、权限还是证书问题。
+class _DiagnosticsBody extends StatefulWidget {
+  const _DiagnosticsBody({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_DiagnosticsBody> createState() => _DiagnosticsBodyState();
+}
+
+class _DiagnosticsBodyState extends State<_DiagnosticsBody> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await widget.state.runResourceProbe();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const bodyStyle = TextStyle(
+      fontSize: 10.5,
+      height: 1.55,
+      color: AppColors.ink,
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 400),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(widget.state.serverDiagnostics, style: bodyStyle),
+            const SizedBox(height: 14),
+            const Text(
+              '资源自检 · 真实 HTTP 状态码',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            SelectableText(widget.state.resourceProbeReport, style: bodyStyle),
+            const SizedBox(height: 10),
+            LiquidPress(
+              onTap: () {
+                if (!_busy) _run();
+              },
+              radius: 8,
+              scale: 0.96,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  _busy ? '自检中…' : '重新自检（图片与播放候选）',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

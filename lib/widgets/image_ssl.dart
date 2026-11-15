@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:camby/ugreen_resource.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/io_client.dart';
 
@@ -40,5 +42,64 @@ class ImageSsl {
     io.badCertificateCallback = (X509Certificate cert, String host, int port) =>
         ignoreCertificateErrors;
     return IOClient(io);
+  }
+
+  /// v2.0.89：用**与图片组件完全相同**的证书策略与鉴权头，真实发一次
+  /// GET，把状态码 / content-type / 握手错误带回来。
+  ///
+  /// 只要 `req.close()` 返回就拿到了响应头，立刻取消 body 订阅，
+  /// 不会把整张海报（更不会把一个视频）下载下来。
+  static Future<ResourceProbeResult> probe(
+    String url, {
+    required String label,
+  }) async {
+    final io = HttpClient()
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) =>
+              ignoreCertificateErrors;
+    StreamSubscription<List<int>>? sub;
+    try {
+      final req = await io
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
+      for (final e in embyAuthHeaders(url, enabled: true).entries) {
+        req.headers.set(e.key, e.value);
+      }
+      final res = await req.close().timeout(const Duration(seconds: 8));
+      final code = res.statusCode;
+      final ct = res.headers.contentType?.toString();
+      sub = res.listen(null, cancelOnError: true);
+      await sub.cancel();
+      sub = null;
+      return ResourceProbeResult(
+        label: label,
+        url: url,
+        statusCode: code,
+        contentType: ct,
+      );
+    } catch (e) {
+      return ResourceProbeResult(
+        label: label,
+        url: url,
+        error: _shortError(e),
+      );
+    } finally {
+      await sub?.cancel();
+      io.close(force: true);
+    }
+  }
+
+  static String _shortError(Object e) {
+    final s = e.toString();
+    if (s.contains('HandshakeException') ||
+        s.contains('CERTIFICATE') ||
+        s.contains('certificate')) {
+      return 'TLS 证书被拒（HandshakeException）';
+    }
+    if (s.contains('SocketException')) {
+      return '网络不可达 / 连接被拒（SocketException）';
+    }
+    if (s.contains('TimeoutException')) return '请求超时（8s）';
+    return s.length > 140 ? '${s.substring(0, 140)}…' : s;
   }
 }

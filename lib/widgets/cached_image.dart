@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:camby/ugreen_resource.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
@@ -61,28 +62,62 @@ class CachedImage extends StatefulWidget {
 
 class _CachedImageState extends State<CachedImage> {
   Future<FileInfo?>? _probe;
+  List<String> _candidates = const <String>[];
+  int _index = 0;
+  bool _advanceScheduled = false;
 
   @override
   void initState() {
     super.initState();
-    _probe = _probeCache();
+    _reset();
   }
 
   @override
   void didUpdateWidget(CachedImage old) {
     super.didUpdateWidget(old);
-    if (old.url != widget.url) _probe = _probeCache();
+    if (old.url != widget.url) _reset();
   }
+
+  void _reset() {
+    final u = widget.url;
+    final policy = ResourcePolicy.instance;
+    _candidates = (u == null || u.isEmpty)
+        ? const <String>[]
+        : imageUrlCandidates(u, enabled: policy.ugreenMode);
+    final preferred = policy.preferredImageIndex ?? 0;
+    _index = _candidates.isEmpty ? 0 : preferred.clamp(0, _candidates.length - 1);
+    _advanceScheduled = false;
+    _probe = _probeCache();
+  }
+
+  String? get _current => _candidates.isEmpty ? null : _candidates[_index];
 
   Future<FileInfo?> _probeCache() async {
     final u = widget.url;
     if (u == null || u.isEmpty) return null;
     try {
+      // 所有候选共用同一个 key：任一候选成功后，下次进页面直接命中缓存，
+      // 不必再把失败的组合重试一遍（缓存 key 里已剔除会变的 api_key）。
       return await ImageSsl.manager.getFileFromCache(imageCacheKey(u));
     } catch (_) {
       // 缓存管理器不可用时按「未命中」处理，走 180ms 淡入，不影响加载。
       return null;
     }
+  }
+
+  /// v2.0.89：绿联兼容层的图片端点/鉴权方式因固件而异，第一个候选失败
+  /// 就自动切下一个；全部失败才落回骨架。切候选放在 postFrame，避免在
+  /// build 阶段 setState。
+  void _onImageError() {
+    if (!mounted || _advanceScheduled || _index + 1 >= _candidates.length) {
+      return;
+    }
+    _advanceScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _advanceScheduled = false;
+      if (!mounted || _index + 1 >= _candidates.length) return;
+      setState(() => _index++);
+    });
   }
 
   Widget _placeholder() => SizedBox.expand(
@@ -94,10 +129,11 @@ class _CachedImageState extends State<CachedImage> {
 
   @override
   Widget build(BuildContext context) {
-    final u = widget.url;
-    if (u == null || u.isEmpty) {
+    final u = _current;
+    if (u == null) {
       return widget.errorWidget ?? const SizedBox.shrink();
     }
+    final policy = ResourcePolicy.instance;
     // 每张图独立成层：列表滚动 / 详情页滑动时，未变化的图不再重绘，
     // 大幅降低 GPU 重绘开销（详情页卡顿的主要来源之一）。
     return RepaintBoundary(
@@ -109,9 +145,12 @@ class _CachedImageState extends State<CachedImage> {
           }
           final instant = snap.data != null;
           return CachedNetworkImage(
+            // 切候选时强制重建内部 state，避免复用上一次失败的加载状态。
+            key: ValueKey<int>(_index),
             imageUrl: u,
             cacheManager: ImageSsl.manager,
-            cacheKey: imageCacheKey(u),
+            cacheKey: imageCacheKey(widget.url!),
+            httpHeaders: embyAuthHeaders(u, enabled: policy.ugreenMode),
             fit: widget.fit,
             alignment: widget.alignment,
             memCacheWidth: widget.memWidth,
@@ -121,7 +160,10 @@ class _CachedImageState extends State<CachedImage> {
             fadeInCurve: Anim.curve,
             fadeOutDuration: Duration.zero,
             placeholder: (_, __) => _placeholder(),
-            errorWidget: (_, __, ___) => widget.errorWidget ?? _placeholder(),
+            errorWidget: (_, __, ___) {
+              _onImageError();
+              return widget.errorWidget ?? _placeholder();
+            },
           );
         },
       ),
