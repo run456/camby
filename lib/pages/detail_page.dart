@@ -1182,10 +1182,14 @@ class _DetailPageState extends State<DetailPage> {
             // v2.0.93：「同一部剧」可能被服务端拆成多条 Series（绿联把每季
             // 登记成独立条目），这里把同基名的其它季并进同一份季列表，
             // 用户才算真正「先选季再选集」。
-            final merged = mergeSeasonGroups(
-              filled,
-              siblingSeasonGroups(_item, widget.state.items),
+            final merged = await _mergeUnknownSeasonSiblings(
+              server,
+              mergeSeasonGroups(
+                filled,
+                siblingSeasonGroups(_item, widget.state.items),
+              ),
             );
+            if (!mounted) return;
             setState(() {
               _seasons = merged;
               _episodes = [
@@ -1231,8 +1235,46 @@ class _DetailPageState extends State<DetailPage> {
         .catchError((_) {});
   }
 
-  /// 补齐每一季的分集（v2.0.92）。
+  /// 把「名字里没有季号」的同族 Series 也并进来（v2.0.96）。
   ///
+  /// 绿联有一种登记方式是把每季都命名成同一个剧名（`瑞克和莫蒂`），季号
+  /// 只存在于分集的 `ParentIndexNumber` 里。这时 [siblingSeasonGroups] 一个
+  /// 都取不到季号，季标签就只剩当前这一季 —— 现象是「合并成一张卡了，但
+  /// 点进去只有 10 集、没有季选择」。
+  ///
+  /// 做法：对这类兄弟条目各拉一次分集，用分集自带的季号反推，再并入季列表。
+  /// 只在**确实存在无季号同族条目**时才发请求，标准 Emby/Jellyfin 零额外开销。
+  Future<List<SeasonGroup>> _mergeUnknownSeasonSiblings(
+    EmbyServer server,
+    List<SeasonGroup> base,
+  ) async {
+    final cands = siblingSeriesCandidates(_item, widget.state.items)
+        .where((p) => seasonFromSeriesName(p.name) == null)
+        .toList();
+    if (cands.isEmpty) return base;
+    final derived = <SeasonGroup>[];
+    // 并发 4 条，季多的剧也不至于把服务端打出一串超时。
+    for (var i = 0; i < cands.length; i += 4) {
+      final chunk = cands.skip(i).take(4).toList();
+      final lists = await Future.wait(
+        chunk.map(
+          (p) => server
+              .episodes(p.id)
+              .catchError((_) => const <MediaItem>[]),
+        ),
+      );
+      for (var k = 0; k < chunk.length; k++) {
+        final eps = lists[k];
+        if (eps.isEmpty) continue;
+        // 分集自带的季号最可信：绿联就是这么区分季的。
+        derived.addAll(seasonGroups(eps));
+      }
+    }
+    if (derived.isEmpty) return base;
+    return mergeSeasonGroups(base, derived);
+  }
+
+  /// 补齐每一季的分集（v2.0.92）。
   /// `/Shows/{id}/Seasons` 只给季的元信息，分集还得逐季拉。标准 Emby /
   /// Jellyfin 认 `SeasonId`，绿联不认——[EmbyServer.seasonEpisodes] 内部
   /// 已按季号再过滤一遍，两条路都能得到「只属于这一季」的集。

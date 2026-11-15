@@ -134,17 +134,33 @@ bool isWatchDayKey(String s) =>
 
 /// 播放器进度 tick（100ns）与本地会话推算观看分钟数。
 ///
-/// 优先用「播放器实际行进的 tick 差」，因为它已经扣掉了暂停、缓冲与拖动；
-/// 拿不到（例如从 0 起播但只停了几秒）时退回墙钟时长，最后按片长封顶，
-/// 避免续播场景把整部片长算进本次观看。
+/// 优先级：
+///  1. [watchedSeconds]：播放器侧实测的「本次播放中位置向前推进的秒数」，
+///     天然扣掉暂停、缓冲、拖动与续播定位 —— 最准（v2.0.96 起由播放页累加）；
+///  2. 「结束位置 − 起播位置」的 tick 差：扣掉了暂停，但**续播/拖动会虚高**
+///     （从 12:00 续播只看 1 分钟，旧算法会记成 12 分钟）；
+///  3. 墙钟时长兜底。
+///
+/// 第 2 条另有**墙钟封顶**（+1 分钟抖动）：真实观看不可能超过「进了播放页
+/// 到退出」的时长很多，超过就说明中间有大跳变，按墙钟计。
 double resolveWatchMinutes({
   required int positionTicks,
   required int startTicks,
   required int elapsedMinutes,
   required int runtimeMinutes,
+  double? watchedSeconds,
 }) {
+  if (watchedSeconds != null && watchedSeconds > 0.5) {
+    var m = watchedSeconds / 60.0;
+    if (runtimeMinutes > 0 && m > runtimeMinutes) return runtimeMinutes.toDouble();
+    return m;
+  }
   final advanced = (positionTicks - startTicks) / 10000000.0 / 60.0;
   var m = advanced > 0.5 ? advanced : elapsedMinutes.toDouble();
+  if (elapsedMinutes > 0) {
+    final cap = elapsedMinutes + 1.0;
+    if (m > cap) m = cap;
+  }
   if (m < 0) m = 0;
   if (runtimeMinutes > 0 && m > runtimeMinutes) m = runtimeMinutes.toDouble();
   return m;

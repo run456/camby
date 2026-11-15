@@ -737,8 +737,10 @@ class AppState extends ChangeNotifier {
     String itemId,
     int positionTicks, {
     bool played = false,
+    double? watchedSeconds,
   }) {
-    _recordLocalWatch(itemId, positionTicks, played: played);
+    _recordLocalWatch(itemId, positionTicks,
+        played: played, watchedSeconds: watchedSeconds);
     if (!_progressSyncSupported) return Future.value();
     return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
         Future.value();
@@ -750,6 +752,7 @@ class AppState extends ChangeNotifier {
     String itemId,
     int positionTicks, {
     required bool played,
+    double? watchedSeconds,
   }) {
     if (itemId.isEmpty || itemId.startsWith('demo-')) return;
     final sess = _watchSessions.remove(itemId);
@@ -768,6 +771,7 @@ class AppState extends ChangeNotifier {
       startTicks: sess?.startTicks ?? 0,
       elapsedMinutes: elapsed,
       runtimeMinutes: runtime,
+      watchedSeconds: watchedSeconds,
     );
     // 试看几秒（既没进度也没时长）不记，避免日历被误触点亮。
     if (minutes < 0.5 && positionTicks <= 0) return;

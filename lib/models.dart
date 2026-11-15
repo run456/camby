@@ -17,7 +17,7 @@ enum MediaType { movie, series, episode, season }
 /// 单独抽出来是因为鉴权字符串在播放内核、图片加载、资源自检三处都要拼，
 /// 以前每处各自硬编码一个版本号，发版时必漏一处（v2.0.89 的图片头里就
 /// 还留着上一版号）。**发版时只改这里和 pubspec 两处。**
-const String kClientVersion = '2.0.95';
+const String kClientVersion = '2.0.96';
 
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
@@ -2322,6 +2322,32 @@ List<SeasonGroup> siblingSeasonGroups(
     );
   }
   out.sort((a, b) => a.index.compareTo(b.index));
+  return out;
+}
+
+/// 找出「同一部剧的其它 Series 条目」——**不要求名字里带季号**（v2.0.96）。
+///
+/// 绿联有两种登记方式：
+///  1. `瑞克和莫蒂 第2季` … 名字带季号，[siblingSeasonGroups] 直接够用；
+///  2. 每季都是**同名** `瑞克和莫蒂`（季号只在分集里），名字取不到季号，
+///     上面那条路会全部跳过 —— 表现就是「合并后点进去只剩一季」。
+///
+/// 这里只按基名找同族条目，季号留给调用方用分集反推（见
+/// `detail_page._mergeUnknownSeasonSiblings`）。基名归一化后必须完全相等，
+/// `《梦魇绝镇》` 与 `《梦魇绝镇：起源》` 不会被并到一起。
+List<MediaItem> siblingSeriesCandidates(
+  MediaItem current,
+  List<MediaItem> pool,
+) {
+  if (!current.isSeries) return const [];
+  final base = seriesBaseName(current.name);
+  if (base.isEmpty) return const [];
+  final out = <MediaItem>[];
+  for (final p in pool) {
+    if (p.id == current.id || !p.isSeries) continue;
+    if (seriesBaseName(p.name) != base) continue;
+    out.add(p);
+  }
   return out;
 }
 

@@ -22,7 +22,10 @@ import 'watch_history.dart';
 const _kItemFields =
     'Genres,People,UserData,MediaStreams,MediaSources,Overview,DateCreated,'
     'CommunityRating,ProductionYear,RunTimeTicks,PremiereDate,OfficialRating,'
-    'Tags,TagItems,Studios,SeriesName,Path';
+    'Tags,TagItems,Studios,SeriesName,Path,'
+    // v2.0.96：显式要图片标签。绿联只在被点名时才回 ImageTags，不写进
+    // Fields 就会整块缺失，列表封面因此退化成渐变块。
+    'ImageTags,BackdropImageTags,PrimaryImageAspectRatio';
 
 /// 拼一条把指定字幕轨**烧进画面**的 HLS 地址（v2.0.85 · DLNA 字幕兜底）。
 ///
@@ -1307,6 +1310,16 @@ class EmbyServer {
         ((ms0['Container'] as String?) ?? (j['Container'] as String?) ?? '')
             .trim();
     final String? posterTag = imageData['Primary'] as String?;
+    // v2.0.96：绿联的**列表**接口经常整块不下发 `ImageTags`（详情接口才给），
+    // 旧实现因此把 posterUrl 判成 null，首页推荐 / 继续观看的封面全是渐变块，
+    // 点进详情再返回才有图。判定逻辑见 [primaryImageUrl]。
+    final String? posterUrl = primaryImageUrl(
+      assetUrl: assetUrl,
+      token: _token,
+      id: id,
+      tag: posterTag,
+      tagMapPresent: imageData.isNotEmpty,
+    );
     final backdrops = <String>[
       for (var i = 0; i < backdropTags.length; i++)
         '$assetUrl/Items/$id/Images/Backdrop/$i?maxWidth=1280&api_key=$_token&tag=${backdropTags[i]}',
@@ -1366,9 +1379,7 @@ class EmbyServer {
       childCount: (j['ChildCount'] as num?)?.toInt() ?? 0,
       posterAspect:
           (j['PrimaryImageAspectRatio'] as num?)?.toDouble() ?? 0.6667,
-      posterUrl: posterTag != null
-          ? '$assetUrl/Items/$id/Images/Primary?maxWidth=800&api_key=$_token&tag=$posterTag'
-          : null,
+      posterUrl: posterUrl,
       backdropUrl: backdrops.isNotEmpty ? backdrops.first : null,
       backdrops: backdrops,
       trailerUrls: trailerUrls,
@@ -1799,6 +1810,30 @@ class EmbyServer {
     }
     eps = await episodes(seriesId);
     return seasonGroups(eps);
+  }
+
+  /// 主图（海报）地址（v2.0.96）。
+  ///
+  /// 三态规则：
+  ///  · 有 `ImageTags.Primary` → 带 tag（同 tag 命中服务端缓存，最省事）；
+  ///  · **整块 `ImageTags` 缺失** → 仍按 id 请求，绿联会现算并返回；
+  ///  · 有 `ImageTags` 但没有 `Primary` → 确实没图，返回 null 不发无谓请求。
+  ///
+  /// 抽成静态方法便于单测：绿联列表接口「不下发 ImageTags」这一点很容易
+  /// 被后续改动误伤，而它的症状（封面全空）在沙箱里看不出来。
+  @visibleForTesting
+  static String? primaryImageUrl({
+    required String assetUrl,
+    required String? token,
+    required String id,
+    required String? tag,
+    required bool tagMapPresent,
+  }) {
+    if (id.isEmpty || assetUrl.isEmpty) return null;
+    if (tag == null && tagMapPresent) return null;
+    final base = '$assetUrl/Items/$id/Images/Primary?maxWidth=800'
+        '&api_key=$token';
+    return tag != null ? '$base&tag=$tag' : base;
   }
 
   /// 构造请求 URI：**保留 path 里已内嵌的查询参数**，再叠加显式 [query]，

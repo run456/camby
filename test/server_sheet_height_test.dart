@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// v2.0.95：用户反馈「添加服务器，选择绿联时，弹窗高度突然高一截」。
+/// v2.0.96：用户反馈「添加服务器，选择绿联时，弹窗高度突然高一截」。
 ///
 /// 原因：绿联分支在表单里额外叠了三段条件文字（证书未开警告 / 协议警告 /
 /// 「不广播发现包」说明），加上标题说明、SSL 说明、底部说明都会折成两行，

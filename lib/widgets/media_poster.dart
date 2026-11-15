@@ -31,7 +31,12 @@ class MediaPoster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final url = backdrop ? item.backdropUrl : item.posterUrl;
+    // v2.0.96：绿联基本不给 BackdropImageTags，`backdrop:true` 以前只读
+    // backdropUrl，于是「继续观看」整排都是空渐变块。剧照位没有就退回海报，
+    // 至少能看见这张脸。
+    final url = backdrop
+        ? (item.backdropUrl ?? item.posterUrl)
+        : item.posterUrl;
     final br = borderRadius ?? BorderRadius.circular(radius);
 
     return ClipRRect(

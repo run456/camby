@@ -156,6 +156,14 @@ class PlayerPageState extends State<PlayerPage>
   // 进度条按压（仅影响视觉粗细）
   bool _barPressed = false;
 
+  // ---- 本次会话「真正看了多久」（v2.0.96）----
+  // 以前用「结束位置 − 起播位置」当观看时长，从 12:00 续播、只看 1 分钟，
+  // 就会被算成 12 分钟（观影日历里的「看了 12 分钟」）。这里在 300ms ticker
+  // 里累加**位置的正向小步进**，拖动/续播定位造成的大跳变一律不计。
+  double _watchedSec = 0;
+  double _lastWatchPos = -1;
+  bool _watchSessionOpen = false;
+
   // 亮度/音量
   String? _adjustSide; // 'brightness' | 'volume'
   double _adjustBase = 0;
@@ -313,6 +321,7 @@ class PlayerPageState extends State<PlayerPage>
       }
       _tickCue();
       _syncPos();
+      _accrueWatched();
       _checkAutoNext();
       // v1.7.64：播放中保持屏幕常亮，暂停/退出时解除。
       // 放在 300ms ticker 里按「状态翻转」触发，避免每帧都打平台通道。
@@ -416,10 +425,17 @@ class PlayerPageState extends State<PlayerPage>
     // 顺序很重要——若先写进度、后发一条 PositionTicks=0 的 Playing，
     // 服务端的续播位置会被重置，其它设备就看不到「继续观看」。
     if (!_demo && _recordHistory) {
+      _openWatchSession();
+      // 起播位置用**用户选择的续播点**，而不是「此刻播放器报的位置」：
+      // 内核刚 open 时位置常常还是 0，服务端据此算时长就会把 12:00 续播
+      // 记成「本次看了 12 分钟」。
+      final startSec = widget.startSeconds > 0
+          ? widget.startSeconds
+          : _positionSeconds;
       unawaited(
         widget.state.reportServerPlaybackStart(
           widget.item.id,
-          positionTicks: (_positionSeconds * 10000000).round(),
+          positionTicks: (startSec * 10000000).round(),
           playMethod: _route?.playMethod ?? 'DirectPlay',
           mediaSourceId: widget.mediaSourceId ?? widget.item.mediaSourceId,
           audioStreamIndex: widget.item.audioStreamIndex,
@@ -1237,6 +1253,7 @@ class PlayerPageState extends State<PlayerPage>
     if (state == AppLifecycleState.resumed && _sessionEnded) {
       _sessionEnded = false;
       if (!_demo && _recordHistory) {
+        _openWatchSession();
         unawaited(
           widget.state.reportServerPlaybackStart(
             widget.item.id,
@@ -1261,10 +1278,12 @@ class PlayerPageState extends State<PlayerPage>
         widget.item.id,
         (pos * 10000000).round(),
         played: total > 0 && pos >= total * 0.95,
+        watchedSeconds: _watchedSec,
       ),
     );
     // 会话已结束，回到前台要重新起一段（否则后续心跳都成了孤立事件）
     _sessionEnded = true;
+    _watchSessionOpen = false;
   }
 
   /// 后台补发过 Stopped：回到前台时重新发一次 Playing 续上会话
@@ -1298,6 +1317,7 @@ class PlayerPageState extends State<PlayerPage>
           widget.item.id,
           (pos * 10000000).round(),
           played: total > 0 && pos >= total * 0.95,
+          watchedSeconds: _watchedSec,
         ),
       );
     }
@@ -1334,6 +1354,34 @@ class PlayerPageState extends State<PlayerPage>
         ? _scrubPos
         : (_settleActive ? _settlePos! : _positionSeconds);
     if ((_posNv.value - p).abs() > 0.01) _posNv.value = p;
+  }
+
+  /// 累加「本次真正看了多久」（v2.0.96）。
+  ///
+  /// 判定规则：只有**播放中**、且位置是**小步向前**（300ms ticker 下 ≤1.5s）
+  /// 时才算观看；拖动进度条、续播定位、跳集都会产生大跳变，直接跳过。
+  /// 暂停时位置不动，自然也不累加。
+  void _accrueWatched() {
+    if (_demo || !_recordHistory) return;
+    final pos = _positionSeconds;
+    final last = _lastWatchPos;
+    _lastWatchPos = pos;
+    if (last < 0) return;
+    if (!_isPlaying || _scrubbing || _seeking) return;
+    final d = pos - last;
+    if (d > 0 && d <= 1.5) _watchedSec += d;
+  }
+
+  /// 开一段「本机观看会话」（v2.0.96）。
+  ///
+  /// 切内核会重走 `_start`，但那是**同一场观看**，不能把已累计的时长清零，
+  /// 所以用 [_watchSessionOpen] 做一次性闸门；退后台再回来时由
+  /// `didChangeAppLifecycleState` 显式关掉，回到前台重新开一段。
+  void _openWatchSession() {
+    if (_watchSessionOpen) return;
+    _watchSessionOpen = true;
+    _watchedSec = 0;
+    _lastWatchPos = -1;
   }
 
   /// 粘滞到期交还：等到真实位置追上目标（差 ≤1s）或窗口结束。
