@@ -15,6 +15,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
 import '../widgets/liquid_press.dart';
+import '../widgets/tablet_row.dart';
 
 /// 统计页的两个视图。v2.0.86 用户确认：默认落「日历」，底部导航一个像素不动。
 enum StatsMode { calendar, insight }
@@ -201,28 +202,15 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
     final sections = <Widget>[
       header,
       const SizedBox(height: 12),
-      if (wide)
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                children: [
-                  calendarCard,
-                  const SizedBox(height: 12),
-                  summaryCard,
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                children: [dayCard, const SizedBox(height: 12), posterCard],
-              ),
-            ),
-          ],
-        )
-      else ...[
+      if (wide) ...[
+        // v2.0.104：与数据洞察页统一为「等宽双列 · 按行对齐 · 等高拉伸填满」。
+        // 旧实现是两列独立流式 Column，右列上卡（当日）常比左列（月历）矮，
+        // 导致海报墙起点偏高、整行错位。改为两行按行配对，每行等高。
+        equalHeightRow(context, calendarCard, dayCard),
+        const SizedBox(height: 12),
+        equalHeightRow(context, summaryCard, posterCard),
+        const SizedBox(height: 12),
+      ] else ...[
         calendarCard,
         const SizedBox(height: 12),
         summaryCard,
@@ -239,11 +227,10 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
           padding: const EdgeInsets.only(top: 12),
           child: _SyncCard(busy: _busy, onSync: _backfill),
         ),
-      const SizedBox(height: 140),
     ];
 
     return ListView.builder(
-      padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 0),
+      padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, kFloatingNavInset),
       itemCount: sections.length,
       itemBuilder: (ctx, i) => sections[i],
     );

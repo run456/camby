@@ -3673,3 +3673,43 @@ memWidth」（性能审计要求解码尺寸受控），所以新增 `fullResDis
 是否直接进夹；② 顶部 chip 行能否横滑切换 6 个库；③ 媒体库弹窗里每个库是否
 都显示最近影片封面（首次打开并发预热，慢网最多等 3 秒；若某库仍显示首字，
 说明该库预览接口返回空，需把诊断 JSON 贴回）。
+
+## §114 发布 v2.0.104（平板「数据」tab 统一布局：等宽双列 · 按行对齐 · 等高拉伸）
+
+**用户反馈**：两张平板截图 —— 平板的数据 tab 布局不对，要求重新修改、统一布局。
+截图显示「数据洞察」页卡片左右错位、概览完成率卡内容挤在左上大片留白；
+「观影日历」页右列上卡比左列矮、海报墙起点偏高，底部被悬浮导航遮挡。
+
+**用户明确选择**（AskUserQuestion）：布局形态 = 等宽双列·按行对齐；高度处理 =
+等高拉伸填满（同行矮卡拉齐高卡，接受矮卡内部留白）。
+
+**根因定位**：
+1. `stats_page.dart` 的 `_tabletColumns` 把 isCard 左右交替塞进两条独立流式
+   Column，列高由数据决定，同行底边与下一张起点必然错位（v2.0.9 旧设计）。
+2. `watch_calendar_page.dart` 手写 Row + 两列 Column（左：月历+概览，右：当日+
+   海报墙），右列上卡常比左列矮，导致下卡起点不齐。
+3. `_OverviewGrid` 整行铺满约 1552px、固定 4×2、卡高仅 58px → 每格 380×58，
+   数字挤左上、右侧留白，即截图里的「完成率卡异常」。
+4. 底部留白口径不一（stats=150 / calendar=0+SizedBox(140)），非共享常量。
+
+**改动**：
+- 新增 `lib/widgets/tablet_row.dart`：`equalHeightRow` = IntrinsicHeight +
+  Row(stretch) + 两 Expanded；`kTabletColumnGap=14`、`kFloatingNavInset=150`。
+- `lib/pages/stats_page.dart`：保留守卫要求的 `cells`/`rows`/`_tabletColumns(
+  WidgetBuilder)` 懒构造骨架与全部守卫串；`_tabletColumns` 改为卡片两两打包成
+  等高行；概览拆两张半幅组卡（各 2×2、卡高 78、内层 `bare` 轻量底避免嵌套模糊），
+  手机保持原 4×2；padding.bottom=`kFloatingNavInset`。
+- `lib/pages/watch_calendar_page.dart`：wide 分支改两行按行配对（日历+当日 /
+  概览+海报墙），每行 `equalHeightRow`；卡内 `RepaintBoundary`/`toImage(3.0)`/
+  `memWidth:1200`/3 列海报一律不动；删末尾 SizedBox(140)，padding.bottom 统一。
+- 版本 v2.0.103→v2.0.104（+304）同步 pubspec / kClientVersion / dlnaUserAgent /
+  README / CHANGELOG / 15 个测试版本守卫；本文件新增 §114（§113 保留）。
+
+**验证**：新增 `test/tablet_data_layout_test.dart`（行组件结构断言 + 两页源码守卫 +
+横屏 1600×1000 两模式渲染无溢出）；`--update-goldens` 临时渲染两模式截图人工确认
+（概览=两张独立 2×2 组卡、下方两两等高对齐、无错位溢出；临时测试已删除）；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线；APK `aapt` 校验 versionCode=304 / versionName=2.0.104。
+
+**真机待确认**：① 同行卡片顶点/底边是否齐、矮卡是否拉伸填满；② 概览两张组卡
+数字是否居中铺开；③ 底部悬浮导航是否不再遮挡；④ 手机端布局无回归。

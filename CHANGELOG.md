@@ -1,10 +1,51 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.103 (303)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.104 (304)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.104 (304) 平板「数据」tab 统一布局：等宽双列 · 按行对齐 · 等高拉伸
+
+**用户反馈**（两张平板截图）：平板的数据 tab 布局不对，要求重新修改、统一布局。
+截图里「数据洞察」页卡片左右错位、概览的完成率卡内容挤在左上角大片留白；
+「观影日历」页右列上卡比左列矮、海报墙起点偏高，底部内容还被悬浮导航遮挡。
+
+用户明确选择：布局形态 = **等宽双列 · 按行对齐**；高度处理 = **等高拉伸填满**
+（同行矮卡拉到与高卡同高，接受矮卡内部留白）。
+
+**根因**：两个子页各用一套互不相同的分栏逻辑——
+
+| 页面 | 旧实现 | 问题 |
+|---|---|---|
+| 数据洞察 | `_tabletColumns` 把卡片左右交替塞进两条**独立流式 Column**，各列高度由数据决定 | 同行卡片底边与下一张起点必然错位 |
+| 观影日历 | 手写 `Row + 两列 Column`（左：月历+概览，右：当日+海报墙） | 右列上卡常比左列矮，海报墙起点偏高 |
+| 概览网格 | 整行铺满约 1552px，却固定 **4 列 × 2 行、卡高仅 58px** | 每格 380×58，数字挤在左上、大片留白 |
+| 底部留白 | stats=150，日历=`0` + 末尾 `SizedBox(140)` | 口径不一、非共享常量 |
+
+**本次改动**：
+
+- 新增 `lib/widgets/tablet_row.dart`：共享 `equalHeightRow`（`IntrinsicHeight` +
+  `Row(stretch)` + 两 `Expanded`）—— 行高取最高卡、矮卡拉伸填满，两列始终等宽；
+  共享 `kTabletColumnGap=14` / `kFloatingNavInset=150`。
+- `stats_page.dart`：`_tabletColumns` 保留 WidgetBuilder 懒构造骨架，内部由
+  "两条独立 Column" 改成"卡片两两打包成等高行"；概览平板下拆成**两张半幅组卡**
+  （各 2×2、卡高 58→78、内层轻量底避免 Glass 套 Glass），作为双栏第一行；
+  手机仍是原 4×2 整卡，零漂移；padding.bottom 改用 `kFloatingNavInset`。
+- `watch_calendar_page.dart`：wide 分支由"两列各两张"改成**两行按行配对**
+  （日历+当日 / 概览+海报墙），每行 `equalHeightRow`；卡内实现
+  （`RepaintBoundary`、`toImage(pixelRatio: 3.0)`、`memWidth: 1200`、3 列海报）
+  一律不动；删末尾 `SizedBox(140)`，padding.bottom 统一 `kFloatingNavInset`。
+
+**验证**：新增 `test/tablet_data_layout_test.dart`（行组件结构 + 源码守卫 + 横屏
+1600×1000 两模式渲染无溢出）；用 `--update-goldens` 临时渲染两张平板截图人工
+确认（概览=两张独立 2×2 组卡、下方两两等高对齐、无错位溢出，临时测试已删除）。
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。
+
+**真机待确认**：① 同行卡片是否顶点/底边齐、矮卡是否拉伸；② 概览两张组卡
+数字是否居中铺开、不再挤在左上；③ 底部悬浮导航是否不再遮挡内容；④ 手机端无回归。
 
 ### v2.0.103 (303) 收藏夹改成网格 + 媒体库 chip 横滑 6 个 + 弹窗换真实影片封面
 

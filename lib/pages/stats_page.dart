@@ -9,6 +9,7 @@ import '../layout.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/glass_sheet.dart';
+import '../widgets/tablet_row.dart';
 import 'watch_calendar_page.dart';
 
 /// 数据总结：液态玻璃风格
@@ -222,11 +223,34 @@ class _StatsPageState extends State<StatsPage> {
       ),
 
       // ── 概览 ──
+      // v2.0.104：平板下拆成「库内 4 项 / 观看 4 项」两张半幅组卡，作为等高双列
+      // 的第一行，消除原先整行 1552px 宽、每格仅 58px 高的扁宽留白；手机保持
+      // 原 4×2 整卡不变（手机布局零漂移）。
       _StatCell((_) => const _SectionHead('概览 · 一屏看全局')),
-      _StatCell(
-        (_) =>
-            _OverviewGrid(stats: stats, playback: playback, activity: activity),
-      ),
+      if (wide) ...[
+        _StatCell(
+          (_) => _OverviewGrid(
+            stats: stats,
+            playback: playback,
+            activity: activity,
+            half: 0,
+          ),
+          isCard: true,
+        ),
+        _StatCell(
+          (_) => _OverviewGrid(
+            stats: stats,
+            playback: playback,
+            activity: activity,
+            half: 1,
+          ),
+          isCard: true,
+        ),
+      ] else
+        _StatCell(
+          (_) =>
+              _OverviewGrid(stats: stats, playback: playback, activity: activity),
+        ),
       _StatCell((_) => const SizedBox(height: 10), spacer: true),
 
       // 完成率 + 最近播放 10 部
@@ -417,7 +441,7 @@ class _StatsPageState extends State<StatsPage> {
               : Colors.white.withValues(alpha: 0.62),
         ),
         ListView.builder(
-          padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
+          padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, kFloatingNavInset),
           // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
           itemCount: rows.length,
           itemBuilder: (ctx, i) => rows[i](ctx),
@@ -439,57 +463,43 @@ class _StatCell {
   final bool spacer;
 }
 
-/// 平板双栏布局（v2.0.9 重写）：两条**独立流式**纵列，不再两两强制同行。
+/// 平板双栏布局（v2.0.104 重写）：等宽双列 · 按行对齐 · 等高拉伸填满。
 ///
-/// 旧实现把卡片按顺序两两塞进同一个 Row —— Row 高度取两者较大者，
-/// 矮的那张下面留洞，左右列相互错位（实测反馈 #2）。
-/// 新规则：页头/分区标题/概览网格保持整行；`_SectionCard` 按顺序
-/// 左右交替进两条独立 Column，各列内部自然流式排布，高度互不影响。
+/// 旧实现（v2.0.9）把卡片左右交替塞进两条**独立流式** Column，各列高度由
+/// 数据决定、互不影响 —— 同行卡片底边与下一张起点必然错位（用户截图反馈）。
+/// 新规则：页头/分区标题保持整行；卡片按顺序两两打包成"行"，每行经
+/// [equalHeightRow] 做到两列等宽、顶部对齐、矮卡拉伸到与高卡同高；每行作为
+/// 一个 ListView item，进入视口时才 build，保持懒构造（守卫要求）。
 List<WidgetBuilder> _tabletColumns(bool wide, List<_StatCell> cells) {
   // 手机：每项（含间距）原样交给 ListView.builder，只在进入视口时构造。
   if (!wide) return [for (final c in cells) c.build];
 
-  const gap = 14.0;
   final head = <WidgetBuilder>[];
-  final left = <WidgetBuilder>[];
-  final right = <WidgetBuilder>[];
-  var putLeft = true;
-
+  final cards = <WidgetBuilder>[];
   for (final c in cells) {
-    if (c.spacer) continue; // 竖向间距由栏内 gap 接管
+    if (c.spacer) continue; // 竖向间距由行底 padding 接管
     if (c.isCard) {
-      (putLeft ? left : right).add(c.build);
-      putLeft = !putLeft;
+      cards.add(c.build);
     } else {
-      // 页头（数据总结 + 来源）、分区标题、概览网格 → 整行
+      // 页头（数据总结 + 来源）、分区标题 → 整行
       head.add(c.build);
-      head.add((_) => const SizedBox(height: gap));
+      head.add((_) => const SizedBox(height: kTabletColumnGap));
     }
   }
 
-  Widget col(BuildContext context, List<WidgetBuilder> list) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      for (var i = 0; i < list.length; i++) ...[
-        if (i > 0) const SizedBox(height: 12),
-        list[i](context),
-      ],
-    ],
-  );
+  // 卡片两两打包成"行"：等宽、按行对齐、等高拉伸填满。奇数尾卡右侧留空占位。
+  final rows = <WidgetBuilder>[];
+  for (var i = 0; i < cards.length; i += 2) {
+    final left = cards[i];
+    final right = i + 1 < cards.length ? cards[i + 1] : null;
+    rows.add((context) => Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: equalHeightRow(context, left(context), right?.call(context)),
+    ));
+  }
 
   if (head.isNotEmpty) head.add((_) => const SizedBox(height: 4));
-  return [
-    ...head,
-    // 双栏整体作为一个 item：只有滚到这里时才一次性建两列卡片。
-    (context) => Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: col(context, left)),
-        const SizedBox(width: gap),
-        Expanded(child: col(context, right)),
-      ],
-    ),
-  ];
+  return [...head, ...rows];
 }
 
 /// 偏好演员等卡片标题行的「?」说明按钮：点击弹出计算口径说明
@@ -797,12 +807,18 @@ class _OverviewGrid extends StatelessWidget {
     required this.stats,
     required this.playback,
     required this.activity,
+    this.half,
   });
   final LibraryStats stats;
   final PlaybackReport? playback;
   final ActivitySummary? activity;
 
+  /// null = 手机完整 4×2 整卡（零漂移）；0 = 平板半幅「库内 4 项」；
+  /// 1 = 平板半幅「观看 4 项」。半幅卡内 2×2，作为等高双列第一行。
+  final int? half;
+
   static const _cardH = 58.0;
+  static const _halfCardH = 78.0;
 
   @override
   Widget build(BuildContext context) {
@@ -842,6 +858,44 @@ class _OverviewGrid extends StatelessWidget {
       ],
     ];
 
+    if (half != null) {
+      // 平板半幅：一张组卡内 2×2（4 项），卡高抬到 78 让数值居中铺开，消除
+      // 原先整行 1552px、每格仅 58px 的扁宽留白。内层指标用轻量底（bare），
+      // 避免玻璃容器嵌套玻璃容器造成双重实时滤镜。
+      final items = rows[half!];
+      return RepaintBoundary(
+        child: Glass(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        radius: 18,
+        blur: 20,
+        tint: 0.08,
+        child: Column(
+          children: [
+            for (var r = 0; r < 2; r++) ...[
+              if (r > 0) const SizedBox(height: 10),
+              SizedBox(
+                height: _halfCardH,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < 2; i++)
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(right: i == 1 ? 0 : 10),
+                          child: _metricCell(items[r * 2 + i], big: true, bare: true),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        ),
+      );
+    }
+
+    // 手机整卡：原 4×2 布局，逐像素保持原样。
     return Column(
       children: [
         for (var r = 0; r < rows.length; r++) ...[
@@ -855,48 +909,7 @@ class _OverviewGrid extends StatelessWidget {
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.only(right: i == 3 ? 0 : 8),
-                      child: Glass(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 7,
-                        ),
-                        radius: 15,
-                        blur: 18,
-                        tint: 0.08,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    rows[r][i].$2,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w800,
-                                      color: rows[r][i].$3,
-                                      letterSpacing: -0.3,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              rows[r][i].$1,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 8.5,
-                                color: AppColors.muted,
-                                height: 1.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      child: _metricCell(rows[r][i]),
                     ),
                   ),
               ],
@@ -904,6 +917,65 @@ class _OverviewGrid extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  /// 单个指标卡。[big] 用于平板半幅（更大字号、水平内距更宽）；
+  /// [bare] 用于已包在外层 Glass 内的场景，只铺一层极淡底色避免嵌套模糊。
+  Widget _metricCell((String, String, Color) e,
+      {bool big = false, bool bare = false}) {
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                e.$2,
+                style: TextStyle(
+                  fontSize: big ? 19 : 16,
+                  fontWeight: FontWeight.w800,
+                  color: e.$3,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Text(
+          e.$1,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: big ? 10 : 8.5,
+            color: AppColors.muted,
+            height: 1.1,
+          ),
+        ),
+      ],
+    );
+    if (bare) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.w.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(13),
+        ),
+        child: content,
+      );
+    }
+    return Glass(
+      padding: EdgeInsets.symmetric(
+        horizontal: big ? 12 : 9,
+        vertical: big ? 9 : 7,
+      ),
+      radius: 15,
+      blur: 18,
+      tint: 0.08,
+      child: content,
     );
   }
 }
