@@ -1228,9 +1228,12 @@ class EmbyServer {
     return MediaItem(
       id: id,
       name: j['Name'] as String? ?? '未命名',
-      type: (j['Type'] as String?) == 'Series'
-          ? MediaType.series
-          : MediaType.movie,
+      type: switch (j['Type'] as String?) {
+        'Series' => MediaType.series,
+        'Season' => MediaType.season,
+        'Episode' => MediaType.episode,
+        _ => MediaType.movie,
+      },
       overview: _overviewOf(j),
       colors: _colorsFor(id),
       year: j['ProductionYear'] as int? ?? 0,
@@ -1253,8 +1256,16 @@ class EmbyServer {
       audioStreamIndex: audioStreamIndex,
       mediaSourceId: sourceId,
       seriesId: j['SeriesId'] as String?,
-      seasonNumber: j['ParentIndexNumber'] as int?,
-      episodeNumber: j['IndexNumber'] as int?,
+      // 分集的 ParentIndexNumber 是「第几季」，Season 条自身的季号在
+      // IndexNumber 里；两者取到同一个字段，面板才能统一按 seasonNumber 分组。
+      seasonNumber: (j['ParentIndexNumber'] as int?) ??
+          (j['Type'] == 'Season' ? (j['IndexNumber'] as int?) : null),
+      // Episode 条自身的 IndexNumber 是「第几集」；Season 条的 IndexNumber
+      // 已经当成季号用了，不能再当集号。
+      episodeNumber:
+          j['Type'] == 'Season' ? null : (j['IndexNumber'] as int?),
+      parentId: j['ParentId'] as String?,
+      childCount: (j['ChildCount'] as num?)?.toInt() ?? 0,
       posterAspect:
           (j['PrimaryImageAspectRatio'] as num?)?.toDouble() ?? 0.6667,
       posterUrl: posterTag != null
@@ -1575,14 +1586,14 @@ class EmbyServer {
     }
   }
 
-  /// 剧集的分集列表
+  /// 剧集的分集列表（v2.0.92：按季分组，见 [seasonGroups]）
   Future<List<MediaItem>> episodes(String seriesId) async {
     final json = await _getJson(
       '$baseUrl/Shows/$seriesId/Episodes',
       query: {'UserId': _userId!, 'Fields': _kItemFields},
     );
     final eps = _parseItems(json);
-    return eps.map((e) {
+    final list = eps.map((e) {
       // 分集统一标记为 Episode 类型
       return MediaItem(
         id: e.id,
@@ -1612,6 +1623,7 @@ class EmbyServer {
         episodeTitle: e.episodeTitle,
         seasonNumber: e.seasonNumber,
         episodeNumber: e.episodeNumber,
+        parentId: e.parentId,
         seriesId: e.seriesId,
         videoUrl: e.videoUrl,
         posterUrl: e.posterUrl,
@@ -1623,6 +1635,72 @@ class EmbyServer {
         lastPlayedAt: e.lastPlayedAt,
       );
     }).toList();
+    // 服务端一般按 SxxExx 排好，但绿联这类子集实现会混序返回；
+    // 分集面板按季分组展示，顺序错了「第 3 集」就会排在「第 1 集」前面。
+    list.sort(compareEpisodes);
+    return list;
+  }
+
+  /// 某一季的分集（v2.0.92）。
+  ///
+  /// `/Shows/{id}/Episodes?SeasonId=` 是标准 Emby / Jellyfin 的取法；缺
+  /// `SeasonId` 的实现（绿联）会自动忽略该参数，于是回全剧 —— 这里按
+  /// 季号再过滤一遍，保证「点第 2 季只看到第 2 季」。
+  Future<List<MediaItem>> seasonEpisodes(
+    String seriesId, {
+    String? seasonId,
+    required int seasonIndex,
+  }) async {
+    final json = await _getJson(
+      '$baseUrl/Shows/$seriesId/Episodes',
+      query: {
+        'UserId': _userId!,
+        'Fields': _kItemFields,
+        if (seasonId != null) 'SeasonId': seasonId,
+      },
+    );
+    final all = _parseItems(json);
+    final list = all
+        .where((e) => (e.seasonNumber ?? 1) == seasonIndex)
+        .toList();
+    // 过滤后为空说明这季确实没集，或服务端季号口径不同 —— 交给调用方兜底
+    list.sort(compareEpisodes);
+    return list;
+  }
+
+  /// 剧集的「季」列表（v2.0.92）。
+  ///
+  /// 标准 Emby / Jellyfin 走 `/Shows/{id}/Seasons`，回来的是 `Season` 条目，
+  /// [MediaItem.isSeason] 为真、`seasonNumber` 取自 `IndexNumber`
+  /// （特别篇 `Season 0` 也在其中）。部分固件（绿联影视中心）没有这个路由，
+  /// 此时**不报错**，退回 `episodes()` 按 `ParentIndexNumber` 分组推导，
+  /// 保证「选季 → 选集」这套面板在任何服务端上都有数据可点。
+  Future<List<SeasonGroup>> seasons(String seriesId) async {
+    var eps = <MediaItem>[];
+    try {
+      final json = await _getJson(
+        '$baseUrl/Shows/$seriesId/Seasons',
+        query: {'UserId': _userId!},
+      );
+      final list = _parseItems(json).where((s) => s.isSeason).toList();
+      if (list.length > 1) {
+        list.sort((a, b) => (a.seasonNumber ?? 0).compareTo(b.seasonNumber ?? 0));
+        return [
+          for (final s in list)
+            SeasonGroup(
+              index: s.seasonNumber ?? 0,
+              name: s.name,
+              id: s.id,
+              posterUrl: s.posterUrl,
+              episodeCount: s.childCount,
+            ),
+        ];
+      }
+    } catch (_) {
+      // 路由不存在 / 只回一条（单季剧）——都落到下面用分集推导
+    }
+    eps = await episodes(seriesId);
+    return seasonGroups(eps);
   }
 
   /// 构造请求 URI：**保留 path 里已内嵌的查询参数**，再叠加显式 [query]，

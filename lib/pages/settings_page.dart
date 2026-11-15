@@ -401,69 +401,64 @@ class _ServersSection extends StatelessWidget {
           style: TextStyle(fontSize: 10.5, color: AppColors.muted),
         ),
         const SizedBox(height: 9),
-        // v2.0.88：绿联影视中心是**独立连接入口**，不再塞进 Emby 表单的
-        // 类型分段里。它只是 Emby 接口子集，资源地址规则、进度能力都不同，
-        // 单独一张卡也方便把预设和风险提示讲清楚。
-        LiquidPress(
-          radius: 20,
-          scale: 0.985,
-          onTap: () => _openSheet(
-            context,
-            null,
-            presetKind: ServerKind.ugreen,
-          ),
-          child: Glass(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF19B394), Color(0xFF0E7C86)],
+        // v2.0.92：绿联收回到「添加服务器」表单里当第三种类型。
+        // v2.0.88 曾在这里放一张独立的绿联入口卡，等于把同一套 Emby
+        // 接口拆成两个 App 两套入口；现在只留一个添加动作，类型在表单里选。
+        if (servers.isEmpty)
+          LiquidPress(
+            radius: 20,
+            scale: 0.985,
+            onTap: () => _openSheet(context, null),
+            child: Glass(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      gradient: AppColors.ctaGradient,
+                    ),
+                    child: const Icon(
+                      Icons.add_to_queue_rounded,
+                      size: 21,
+                      color: Colors.white,
                     ),
                   ),
-                  child: const Icon(
-                    Icons.storage_rounded,
-                    size: 21,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(width: 11),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '绿联影视中心',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
+                  const SizedBox(width: 11),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '添加服务器',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'UGOS Pro · HTTPS 9443 · 自签证书 · 不支持进度同步',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: AppColors.muted,
+                        SizedBox(height: 3),
+                        Text(
+                          'Emby / Jellyfin / 绿联影视中心，同一个入口',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.muted,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 14,
-                  color: Color(0xFF4BE0BE),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 14,
+                    color: AppColors.accent,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         const SizedBox(height: 10),
         if (servers.isEmpty)
           Glass(
@@ -482,7 +477,7 @@ class _ServersSection extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 const Text(
-                  '支持 Emby / Jellyfin，可保存多个并随时切换',
+                  '支持 Emby / Jellyfin / 绿联影视中心，可保存多个并随时切换',
                   style: TextStyle(fontSize: 10.5, color: AppColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -986,8 +981,37 @@ class _ServerSheetState extends State<_ServerSheet> {
     if (mounted) setState(() {});
   }
 
-  /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。
-  /// 最常见原因：手机在移动数据下访问 192.168.x.x 这类内网地址，路由不可达，
+  /// 切换服务器类型：只改「与之绑定的默认值」，不覆盖用户已填的内容。
+  ///
+  /// 绿联没有 HTTP、也不存在 8096，所以切进来时把协议/端口/证书一键带好，
+  /// 切回 Emby/Jellyfin 时再把端口回落到 8096（若用户没动过）。
+  void _switchKind(int i) {
+    final next = switch (i) {
+      1 => ServerKind.jellyfin,
+      2 => ServerKind.ugreen,
+      _ => ServerKind.emby,
+    };
+    if (next == _kind) return;
+    final prevPort = int.tryParse(_port.text.trim()) ?? 0;
+    setState(() {
+      final wasUgreen = _kind == ServerKind.ugreen;
+      _kind = next;
+      if (next == ServerKind.ugreen) {
+        _secure = true;
+        _ignoreSsl = true;
+        if (prevPort == 8096 || prevPort == 0) _port.text = '9443';
+      } else {
+        _ignoreSsl = false;
+        if (wasUgreen && prevPort == 9443) {
+          _port.text = '8096';
+          _secure = false;
+        }
+      }
+      _result = null;
+    });
+  }
+
+  /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。  /// 最常见原因：手机在移动数据下访问 192.168.x.x 这类内网地址，路由不可达，
   /// 系统表现为 ECONNABORTED("Software caused connection abort") 而非超时。
   String _friendlyConnectError(String host, String? raw) {
     final m = raw ?? '';
@@ -1081,7 +1105,7 @@ class _ServerSheetState extends State<_ServerSheet> {
   Widget build(BuildContext context) {
     final detectedPort = int.tryParse(_port.text.trim()) ?? 8096;
     final isUgreen = _kind == ServerKind.ugreen;
-    // 独立绿联入口恒为绿联；普通 Emby 表单里填了 9443 也仍给兼容提示。
+    // 填了 9443 这类兼容源地址也给同样的风险提示。
     final ugreen = isUgreen ||
         isUgreenCompatSource(port: detectedPort, secure: _secure);
     return SafeArea(
@@ -1115,7 +1139,9 @@ class _ServerSheetState extends State<_ServerSheet> {
                       child: Text(
                         isUgreen
                             ? (_editing ? '编辑绿联影视中心' : '连接绿联影视中心')
-                            : (_editing ? '编辑服务器' : '添加服务器'),
+                            : (_editing
+                                  ? '编辑${_kind == ServerKind.jellyfin ? ' Jellyfin ' : '服务器'}'
+                                  : '添加服务器'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -1125,38 +1151,19 @@ class _ServerSheetState extends State<_ServerSheet> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // v2.0.88：绿联是独立入口，表单里不再和 Emby / Jellyfin
-                    // 混排成一段；这里只留一枚不可切换的类型徽标。
-                    if (isUgreen)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: const Color(0x2219B394),
-                          border: Border.all(color: const Color(0x6619B394)),
-                        ),
-                        child: const Text(
-                          '绿联影视中心',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF4BE0BE),
-                          ),
-                        ),
-                      )
-                    else
-                      _Segment(
-                        items: const ['Emby', 'Jellyfin'],
-                        value: _kind == ServerKind.jellyfin ? 1 : 0,
-                        onSelect: (i) => setState(
-                          () => _kind = i == 1
-                              ? ServerKind.jellyfin
-                              : ServerKind.emby,
-                        ),
-                      ),
+                    // v2.0.92：绿联回到同一个表单里当第三种类型。
+                    // v2.0.88 曾把它拆成设置页上一张独立入口卡片，实际用下来
+                    // 更像「两个 App 两套入口」——它们本来就是同一套 Emby
+                    // 接口，只是地址规则和能力不同，收进一个表单按需切换即可。
+                    _Segment(
+                      items: const ['Emby', 'Jellyfin', '绿联'],
+                      value: switch (_kind) {
+                        ServerKind.emby => 0,
+                        ServerKind.jellyfin => 1,
+                        ServerKind.ugreen => 2,
+                      },
+                      onSelect: _switchKind,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1167,7 +1174,7 @@ class _ServerSheetState extends State<_ServerSheet> {
                     ServerKind.emby =>
                       'Emby 走 /emby 路径，支持 Playback Reporting 统计',
                     ServerKind.ugreen =>
-                      'HTTPS 9443 · 图片与播放地址走站点根路径 · 已自动跳过证书校验',
+                      '绿联影视中心（UGOS Pro）走 HTTP(S) 根路径 · 默认 9443 · 自动跳过证书校验',
                   },
                   style: const TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
@@ -1246,7 +1253,9 @@ class _ServerSheetState extends State<_ServerSheet> {
                   label: '用户名',
                   hint: isUgreen
                       ? '影视中心媒体服务器账号（非 NAS 管理员）'
-                      : '${_kind == ServerKind.jellyfin ? 'Jellyfin' : 'Emby'} 账号',
+                      : _kind == ServerKind.jellyfin
+                      ? 'Jellyfin 账号'
+                      : 'Emby 账号',
                 ),
                 _Field(
                   controller: _pwd,

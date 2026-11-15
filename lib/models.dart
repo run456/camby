@@ -5,14 +5,19 @@ import 'watch_history.dart';
 /// 打开详情页（heroTag 用于「封面 → 头图」共享元素转场）
 typedef OpenDetail = void Function(MediaItem item, {String? heroTag});
 
-enum MediaType { movie, series, episode }
+/// 条目类型。
+///
+/// v2.0.92 补 `season`：剧集详情页要「选季 → 选集」，Season 条目在标准
+/// Emby / Jellyfin 里是独立 Item（`/Shows/{id}/Seasons` 的返回项）。
+/// 以前没这个类型，Season 会被当成电影塞进列表，季选集无从下手。
+enum MediaType { movie, series, episode, season }
 
 /// 客户端版本号，写进 Emby `X-Emby-Authorization` 头。
 ///
 /// 单独抽出来是因为鉴权字符串在播放内核、图片加载、资源自检三处都要拼，
 /// 以前每处各自硬编码一个版本号，发版时必漏一处（v2.0.89 的图片头里就
 /// 还留着上一版号）。**发版时只改这里和 pubspec 两处。**
-const String kClientVersion = '2.0.91';
+const String kClientVersion = '2.0.92';
 
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
@@ -821,6 +826,8 @@ class MediaItem {
     this.episodeTitle,
     this.seasonNumber,
     this.episodeNumber,
+    this.parentId,
+    this.childCount = 0,
     this.seriesId,
     this.videoUrl,
     this.posterUrl,
@@ -895,6 +902,16 @@ class MediaItem {
   final String? episodeTitle;
   final int? seasonNumber;
   final int? episodeNumber;
+
+  /// 直接父条目 Id。分集是 Season 的 `ParentId`，Season 是 Series 的。
+  /// v2.0.92 起用它判断「这一集属于哪一季」，比只靠 `ParentIndexNumber`
+  /// 更可靠（有些固件 `ParentIndexNumber` 给 0 或干脆不给）。
+  final String? parentId;
+
+  /// 子条目数量（Season 条的 `ChildCount` = 该季集数）。
+  /// 分集还没拉回来时，季标签能先显示「10集」。
+  final int childCount;
+
   final String? seriesId;
   final String? videoUrl;
   final String? posterUrl;
@@ -944,6 +961,8 @@ class MediaItem {
 
   bool get isMovie => type == MediaType.movie;
   bool get isSeries => type == MediaType.series;
+  bool get isSeason => type == MediaType.season;
+  bool get isEpisode => type == MediaType.episode;
   bool get isTrue4K => videoHeight >= 2160;
 
   /// 是否为 strm 片源。
@@ -1051,6 +1070,8 @@ class MediaItem {
       episodeTitle: episodeTitle,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
+      parentId: parentId,
+      childCount: childCount,
       seriesId: seriesId,
       videoUrl: videoUrl,
       posterUrl: posterUrl,
@@ -2008,4 +2029,119 @@ VideoRange _videoRangeFromJson(Map<String, dynamic> j) {
   if (j['hasDolbyVision'] == true) return VideoRange.dovi;
   if (j['isHdr'] == true) return VideoRange.hdr10;
   return VideoRange.unknown;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 剧集「选季 → 选集」（v2.0.92）
+//
+// 剧集详情页原来只有一条横向分集条，混着所有季、按服务端返回顺序排，集数
+// 一多就变成「一条永远划不到头的带子」，也分不清哪集属于哪季。这里改成
+// 绿联影视中心那套交互：季标签行 + 每一季自己的集号网格，任何一集都能
+// 直接点到。下面几个纯函数是那套面板的全部数据来源，方便单测覆盖。
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 一季的分集集合。
+class SeasonGroup {
+  const SeasonGroup({
+    required this.index,
+    this.name = '',
+    this.id,
+    this.posterUrl,
+    this.episodeCount = 0,
+    this.episodes = const [],
+  });
+
+  /// 季号：`ParentIndexNumber` / `Season.IndexNumber`，特别篇为 0
+  final int index;
+
+  /// 服务端给的季名（如「第 1 季」「Specials」），为空时按季号生成
+  final String name;
+
+  /// Season 条目的 Id（标准 Emby/Jellyfin 有；绿联推导出来的为 null）
+  final String? id;
+  final String? posterUrl;
+
+  /// 该季集数（分集未加载时用 Season 条的 `ChildCount` 兜底）
+  final int episodeCount;
+
+  /// 该季分集（已按 [compareEpisodes] 排好）
+  final List<MediaItem> episodes;
+
+  /// 是否为特别篇（`Season 0`）。Emby 惯例：0 季是花絮/特别篇。
+  bool get isSpecial => index == 0;
+
+  /// 标签文案：绿联是「第1季」，服务端给了名字就用名字
+  String get label {
+    final n = name.trim();
+    if (n.isEmpty) return index == 0 ? '特别篇' : '第$index季';
+    return n;
+  }
+
+  /// 「10集」这种短标签，绿联原版就写在季标签旁边
+  String get countLabel {
+    final n = episodes.isNotEmpty ? episodes.length : episodeCount;
+    return n > 0 ? '$n集' : '';
+  }
+}
+
+/// 按季号升序、集号升序排列分集。
+///
+/// 服务端（尤其绿联这类子集实现）不保证顺序，画面上「第 3 集」排在
+/// 「第 1 集」前面会直接让人怀疑数据错了。缺集号时退到名字里的数字，
+/// 再不行保持原序（`sort` 是稳定排序）。
+int compareEpisodes(MediaItem a, MediaItem b) {
+  final sa = a.seasonNumber ?? 0;
+  final sb = b.seasonNumber ?? 0;
+  if (sa != sb) return sa.compareTo(sb);
+  final ea = a.episodeNumber ?? _leadingNumber(a.name);
+  final eb = b.episodeNumber ?? _leadingNumber(b.name);
+  if (ea != eb) return ea.compareTo(eb);
+  return 0;
+}
+
+int _leadingNumber(String s) {
+  final m = RegExp(r'\d+').firstMatch(s);
+  return m == null ? 0 : (int.tryParse(m.group(0)!) ?? 0);
+}
+
+/// 把扁平分集列表切成按季分组的 [SeasonGroup] 列表（季号升序）。
+///
+/// 没有季号的条目（部分固件连 `ParentIndexNumber` 都不给）归到第 1 季 ——
+/// 宁可让它出现在第 1 季里，也不能因为缺字段就从面板上消失。
+List<SeasonGroup> seasonGroups(List<MediaItem> episodes) {
+  final map = <int, List<MediaItem>>{};
+  for (final e in episodes) {
+    final k = e.seasonNumber ?? 1;
+    (map[k] ??= <MediaItem>[]).add(e);
+  }
+  final keys = map.keys.toList()..sort();
+  return [
+    for (final k in keys)
+      SeasonGroup(
+        index: k,
+        episodes: map[k]!..sort(compareEpisodes),
+        episodeCount: map[k]!.length,
+      ),
+  ];
+}
+
+/// 从一集里解析出「下一集要播什么」。
+///
+/// 越过当前季边界时顺延到下一季的第 1 集；已是最后一集则返回 null，
+/// 由调用方决定是否提示「已是最后一集」。
+MediaItem? nextEpisode(List<MediaItem> all, MediaItem current) {
+  if (all.isEmpty) return null;
+  final sorted = [...all]..sort(compareEpisodes);
+  final i = sorted.indexWhere((e) => e.id == current.id);
+  if (i < 0 || i + 1 >= sorted.length) return null;
+  return sorted[i + 1];
+}
+
+/// 给一个分集打上「S1E3」这种角标。
+///
+/// 集号缺失时用列表内序号兜底，保证任何服务端都不会出现 `S1E0`。
+String episodeBadge(MediaItem e, {int fallbackIndex = 0}) {
+  final s = e.seasonNumber ?? 1;
+  final n = e.episodeNumber ?? (fallbackIndex + 1);
+  return 'S${s}E$n';
 }

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
+import '../emby_client.dart';
 import '../models.dart';
 import '../routes.dart';
 import '../theme.dart';
@@ -14,6 +15,7 @@ import '../widgets/cached_image.dart';
 import '../widgets/folder_sheet.dart';
 import '../widgets/gender_badge.dart';
 import '../widgets/media_poster.dart';
+import '../widgets/season_picker.dart';
 import 'tag_page.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/liquid_press.dart';
@@ -97,6 +99,10 @@ class _DetailPageState extends State<DetailPage> {
   late MediaItem _item;
   List<MediaItem>? _similar;
   List<MediaItem>? _episodes;
+
+  /// v2.0.92：按季分好组的分集。剧集详情页的「选集」面板吃这份数据，
+  /// 扁平的 [_episodes] 仍保留（搜索、续播推导都要用）。
+  List<SeasonGroup>? _seasons;
   List<MediaItem>? _trailers;
 
   /// 「额外部分」的独立子条目（分段 / 花絮）。与 `item.extraParts`
@@ -614,6 +620,7 @@ class _DetailPageState extends State<DetailPage> {
       _selectedSubtitle = _defaultSubtitle(_item);
       _similar = null;
       _episodes = null;
+      _seasons = null;
       _trailers = null;
       _descExpanded = false;
       _mediaExpanded = false;
@@ -1159,10 +1166,25 @@ class _DetailPageState extends State<DetailPage> {
         })
         .catchError((_) {});
     if (_item.isSeries) {
+      // v2.0.92：先取季列表（标准 Emby/Jellyfin 走 /Seasons；绿联没有这个
+      // 路由时自动回落到分集推导），再按季取分集。
       server
-          .episodes(_item.id)
-          .then((list) {
-            if (mounted) setState(() => _episodes = list);
+          .seasons(_item.id)
+          .then((groups) async {
+            if (!mounted) return;
+            // 有些服务端 /Seasons 只给季不给集（ChildCount 有、Episodes 空），
+            // 这种情况下统一按「该季」补拉一次，保证每个季标签都能点开。
+            final needFetch = groups.any((g) => g.episodes.isEmpty);
+            final filled = needFetch
+                ? await _fillSeasonEpisodes(server, groups)
+                : groups;
+            if (!mounted) return;
+            setState(() {
+              _seasons = filled;
+              _episodes = [
+                for (final g in filled) ...g.episodes,
+              ]..sort(compareEpisodes);
+            });
           })
           .catchError((_) {});
     }
@@ -1202,6 +1224,45 @@ class _DetailPageState extends State<DetailPage> {
         .catchError((_) {});
   }
 
+  /// 补齐每一季的分集（v2.0.92）。
+  ///
+  /// `/Shows/{id}/Seasons` 只给季的元信息，分集还得逐季拉。标准 Emby /
+  /// Jellyfin 认 `SeasonId`，绿联不认——[EmbyServer.seasonEpisodes] 内部
+  /// 已按季号再过滤一遍，两条路都能得到「只属于这一季」的集。
+  /// 已有数据的季原样保留，不多打请求。
+  Future<List<SeasonGroup>> _fillSeasonEpisodes(
+    EmbyServer server,
+    List<SeasonGroup> groups,
+  ) async {
+    final out = <SeasonGroup>[];
+    for (final g in groups) {
+      if (g.episodes.isNotEmpty) {
+        out.add(g);
+        continue;
+      }
+      try {
+        final list = await server.seasonEpisodes(
+          _item.id,
+          seasonId: g.id,
+          seasonIndex: g.index,
+        );
+        out.add(
+          SeasonGroup(
+            index: g.index,
+            name: g.name,
+            id: g.id,
+            posterUrl: g.posterUrl,
+            episodeCount: g.episodeCount,
+            episodes: list,
+          ),
+        );
+      } catch (_) {
+        out.add(g);
+      }
+    }
+    return out;
+  }
+
   /// 顶部刷新：重新拉取该条目详情并刷新页面数据
   Future<void> _refreshItem() async {
     if (_refreshing) return;
@@ -1217,6 +1278,7 @@ class _DetailPageState extends State<DetailPage> {
       _refreshing = false;
       _selectedSubtitle = _defaultSubtitle(_item);
       _episodes = null;
+      _seasons = null;
       _similar = null;
     });
     if (fresh != null) {
@@ -1472,6 +1534,12 @@ class _DetailPageState extends State<DetailPage> {
       // 常驻模糊带是第三处 BackdropFilter。改成内联到简介上方后，
       // 底部干净了，也少一层每帧重采样。字幕选择紧贴其右。
       _playRow(item),
+      // v2.0.92：剧集在手机上也要有「选季 → 选集」，且紧贴播放行——
+      // 这是剧集页的主操作，比简介更该先看到。
+      if (item.isSeries) ...[
+        const SizedBox(height: 18),
+        _episodePicker(),
+      ],
       const SizedBox(height: 16),
       _overviewCard(item),
       ..._versionSection(),
@@ -1564,12 +1632,7 @@ class _DetailPageState extends State<DetailPage> {
   List<Widget> _tabletSections(MediaItem item, List<String> tags) {
     return [
       if (item.isSeries) ...[
-        _SectionLabel(
-          '分集',
-          trailing: _episodes == null ? null : '共 ${_episodes!.length} 集',
-        ),
-        const SizedBox(height: 10),
-        _episodeList(),
+        _episodePicker(),
         const SizedBox(height: 22),
       ],
       // 剧情简介（设计稿板块 1）
@@ -2405,86 +2468,49 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  Widget _episodeList() {
-    final eps = _episodes;
-    if (eps == null) {
-      // v2.0.64：分集首帧用内容形状占位，而不是一个小转圈。
+  /// 选集面板（v2.0.92）。
+  ///
+  /// 原来是一条横向分集条，把所有季混着铺开、集数一多就划不到头。现在换成
+  /// 绿联影视中心那套「季标签 + 集号网格」：一眼看清有几季、每季几集，
+  /// 任意一集一步点到，看过的集打勾、看一半的集留进度条。
+  ///
+  /// 这套面板与服务器类型无关——Emby / Jellyfin / 绿联喂的都是同一份
+  /// `List<SeasonGroup>`，哪家都能用。
+  Widget _episodePicker() {
+    final groups = _seasons;
+    if (groups == null) {
+      // 首帧用内容形状占位，而不是一个小转圈
       return const ListSkeleton(
         itemCount: 3,
-        cardWidth: 148,
-        height: 150,
+        cardWidth: 120,
+        height: 62,
         shimmer: false,
       );
     }
-    if (eps.isEmpty)
-      return const Text(
-        '暂无分集信息',
-        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
-      );
-    return SizedBox(
-      height: 62,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: eps.length,
-        itemBuilder: (c, i) {
-          final e = eps[i];
-          final cur = (e.resumeProgress ?? 0) > 0.01;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: LiquidPress(
-              onTap: () => widget.onPlay(e, _defaultSubtitle(e), resume: true),
-              radius: 12,
-              scale: 0.97,
-              child: Container(
-                width: 128,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  gradient: cur
-                      ? const LinearGradient(
-                          colors: [Color(0x334F8CFF), Color(0x1A7B5CFF)],
-                        )
-                      : LinearGradient(
-                          colors: [
-                            Colors.white.withOpacity(0.07),
-                            Colors.white.withOpacity(0.03),
-                          ],
-                        ),
-                  border: Border.all(
-                    color: cur
-                        ? const Color(0x664F8CFF)
-                        : Colors.white.withOpacity(0.10),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'S${e.seasonNumber ?? 1}E${e.episodeNumber ?? i + 1}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      e.runtimeMin > 0 ? '${e.runtimeMin} 分钟' : '未观看',
-                      style: const TextStyle(
-                        fontSize: 9.5,
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
+    final eps = _episodes ?? const <MediaItem>[];
+    // 上次看到哪一季：优先续播进度，其次已看过的最新一集
+    int? initial;
+    final resume = eps.where((e) => (e.resumeProgress ?? 0) > 0.01).toList();
+    if (resume.isNotEmpty) {
+      initial = resume.first.seasonNumber;
+    } else {
+      final watched = eps.where((e) => e.userPlayed).toList();
+      if (watched.isNotEmpty) {
+        initial = (watched..sort(compareEpisodes)).last.seasonNumber;
+      }
+    }
+    return SeasonPicker(
+      seasons: groups,
+      loading: false,
+      initialSeason: initial,
+      onPlay: (e) => widget.onPlay(e, _defaultSubtitle(e), resume: true),
+      // 「续看 S3E4」：从最后一次观看的位置顺延到下一集
+      onPlayNext: () {
+        if (eps.isEmpty) return null;
+        final key = resume.isNotEmpty ? resume.first : null;
+        if (key != null) return nextEpisode(eps, key) ?? key;
+        return eps.first;
+      },
     );
   }
 

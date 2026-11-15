@@ -254,14 +254,21 @@ void main() {
   });
 
   group('设置页独立入口与诊断', () {
-    test('绿联是独立卡片，预设类型、强制 HTTPS、自动忽略证书', () {
+    test('绿联并入「添加服务器」表单：三段切换、强制 HTTPS、自动忽略证书', () {
       final s = src('lib/pages/settings_page.dart');
-      expect(s.contains('presetKind: ServerKind.ugreen'), isTrue);
-      expect(s.contains("'UGOS Pro · HTTPS 9443"), isTrue);
+      // v2.0.92：不再是设置页上一张独立的绿联卡片，而是表单里的第三种类型
+      expect(s.contains("items: const ['Emby', 'Jellyfin', '绿联']"), isTrue);
+      expect(s.contains('void _switchKind(int i)'), isTrue);
+      expect(s.contains('presetKind: ServerKind.ugreen'), isFalse);
+      expect(s.contains('_ignoreSsl = true;'), isTrue);
+      expect(s.contains("'_port.text = '9443'"), isFalse);
+      expect(s.contains("_port.text = '9443'"), isTrue);
       expect(s.contains("'HTTPS · 强制'"), isTrue);
       expect(s.contains('连接绿联影视中心'), isTrue);
       expect(s.contains('影视中心媒体服务器账号'), isTrue);
       expect(s.contains('已自动勾选'), isTrue);
+      // 设置页只留一个添加入口
+      expect(s.contains('Emby / Jellyfin / 绿联影视中心，同一个入口'), isTrue);
     });
 
     test('诊断入口读取 AppState.serverDiagnostics 且可选中复制', () {
@@ -281,11 +288,11 @@ void main() {
 
   group('版本与文档同步', () {
     test('版本、UA、文档均为 v2.0.90', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.91+291'), isTrue);
-      expect(src('README.md').contains('v2.0.91 (291)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.91 (291)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§105'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.91'),
+      expect(src('pubspec.yaml').contains('version: 2.0.92+292'), isTrue);
+      expect(src('README.md').contains('v2.0.92 (292)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.92 (292)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§106'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.92'),
           isTrue);
     });
   });

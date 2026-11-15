@@ -3221,3 +3221,89 @@ v2.0.91 改成 **先问、再取**：先读 Item 的
 > 404 不再被当成「路径写错」`），且它只在 404 分支才会走到。这是 Dart AOT
 > 的内联/常量折叠所致，不代表文案缺失；实机 404 时诊断面板会直接渲染它。
 
+
+---
+
+## §106 发布 v2.0.92（剧集「选季 → 选集」，绿联入口并入统一添加服务器）
+
+需求：用户真机反馈两条，附绿联影视中心剧集页截图（剧集详情「选集 · 共 10 集」、
+季标签 第1季/第2季/第3季/第4季、集号 1..6 网格、演职人员）与 App 现有截图。
+
+> 1. 剧集分集没有正确识别，应该要有自己选择选项的，但是现在只显示一个单集。
+>    图片是绿联影视中心的剧集页，请参考后修改。这一套剧集选择页面适用于
+>    emby/jellyfin 和绿联影视中心
+> 2. 添加绿联影视中心，现在是单独的菜单，应该集成到 emby/jellyfin 里。
+
+**问题 1 定性**：不是「只识别到一集」的数据问题，而是**呈现方式本身走不通**。
+
+| 现象 | 真因 |
+|---|---|
+| 「只显示一个单集」 | 分集条是横向 `ListView`，宽 128、`height: 62`，一屏只容得下 2~3 格 |
+| 看不到「集选择」 | 没有任何季/集的选择控件，只能一路横划 |
+| 季混在一起 | 一条带子装下所有季，季边界没有任何视觉分隔 |
+| 顺序诡异 | `episodes()` 直接吐服务端顺序，固件乱序时「第 3 集」会排在「第 1 集」前 |
+| 手机上干脆没有 | `if (item.isSeries)` 只在 `_tabletSections` 里出现 |
+
+**实现**：
+
+- 新增 `lib/widgets/season_picker.dart`：`SeasonPicker` 状态组件。
+  标题行「选集 · 共 N 集」+ 季标签行 + 当前季集号网格（`LayoutBuilder` 按
+  46+8 间距自算列数，`clamp(3, 8)`）。看过打勾、看一半留进度条、右上角
+  「续看 S3E4」。**只有一季时不渲染季标签行**。
+- `lib/models.dart`：
+  - `MediaType` 补 `season`（原来 Season 条目被当成电影）；
+  - `MediaItem` 增 `parentId` / `childCount`，`isSeason` / `isEpisode`；
+  - 语义化类型 `SeasonGroup`（`label` / `countLabel` / `isSpecial`）；
+  - 纯函数 `compareEpisodes()` / `seasonGroups()` / `nextEpisode()` /
+    `episodeBadge()`，全部可单测。
+- `lib/emby_client.dart`：
+  - `_parseItem` 按 `Type` 映射四种类型，Season 的季号取 `IndexNumber`、
+    集号置空；
+  - `episodes()` 返回前 `sort(compareEpisodes)`；
+  - 新增 `seasons(seriesId)`：先走 `/Shows/{id}/Seasons`，路由不存在或只回
+    一条时**回落到 `seasonGroups(episodes())` 推导**；
+  - 新增 `seasonEpisodes(seriesId, {seasonId, seasonIndex})`：认 `SeasonId`
+    的服务端直接过滤，绿联不认也按季号二次过滤，不会串季。
+- `lib/pages/detail_page.dart`：`_episodePicker()` 替换 `_episodeList()`，
+  **手机与平板共用**；手机端区块插在 `_playRow` 之后、`_overviewCard` 之前。
+  初次进入按续播进度 / 已看过的最新一集定位季标签。
+
+**问题 2 实现**：设置页删掉独立的「绿联影视中心」入口卡（含
+`presetKind: ServerKind.ugreen` 与 `UGOS Pro · HTTPS 9443 · 自签证书`
+副标题），「添加服务器」表单的类型分段由 `Emby / Jellyfin` 扩到
+`Emby / Jellyfin / 绿联`。新增 `_switchKind(int)`：切到绿联自动
+`_secure = true` / `_ignoreSsl = true` / 端口 8096→9443；切回时若端口仍是
+9443 则回落 8096 并关掉证书忽略。**不覆盖**用户已填的备注名、地址与账号。
+空态卡片的副标题改为「Emby / Jellyfin / 绿联影视中心，同一个入口」。
+
+**验证（v2.0.92）**：`flutter test` 全过（新增
+`test/series_season_picker_test.dart` 24 条：四季各 10 集的切分与组内有序、
+缺季号归第 1 季、特别篇、季名回退、季内与跨季续看、集号角标兜底、
+`Type=Season` 解析、`/Seasons` 落回推导、`seasonEpisodes` 二次过滤、
+面板无服务端类型判断、两端布局与设置页合并）；`flutter analyze` 0 error /
+0 warning；`tools/perf_audit.py` 未命中红线。
+
+**真机待确认**：沙箱无法访问 `192.168.5.29`。装包后进《梦魇绝镇》详情页：
+手机上播放行下方应直接出现「选集 · 共 N 集」与四个季标签；点「第2季」应只
+显示第 2 季的集号网格。若季标签只出现一个，说明该固件 `/Seasons` 与
+`ParentIndexNumber` 都不可用，把详情页截图发回，再按 `SeriesId` 反查
+`/Items?ParentId=` 兜底。
+
+**交付**：`camby-2.0.92-release-arm64.apk`。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='292' versionName='2.0.92'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.91 逐项一致（6 项，未新增）。
+解包 `lib/arm64-v8a/libapp.so` 30 项关键字符串全部命中：本版新增的 `Camby/2.0.92` /
+`选集` / `续看 ` / `特别篇` / `这一季还没有分集数据` / `暂无分集信息` /
+`Emby / Jellyfin / 绿联影视中心，同一个入口` / `Seasons` / `SeasonId` /
+`ChildCount`，以及前版的 `SupportedStreamingProtocols` / `服务端取流能力` /
+`X-Emby-Token` / `tls-verify` / `播放诊断` / `连接诊断` / `重新自检` /
+`__camby_continue__` / `观影日历` 均未丢失。`classes.dex` 中 `setIgnoreSsl` /
+`hdrCapabilities` / `createMulticastLock` / `SSLContext` / `X509TrustManager`
+未破坏；`res/` 与 v2.0.91 逐文件 diff 零差异（目录指纹同为 `1d250ccf…`）。
+本地提交 + tag `v2.0.92`，未推 GitHub。
+
+**性能审计拦截记录**：初版 `SeasonPicker` 命中两条红线 —— 季标签的
+`setState` 写在 `itemBuilder` 内、集号网格用了 `shrinkWrap: true`。已改为
+`SingleChildScrollView + Row`（季数很少，无需虚拟滚动）与固定列数的
+`Column<Row>` 等比格子（`Expanded + AspectRatio`）；复跑
+`tools/perf_audit.py` 未命中。

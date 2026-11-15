@@ -398,7 +398,7 @@ void main() {
       );
     });
 
-    test('设置页：方案 B 独立绿联入口、证书开关、风险提示、完整地址粘贴', () {
+    test('设置页：绿联并入统一表单、证书开关、风险提示、完整地址粘贴', () {
       final s = src('lib/pages/settings_page.dart');
       expect(s.contains('late bool _ignoreSsl;'), isTrue);
       expect(s.contains('_ignoreSsl = p?.ignoreSsl ?? isUgreenPreset;'), isTrue);
@@ -408,9 +408,11 @@ void main() {
       expect(s.contains('_onHostChanged'), isTrue);
       expect(s.contains('kUgreenProgressHint'), isTrue);
       expect(s.contains('证书校验失败'), isTrue);
-      // 独立入口：Emby / Jellyfin 表单仍只有两项，绿联走专属卡片
-      expect(s.contains("items: const ['Emby', 'Jellyfin']"), isTrue);
-      expect(s.contains('presetKind: ServerKind.ugreen,'), isTrue);
+      // v2.0.92：绿联收回到同一个表单当第三种类型，不再是设置页上的独立入口
+      expect(s.contains("items: const ['Emby', 'Jellyfin', '绿联']"), isTrue);
+      expect(s.contains('void _switchKind(int i)'), isTrue);
+      // 切到绿联时协议/端口/证书一键带好
+      expect(s.contains("_port.text = '9443'"), isTrue);
       expect(s.contains("'连接绿联影视中心'"), isTrue);
       expect(s.contains("'HTTPS · 强制'"), isTrue);
       expect(s.contains('state.serverDiagnostics'), isTrue);
@@ -432,11 +434,11 @@ void main() {
     });
 
     test('版本与文档同步到 v2.0.90', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.91+291'), isTrue);
-      expect(src('README.md').contains('v2.0.91 (291)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.91 (291)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§105'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.91'), isTrue);
+      expect(src('pubspec.yaml').contains('version: 2.0.92+292'), isTrue);
+      expect(src('README.md').contains('v2.0.92 (292)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.92 (292)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§106'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.92'), isTrue);
     });
   });
 }
