@@ -276,7 +276,7 @@ void main() {
       expect(find.byType(FavoritesPage), findsOneWidget,
           reason: '收藏并入媒体库第 4 类');
       expect(segmentLabel('收藏'), findsOneWidget);
-      expect(find.text('影片收藏'), findsOneWidget);
+      expect(find.text('收藏影片'), findsOneWidget);
 
       await tester.tap(segmentLabel('影片'));
       await tester.pump(const Duration(milliseconds: 300));

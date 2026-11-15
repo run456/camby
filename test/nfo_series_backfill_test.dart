@@ -122,7 +122,7 @@ void main() {
   group('路径来源与批量回填', () {
     test('_kItemFields 必须请求 Path，filePath 优先用顶层 Path', () {
       final src = File('lib/emby_client.dart').readAsStringSync();
-      // v2.0.96：Fields 末尾追加了 ImageTags/BackdropImageTags 等，
+      // v2.0.97：Fields 末尾追加了 ImageTags/BackdropImageTags 等，
       // 断言改成「Path 仍在且顺序不被打乱」，不再钉死整串。
       expect(src.contains('SeriesName,Path'), isTrue);
       expect(src.contains('ImageTags'), isTrue);

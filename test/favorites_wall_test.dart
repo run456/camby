@@ -46,15 +46,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('收藏'), findsOneWidget);
-    expect(find.text('影片收藏'), findsOneWidget);
+    // v2.0.97：收藏页改成「统计条 + 收藏夹横滑大卡 + 最近收藏」
+    expect(find.text('我的收藏夹'), findsOneWidget);
+    expect(find.text('收藏影片'), findsOneWidget);
     expect(find.text('全部'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    // v1.7.70 守卫：影片收藏墙一行 3 个
-    final grid = tester.widget<GridView>(find.byKey(const ValueKey('movies')));
-    final delegate =
-        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(delegate.crossAxisCount, 3);
+    // 收藏夹从网格改成横滑大卡（扇形堆叠沿用 _StackTile）
+    final rail = tester.widget<ListView>(
+      find.byKey(const ValueKey('folder-rail')),
+    );
+    expect(rail.scrollDirection, Axis.horizontal);
 
     await expectLater(
       find.byType(FavoritesPage),
@@ -77,7 +79,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('演员收藏'));
+    await tester.tap(find.byKey(const ValueKey('subtab-actors')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('还没有收藏演员'), findsOneWidget);

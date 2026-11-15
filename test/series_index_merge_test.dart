@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:camby/models.dart';
 
-/// A2（v2.0.96）：绿联影视中心把每一季登记成独立的 Series，导致媒体库网格、
+/// A2（v2.0.97）：绿联影视中心把每一季登记成独立的 Series，导致媒体库网格、
 /// 搜索、系列 tab 里「同一部剧」被拆成多个卡片。修复用展示层合并
 /// [mergeSiblingSeriesItems]（不影响 [AppState.items] 原始数据）：按基名归组、
 /// 取最早一季作代表、名字改回基名、集数累加。

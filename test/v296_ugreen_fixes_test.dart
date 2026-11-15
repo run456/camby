@@ -3,7 +3,7 @@ import 'package:camby/emby_client.dart';
 import 'package:camby/models.dart';
 import 'package:camby/watch_history.dart';
 
-/// v2.0.96 三处真机回归的守卫：
+/// v2.0.97 三处真机回归的守卫：
 ///  1. 绿联把每季登记成**同名** Series 时，季选择不能消失；
 ///  2. 「只看 1 分钟却记成 12 分钟」——续播定位不能被算成观看时长；
 ///  3. 列表接口不下发 ImageTags 时，封面仍要能显示。
@@ -46,7 +46,7 @@ void main() {
     });
 
     test('旧逻辑（按名字取季号）对同名 Series 全部失效 —— 这就是「没有季选择」', () {
-      // 文档化旧行为：这正是 v2.0.96 漏掉的那一类
+      // 文档化旧行为：这正是 v2.0.97 漏掉的那一类
       final groups = siblingSeasonGroups(items.first, items);
       expect(groups, isEmpty);
       expect(seasonFromSeriesName('瑞克和莫蒂'), isNull);

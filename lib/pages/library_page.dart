@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../layout.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/library_index_segment.dart';
+import '../widgets/library_picker_sheet.dart';
 import '../widgets/media_filter_sheet.dart';
 import '../widgets/media_poster.dart';
 import '../widgets/empty_state.dart';
@@ -133,6 +134,50 @@ class _LibraryPageState extends State<LibraryPage> {
     if (isContinueViewId(vid)) return widget.state.continueWatching;
     if (isRecentViewId(vid)) return widget.state.recentlyAdded;
     return _viewItems ?? widget.state.items;
+  }
+
+  /// chip 之间的统一间距（设计稿：8dp）。
+  Widget _chipPad(Widget child) =>
+      Padding(padding: const EdgeInsets.only(right: 8), child: child);
+
+  /// 当前选中的真实库 → 一个 chip（没有选中真实库时退化为第一个库）。
+  ///
+  /// 设计稿要「常用 3 个 + 更多」，所以真实库不再全部平铺：只留当前这一个，
+  /// 保证用户随时看得见自己选的是哪个库，剩下的都在弹窗里。
+  List<Widget>? _currentRealChip(AppState state) {
+    if (state.views.isEmpty) return null;
+    final sel = state.selectedViewId;
+    final v = state.views.firstWhere(
+      (e) => e.id == sel,
+      orElse: () => state.views.first,
+    );
+    return [
+      _chipPad(
+        _Chip(
+          label: v.name,
+          selected: sel == v.id,
+          icon: v.collectionType == 'tvshows'
+              ? Icons.tv_outlined
+              : Icons.movie_outlined,
+          onTap: () => _selectView(v.id),
+        ),
+      ),
+    ];
+  }
+
+  /// 打开「全部媒体库」2 列分类弹窗（v2.0.97）。
+  Future<void> _openLibraryPicker() async {
+    final state = widget.state;
+    final pick = await showLibraryPickerSheet(
+      context,
+      views: state.views,
+      items: state.items,
+      selectedId: state.selectedViewId,
+      recentCount: state.recentlyAdded.length,
+      continueCount: state.continueWatching.length,
+    );
+    if (pick == null || !mounted) return;
+    _selectView(pick.viewId);
   }
 
   /// 统一处理「全部 / 最近添加（虚拟）/ 真实 Emby 库」的切换。
@@ -428,66 +473,54 @@ class _LibraryPageState extends State<LibraryPage> {
                       onChanged: _setIndexTab,
                     ),
                     const SizedBox(height: 12),
-                    // 媒体库分组：全部 | 最近添加(虚拟) | Emby 真实库…
+                    // 媒体库分组（v2.0.97 · 设计稿 P0）：
+                    //   「全部 + 常用 + ⊞ 全部媒体库」
+                    // 以前把所有 UserView 平铺成一条横滑带，库一多就找不到、
+                    // 也看不到总数；现在只留高频几项，其余收进 2 列弹窗。
                     if (state.views.isNotEmpty || isVirtual)
                       SizedBox(
                         height: 34,
-                        child: ListView.builder(
+                        child: ListView(
                           scrollDirection: Axis.horizontal,
-                          itemCount: state.views.length + 3,
-                          itemBuilder: (c, i) {
-                            // 虚拟库 chip 固定排在「全部」之后、真实 UserView
-                            // 之前，用虚线胶囊与真实库视觉区分。
-                            if (i == 1) {
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: LiquidPress(
-                                  radius: 17,
-                                  scale: 0.95,
-                                  semanticLabel: '最近添加虚拟媒体库',
-                                  onTap: () => _selectView(kRecentViewId),
-                                  child: _VirtualChip(selected: isRecent),
-                                ),
-                              );
-                            }
-                            if (i == 2) {
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: LiquidPress(
-                                  radius: 17,
-                                  scale: 0.95,
-                                  semanticLabel: '继续观看虚拟媒体库',
-                                  onTap: () => _selectView(kContinueViewId),
-                                  child: _VirtualChip(
-                                    selected: isContinue,
-                                    label: '继续观看',
-                                    icon: Icons.play_circle_outline_rounded,
-                                    color: AppColors.cyan,
-                                  ),
-                                ),
-                              );
-                            }
-                            final isAll = i == 0;
-                            final v = isAll ? null : state.views[i - 3];
-                            final sel = isAll
-                                ? state.selectedViewId == null
-                                : state.selectedViewId == v!.id;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: LiquidPress(
-                                radius: 17,
-                                scale: 0.95,
-                                onTap: () => _selectView(isAll ? null : v!.id),
-                                child: _Chip(
-                                  label: isAll ? '全部' : v!.name,
-                                  selected: sel,
-                                  icon: !isAll && v!.collectionType == 'tvshows'
-                                      ? Icons.tv_outlined
-                                      : Icons.movie_outlined,
-                                ),
+                          children: [
+                            // 全部
+                            _chipPad(
+                              _Chip(
+                                label: '全部',
+                                selected: state.selectedViewId == null,
+                                icon: Icons.movie_outlined,
+                                onTap: () => _selectView(null),
                               ),
-                            );
-                          },
+                            ),
+                            // 虚拟库 ×2（虚线胶囊，明确区别于服务器库）
+                            _chipPad(
+                              _VirtualChip(
+                                selected: isRecent,
+                                onTap: () => _selectView(kRecentViewId),
+                              ),
+                            ),
+                            _chipPad(
+                              _VirtualChip(
+                                selected: isContinue,
+                                label: '继续观看',
+                                icon: Icons.play_circle_outline_rounded,
+                                color: AppColors.cyan,
+                                onTap: () => _selectView(kContinueViewId),
+                              ),
+                            ),
+                            // 当前选中的真实库：始终留在视野里（这就是旧 chip 行
+                            // 最烦人的问题 —— 选中的会被滑出去）。
+                            ...?_currentRealChip(state),
+                            // 更多：打开 2 列分类弹窗
+                            _chipPad(
+                              _Chip(
+                                label: '全部媒体库',
+                                selected: false,
+                                icon: Icons.grid_view_rounded,
+                                onTap: _openLibraryPicker,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     // 摘要条：有激活筛选才出现，单条可移除
@@ -692,11 +725,13 @@ class _FilterChip extends StatelessWidget {
 class _VirtualChip extends StatelessWidget {
   const _VirtualChip({
     required this.selected,
+    required this.onTap,
     this.label = '最近添加',
     this.icon = Icons.schedule_rounded,
     this.color = AppColors.secondary,
   });
   final bool selected;
+  final VoidCallback onTap;
   final String label;
   final IconData icon;
   final Color color;
@@ -704,6 +739,16 @@ class _VirtualChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final line = selected ? color : color.withOpacity(0.62);
+    return LiquidPress(
+      radius: 17,
+      scale: 0.95,
+      semanticLabel: '$label虚拟媒体库',
+      onTap: onTap,
+      child: _paint(line),
+    );
+  }
+
+  Widget _paint(Color line) {
     return CustomPaint(
       painter: _DashedOvalPainter(line),
       child: Container(
@@ -775,13 +820,29 @@ class _DashedOvalPainter extends CustomPainter {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.label, required this.selected, this.icon});
+  const _Chip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.icon,
+  });
   final String label;
   final bool selected;
+  final VoidCallback onTap;
   final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
+    return LiquidPress(
+      radius: 17,
+      scale: 0.95,
+      semanticLabel: label,
+      onTap: onTap,
+      child: _paint(),
+    );
+  }
+
+  Widget _paint() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
       decoration: BoxDecoration(

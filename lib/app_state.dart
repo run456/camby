@@ -577,6 +577,28 @@ class AppState extends ChangeNotifier {
   /// 已收藏的条目
   List<MediaItem> get favorites => _items.where((e) => e.userFavorite).toList();
 
+  /// 近 [days] 天新增的收藏影片数（v2.0.97 · 收藏页统计条）。
+  ///
+  /// 服务端不给「收藏时间」，这里用条目自带的入库时间（`dateCreatedMs`，
+  /// 退化时用 `addedDaysAgo`）近似 —— 用来把统计条的结构撑起来，不当作
+  /// 精确的收藏时间用；拿不到时间的条目一律不计。
+  int recentFavoriteCount(int days) {
+    final cutoff = DateTime.now()
+        .subtract(Duration(days: days))
+        .millisecondsSinceEpoch;
+    var n = 0;
+    for (final e in _items) {
+      if (!e.userFavorite) continue;
+      final ms = e.dateCreatedMs;
+      if (ms != null && ms > 0) {
+        if (ms >= cutoff) n++;
+      } else if (e.addedDaysAgo > 0 && e.addedDaysAgo <= days) {
+        n++;
+      }
+    }
+    return n;
+  }
+
   /// 用最新的条目信息替换列表中的同 id 项（详情页刷新后同步全局）
   void replaceItem(MediaItem item) {
     var hit = false;

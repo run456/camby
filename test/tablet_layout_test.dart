@@ -163,8 +163,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    // 空收藏也有「全部」堆叠瓦片 + 新建瓦片
-    expect(find.text('全部'), findsOneWidget);
+    // v2.0.97：空态改成「插画 + 双 CTA」，不再是两张卡 + 大片留白
+    expect(find.text('还没有收藏的影片'), findsOneWidget);
+    expect(find.text('新建收藏夹'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 

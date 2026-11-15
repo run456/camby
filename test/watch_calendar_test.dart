@@ -480,12 +480,14 @@ void main() {
       expect(s.contains('if (isVirtualViewId(vid))'), isTrue);
       expect(s.contains('return widget.state.recentlyAdded;'), isTrue);
       expect(s.contains('return widget.state.continueWatching;'), isTrue);
-      expect(s.contains('itemCount: state.views.length + 3'), isTrue);
-      expect(s.contains('if (i == 1)'), isTrue);
-      expect(s.contains('if (i == 2)'), isTrue);
+      // v2.0.97：chip 行改成「全部 + 常用 + ⊞ 全部媒体库」，其余收进弹窗
+      expect(s.contains("'全部媒体库'"), isTrue);
+      expect(s.contains('showLibraryPickerSheet('), isTrue);
       expect(s.contains('_selectView(kRecentViewId)'), isTrue);
       expect(s.contains('_selectView(kContinueViewId)'), isTrue);
-      expect(s.contains('state.views[i - 3]'), isTrue);
+      // 旧实现用 itemBuilder 的 i==1/i==2/views[i-3] 平铺所有库；
+      // v2.0.97 起只留「当前库」一个 chip，其余进弹窗
+      expect(s.contains('_currentRealChip'), isTrue);
       expect(s.contains('_DashedOvalPainter'), isTrue);
       expect(s.contains('· 虚拟媒体库 · '), isTrue);
       expect(s.contains('_sort = 0;'), isTrue);
@@ -539,13 +541,13 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.96', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.96+296'), isTrue);
-      expect(src('README.md').contains('v2.0.96 (296)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.96 (296)'), isTrue);
+    test('版本与文档同步到 v2.0.97', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.97+297'), isTrue);
+      expect(src('README.md').contains('v2.0.97 (297)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.97 (297)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.96 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.97 "),
         isTrue,
       );
     });

@@ -13,6 +13,7 @@ import '../widgets/folder_sheet.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/library_index_segment.dart';
+import '../widgets/media_poster.dart';
 import 'folder_page.dart';
 import 'person_page.dart';
 
@@ -59,7 +60,6 @@ class _FavoritesPageState extends State<FavoritesPage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final tabs = ['影片收藏', '演员收藏'];
     final subtitle = _tab == 0
         ? '收藏 · ${state.favorites.length} 部 · ${state.activeFolders.length} 个收藏夹'
         : '收藏 · ${state.favoritePersons.length} 位演员';
@@ -142,25 +142,16 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     onChanged: widget.onIndexTabChanged ?? (_) {},
                   ),
                 ),
-                const SizedBox(height: 8),
-                // 收藏内部次级维度：影片收藏 / 演员收藏。
-                // 28dp + 更淡的底色，与 36dp 主分段拉开层级。
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    color: Colors.white.withOpacity(0.04),
-                    border: Border.all(color: Colors.white.withOpacity(0.08)),
-                  ),
-                  child: Row(
-                    children: [
-                      _segItem(tabs[0], Icons.local_movies_outlined, 0),
-                      _segItem(tabs[1], Icons.person_outline_rounded, 1),
-                    ],
-                  ),
+                const SizedBox(height: 10),
+                // v2.0.97（设计稿 P0）：三格统计条。哪怕全是 0 也把结构撑起来 ——
+                // 以前内容一空，整页就只剩两张卡和一大片黑。
+                _StatsBar(
+                  movies: state.favorites.length,
+                  folders: state.activeFolders.length,
+                  recent: widget.state.recentFavoriteCount(7),
+                  tab: _tab,
+                  onTab: _setSubTab,
                 ),
-                const SizedBox(height: 4),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 220),
@@ -175,105 +166,278 @@ class _FavoritesPageState extends State<FavoritesPage> {
     );
   }
 
-  Widget _segItem(String label, IconData icon, int idx) {
-    final on = _tab == idx;
-    return Expanded(
-      child: LiquidPress(
-        radius: 999,
-        scale: 0.96,
-        onTap: () {
-          if (_tab == idx) return;
-          setState(() => _tab = idx);
-          if (idx == 1 && widget.state.server != null) {
-            widget.state.loadFavoritePersons();
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          height: 28,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            gradient: on
-                ? const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0x38FFFFFF), Color(0x14FFFFFF)],
-                  )
-                : null,
-            border: Border.all(
-              color: on ? Colors.white.withOpacity(0.26) : Colors.transparent,
+  /// 影片 / 演员维度切换（v2.0.97：由统计条内联触发）。
+  ///
+  /// 切到演员时顺手拉一次收藏演员 —— 旧的分段控件在这里做了同样的事，
+  /// 换皮不能把这个副作用弄丢。
+  void _setSubTab(int i) {
+    if (_tab == i) return;
+    setState(() => _tab = i);
+    if (i == 1 && widget.state.server != null) {
+      widget.state.loadFavoritePersons();
+    }
+  }
+
+  // ---------------- 影片收藏（v2.0.97 重做） ----------------
+
+  /// 设计稿 §2：把「2 张小卡 + 大片留白」换成三段式 ——
+  ///  · 空态：插画 + 双 CTA + 一句说明，告诉新用户下一步做什么；
+  ///  · 有数据：收藏夹横滑大卡（沿用 [_StackTile] 的扇形堆叠）+ 最近收藏横排。
+  /// 底部导航、毛玻璃、动效一律不动。
+  Widget _movieWall() {
+    final state = widget.state;
+    final folders = state.activeFolders;
+    final all = state.favorites;
+
+    if (all.isEmpty && folders.isEmpty) {
+      return _FavoritesEmpty(
+        key: const ValueKey('movies-empty'),
+        connected: state.server != null,
+        onBrowse: () => widget.onIndexTabChanged?.call(LibraryIndexTab.movies),
+        onConnect: () => widget.onSwitchTab?.call(4),
+        onCreate: _createFolder,
+      );
+    }
+
+    return ListView(
+      key: const ValueKey('movies'),
+      padding: EdgeInsets.fromLTRB(18, context.isTablet ? 2 : 6, 18, 112),
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      children: [
+        // 我的收藏夹
+        Row(
+          children: [
+            const Text(
+              '我的收藏夹',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: AppColors.ink,
+                letterSpacing: -0.2,
+              ),
             ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            const Spacer(),
+            if (folders.isNotEmpty)
+              LiquidPress(
+                radius: 999,
+                scale: 0.95,
+                onTap: () => _folderMenu(folders),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        '管理',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.muted,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 14,
+                        color: AppColors.muted,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: context.isTablet ? 230 : 196,
+          child: ListView(
+            key: const ValueKey('folder-rail'),
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
             children: [
-              Icon(icon, size: 13, color: on ? Colors.white : AppColors.muted),
-              const SizedBox(width: 5),
-              Text(
-                label,
+              _folderCard(
+                key: const ValueKey('folder-all'),
+                name: '全部',
+                count: all.length,
+                covers: all.take(4).toList(),
+                onTap: () => _openFolder(null, '全部收藏'),
+              ),
+              for (final f in folders)
+                _folderCard(
+                  key: ValueKey('folder-${f.id}'),
+                  name: f.name,
+                  count: f.itemIds.length,
+                  covers: state.coverCandidates(f, 4),
+                  onTap: () => _openFolder(f.id, f.name),
+                  onLongPress: () => _manageFolder(f),
+                ),
+              _newFolderCard(),
+            ],
+          ),
+        ),
+        if (all.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              const Text(
+                '最近收藏',
                 style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: on ? FontWeight.w800 : FontWeight.w600,
-                  color: on ? Colors.white : AppColors.muted,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.ink,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const Spacer(),
+              LiquidPress(
+                radius: 999,
+                scale: 0.95,
+                onTap: () => _openFolder(null, '全部收藏'),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '查看全部 ›',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.accent.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          SizedBox(
+            // PosterCard 自带片名行，高度 = 108/0.6667 + 标题 ≈ 200
+            height: 204,
+            child: ListView.builder(
+              key: const ValueKey('recent-rail'),
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: all.take(12).length,
+              itemBuilder: (c, i) {
+                final e = all[i];
+                return Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: SizedBox(
+                    width: 108,
+                    child: PosterCard(
+                      item: e,
+                      width: 108,
+                      showProgress: true,
+                      onTap: () => widget.onOpenDetail(e),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// 收藏夹横滑大卡：宽度固定，扇形堆叠沿用 [_StackTile]。
+  Widget _folderCard({
+    Key? key,
+    required String name,
+    required int count,
+    required List<MediaItem> covers,
+    VoidCallback? onTap,
+    VoidCallback? onLongPress,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: SizedBox(
+        width: 148,
+        child: _StackTile(
+          key: key,
+          name: name,
+          count: count,
+          covers: covers,
+          onTap: onTap,
+          onLongPress: onLongPress,
         ),
       ),
     );
   }
 
-  // ---------------- 影片收藏：海报堆叠墙 ----------------
+  /// 新建收藏夹虚线卡（横滑条尾部）。
+  Widget _newFolderCard() {
+    return SizedBox(
+      width: 120,
+      child: _NewFolderTile(onTap: _createFolder),
+    );
+  }
 
-  Widget _movieWall() {
-    final state = widget.state;
-    final folders = state.activeFolders;
-    final all = state.favorites;
-    final allCovers = all.take(4).toList();
-    final tiles = folders.length + 2; // 全部 + 自定义夹 + 新建
-
-    return GridView.builder(
-      key: const ValueKey('movies'),
-      // v1.7.64：顶部留白 16 → 6，标题区与封面更紧凑
-      padding: EdgeInsets.fromLTRB(18, context.isTablet ? 2 : 6, 18, 112),
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
+  /// 「管理」：列出现有收藏夹，点右侧「…」进重命名 / 删除。
+  void _folderMenu(List<FavoriteFolder> folders) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Glass(
+        radius: 24,
+        blur: 24,
+        margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(3),
+                color: Colors.white.withValues(alpha: 0.26),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '管理收藏夹',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+              ),
+            ),
+            const SizedBox(height: 6),
+            for (final f in folders)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  f.name,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  '${f.itemIds.length} 部',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.muted,
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.more_horiz_rounded,
+                  size: 18,
+                  color: AppColors.muted,
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _manageFolder(f);
+                },
+              ),
+          ],
+        ),
       ),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        // v1.7.70：一行 2 个 → 3 个（间距与宽高比同步收窄，标题/片数不挤压）
-        // 平板：设计稿 .collection 收藏 5 列
-        // v2.0.11 实测反馈：平板瓦片过高（封面贴底对齐，上方空白很大），
-        // 平板瓦片按内容高度收窄（0.54 → 0.66）并收紧行距；手机不动
-        crossAxisCount: context.favoriteGridColumns,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: context.isTablet ? 12.0 : 18.0,
-        childAspectRatio: context.isTablet ? 0.66 : 0.54,
-      ),
-      itemCount: tiles,
-      itemBuilder: (c, i) {
-        if (i == 0) {
-          return _StackTile(
-            name: '全部',
-            count: all.length,
-            covers: allCovers,
-            onTap: () => _openFolder(null, '全部收藏'),
-          );
-        }
-        if (i <= folders.length) {
-          final f = folders[i - 1];
-          return _StackTile(
-            key: ValueKey(f.id),
-            name: f.name,
-            count: f.itemIds.length,
-            covers: state.coverCandidates(f, 4),
-            onTap: () => _openFolder(f.id, f.name),
-            onLongPress: () => _manageFolder(f),
-          );
-        }
-        return _NewFolderTile(onTap: _createFolder);
-      },
     );
   }
 
@@ -1090,4 +1254,297 @@ class _ActorTile extends StatelessWidget {
       color: Colors.white.withOpacity(0.35),
     ),
   );
+}
+
+
+/// 三格统计条（v2.0.97 · 设计稿 P0）。
+///
+/// 以前「0 部 · 0 个收藏夹」挤在标题右侧的小字里，内容一空整页就塌。
+/// 这里把结构显式撑起来：收藏影片 / 收藏夹 / 近 7 天新增，右侧再挂一个
+/// 紧凑的「影片 / 演员」切换 —— 取代旧的那一整行 34dp 分段控件。
+class _StatsBar extends StatelessWidget {
+  const _StatsBar({
+    required this.movies,
+    required this.folders,
+    required this.recent,
+    required this.tab,
+    required this.onTab,
+  });
+
+  final int movies;
+  final int folders;
+  final int recent;
+  final int tab;
+  final ValueChanged<int> onTab;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0x1FFFFFFF), Color(0x0AFFFFFF)],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        children: [
+          _cell('$movies', '收藏影片'),
+          _divider(),
+          _cell('$folders', '收藏夹'),
+          _divider(),
+          _cell(recent > 0 ? '+$recent' : '0', '近 7 天新增'),
+          const Spacer(),
+          _miniTabs(),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(String value, String label) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.3,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.muted,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _divider() {
+    return Container(
+      width: 1,
+      height: 24,
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      color: Colors.white.withValues(alpha: 0.08),
+    );
+  }
+
+  /// 紧凑维度切换：22dp 文本胶囊，替掉旧的一整行 34dp 分段控件。
+  Widget _miniTabs() {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: Colors.white.withValues(alpha: 0.05),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _mini('影片', 0, Icons.local_movies_outlined,
+              const ValueKey('subtab-movies')),
+          _mini('演员', 1, Icons.person_outline_rounded,
+              const ValueKey('subtab-actors')),
+        ],
+      ),
+    );
+  }
+
+  Widget _mini(String label, int idx, IconData icon, Key key) {
+    final on = tab == idx;
+    return LiquidPress(
+      key: key,
+      radius: 999,
+      scale: 0.94,
+      onTap: () => onTab(idx),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: on ? Colors.white.withValues(alpha: 0.16) : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: on ? AppColors.ink : AppColors.muted),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: on ? FontWeight.w800 : FontWeight.w600,
+                color: on ? AppColors.ink : AppColors.muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 收藏空态（v2.0.97 · 设计稿 P0）。
+///
+/// 旧空态只有两张卡 + 大片留白，新用户看不出下一步。这里补上：
+/// 品牌蓝紫径向光晕里的线性图标、双 CTA、以及「收藏夹会同步到服务器」
+/// 这句关键说明 —— 一句话把「能跨设备」的能力讲清楚。
+class _FavoritesEmpty extends StatelessWidget {
+  const _FavoritesEmpty({
+    super.key,
+    required this.connected,
+    required this.onBrowse,
+    required this.onConnect,
+    required this.onCreate,
+  });
+
+  final bool connected;
+  final VoidCallback onBrowse;
+  final VoidCallback onConnect;
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      physics: const BouncingScrollPhysics(
+        parent: AlwaysScrollableScrollPhysics(),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 34, 24, 112),
+      children: [
+        Center(
+          child: SizedBox(
+            width: 150,
+            height: 150,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [Color(0x4D4F8CFF), Color(0x007B5CFF)],
+                      stops: [0.0, 1.0],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.05),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.favorite_border_rounded,
+                    size: 34,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          '还没有收藏的影片',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          connected
+              ? '在影片详情页点心形即可加入收藏，\n也可以先建个收藏夹把想看的片归归类。'
+              : '还没有连接服务器。先在「我的 → 我的服务器」连接，\n再回来收藏影片。',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 11.5,
+            height: 1.6,
+            color: AppColors.muted,
+          ),
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(
+              child: LiquidPress(
+                radius: 13,
+                onTap: connected ? onBrowse : onConnect,
+                child: Container(
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(13),
+                    gradient: AppColors.ctaGradient,
+                  ),
+                  child: Text(
+                    connected ? '去挑几部片' : '去连接服务器',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: LiquidPress(
+                radius: 13,
+                onTap: onCreate,
+                child: Container(
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(13),
+                    color: Colors.white.withValues(alpha: 0.06),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: const Text(
+                    '新建收藏夹',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        const Text(
+          '收藏夹会同步到服务器，换设备也在。',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 10.5,
+            color: AppColors.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
 }
