@@ -37,6 +37,7 @@ class CachedImage extends StatefulWidget {
     this.fit = BoxFit.cover,
     this.alignment = Alignment.center,
     this.memWidth,
+    this.fullResDiskCache = false,
     this.filterQuality = FilterQuality.low,
     this.errorWidget,
     this.fallbackLabel,
@@ -47,6 +48,14 @@ class CachedImage extends StatefulWidget {
   final BoxFit fit;
   final Alignment alignment;
   final int? memWidth;
+
+  /// v2.0.102：为 true 时**磁盘缓存保留服务端返回的原始分辨率**。
+  ///
+  /// 默认把 `memWidth` 同时传给 `maxWidthDiskCache`，等于把大图重新降采样
+  /// 再编码一次存盘，之后无论怎么提高请求宽度都拿不回细节 —— 月报海报墙
+  /// 被反复报告「压缩」就是这里。`memWidth` 仍控制内存解码宽度（不爆内存），
+  /// 只是磁盘那份不再二次有损压缩。仅用于会被放大光栅化的场景（分享图）。
+  final bool fullResDiskCache;
   final FilterQuality filterQuality;
   final Widget? errorWidget;
 
@@ -85,7 +94,9 @@ class _CachedImageState extends State<CachedImage> {
         ? const <String>[]
         : imageUrlCandidates(u, enabled: policy.ugreenMode);
     final preferred = policy.preferredImageIndex ?? 0;
-    _index = _candidates.isEmpty ? 0 : preferred.clamp(0, _candidates.length - 1);
+    _index = _candidates.isEmpty
+        ? 0
+        : preferred.clamp(0, _candidates.length - 1);
     _advanceScheduled = false;
     _probe = _probeCache();
   }
@@ -121,11 +132,8 @@ class _CachedImageState extends State<CachedImage> {
   }
 
   Widget _placeholder() => SizedBox.expand(
-        child: SkeletonBox(
-          radius: widget.radius,
-          label: widget.fallbackLabel,
-        ),
-      );
+    child: SkeletonBox(radius: widget.radius, label: widget.fallbackLabel),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +162,7 @@ class _CachedImageState extends State<CachedImage> {
             fit: widget.fit,
             alignment: widget.alignment,
             memCacheWidth: widget.memWidth,
-            maxWidthDiskCache: widget.memWidth,
+            maxWidthDiskCache: widget.fullResDiskCache ? null : widget.memWidth,
             filterQuality: widget.filterQuality,
             fadeInDuration: instant ? Duration.zero : AppMotion.imageFade,
             fadeInCurve: Anim.curve,

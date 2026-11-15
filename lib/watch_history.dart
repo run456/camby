@@ -38,7 +38,7 @@ String formatWatchMinutes(double minutes, {bool estimated = false}) {
 /// 好几次，只取海报对应的那一条会把后面的都漏掉。只要有一次是历史估算，
 /// 整部片的时长就标成估算，不把「精确」和「按片长估的」混成一个数。
 ({Map<String, double> minutes, Map<String, bool> estimated})
-    aggregateMonthWatchMinutes(List<WatchEvent> events, String monthPrefix) {
+aggregateMonthWatchMinutes(List<WatchEvent> events, String monthPrefix) {
   final minutes = <String, double>{};
   final estimated = <String, bool>{};
   for (final e in events) {
@@ -62,6 +62,7 @@ class WatchEvent {
     this.isEpisode = false,
     this.posterUrl,
     this.serverId,
+    this.libraryId,
   });
 
   final String itemId;
@@ -87,6 +88,14 @@ class WatchEvent {
   /// 以前没有这个字段，A 服务器的本机记录在切到 B 之后仍会出现在日历里 ——
   /// 因为所有服务器的事件共用一份 watch_events_json，取数时又不过滤。
   final String? serverId;
+
+  /// v2.0.102：归属的媒体库（Emby UserView / LibraryView.id）。
+  ///
+  /// 只有 serverId 不够：一台 Emby 服务器下挂多个媒体库时，活动日志与
+  /// 「已看历史」都是**服务器级**接口，会把所有库的播放记录一起返回。
+  /// 于是切到某个库之后，日历里仍然混着另一个库的片子。null 表示
+  /// 无法归类（库外影片 / 升级前的老记录），仅在「全部影片」范围显示。
+  final String? libraryId;
 
   DateTime get day {
     final p = date.split('-');
@@ -115,6 +124,7 @@ class WatchEvent {
     WatchSource? source,
     bool? isEpisode,
     String? serverId,
+    String? libraryId,
   }) => WatchEvent(
     itemId: itemId,
     name: name ?? this.name,
@@ -126,6 +136,7 @@ class WatchEvent {
     isEpisode: isEpisode ?? this.isEpisode,
     posterUrl: posterUrl ?? this.posterUrl,
     serverId: serverId ?? this.serverId,
+    libraryId: libraryId ?? this.libraryId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -139,6 +150,7 @@ class WatchEvent {
     'e': isEpisode,
     'u': posterUrl,
     if (serverId != null) 'sid': serverId,
+    if (libraryId != null) 'lid': libraryId,
   };
 
   factory WatchEvent.fromJson(Map<String, dynamic> j) => WatchEvent(
@@ -154,6 +166,7 @@ class WatchEvent {
     isEpisode: j['e'] == true,
     posterUrl: j['u'] as String?,
     serverId: j['sid'] as String?,
+    libraryId: j['lid'] as String?,
   );
 }
 
@@ -229,8 +242,35 @@ List<WatchEvent> assignServerToOrphans(
       .toList();
 }
 
+/// 「观影数据范围」的取值约定（v2.0.102）。
+///
+/// 存进 SharedPreferences 的 `watch_scope_view`：
+///  · null              → 跟随媒体库页当前选中的库（没选具体库时等于全部）
+///  · [kWatchScopeAll]  → 强制「全部影片」，不做库过滤
+///  · 其它字符串         → 指定的 LibraryView.id
+const String kWatchScopeAll = '__camby_scope_all__';
+
+/// 按媒体库范围过滤观看事件。[scopeId] 为 null 表示「全部影片」。
+///
+/// [resolve] 用于给**老事件**现场反查归属：v2.0.101 及以前落库的事件没有
+/// libraryId，不能因为升级就让它们凭空消失。反查不出来（库外影片）才在
+/// 指定库的范围里隐藏，切回「全部影片」仍能看到。
+List<WatchEvent> filterWatchEventsForScope(
+  Iterable<WatchEvent> events,
+  String? scopeId, {
+  String? Function(String itemId)? resolve,
+}) {
+  if (scopeId == null || scopeId.isEmpty) return events.toList();
+  return [
+    for (final e in events)
+      if ((e.libraryId ?? resolve?.call(e.itemId)) == scopeId) e,
+  ];
+}
+
 /// 去重口径：同一台服务器、同一天、同一部片只算一次。
 /// v2.0.99 加上服务器前缀 —— 以前 A/B 两台服务器的同片同日记录会互相吞掉。
+/// 刻意**不加** libraryId：Emby 的 itemId 全局唯一，加了反而会让升级前后
+/// 的同一条记录（老的无 libraryId）去不掉重。
 String watchEventKey(WatchEvent e) =>
     '${e.serverId ?? ''}|${e.date}|${e.itemId}';
 
@@ -272,6 +312,7 @@ class HistorySeed {
     this.isEpisode = false,
     this.posterUrl,
     this.serverId,
+    this.libraryId,
   });
 
   final String id;
@@ -281,6 +322,7 @@ class HistorySeed {
   final bool isEpisode;
   final String? posterUrl;
   final String? serverId;
+  final String? libraryId;
 }
 
 /// 最近 [days] 天的已看历史 → 估算事件。
@@ -312,6 +354,7 @@ List<WatchEvent> eventsFromHistory(
         isEpisode: s.isEpisode,
         posterUrl: s.posterUrl,
         serverId: s.serverId,
+        libraryId: s.libraryId,
       ),
     );
   }

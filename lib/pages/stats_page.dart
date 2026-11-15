@@ -100,10 +100,13 @@ class _StatsPageState extends State<StatsPage> {
   @override
   Widget build(BuildContext context) {
     final wide = context.isTablet;
-    final stats = widget.state.stats;
+    // v2.0.102：概览里的「影片 / 剧集 / 收藏 / 完成率 / 偏好」必须跟着观影
+    // 数据范围走。以前一律用全库 items，一台服务器挂两个媒体库时这些数字
+    // 永远是两库合计，用户看到的就是「两个媒体库的信息都显示了」。
+    final stats = widget.state.scopedStats;
     final playback = widget.state.playback;
     final activity = widget.state.activity;
-    final items = widget.state.items;
+    final items = widget.state.scopedItems;
     final top = MediaQuery.of(context).padding.top;
     final hpad = wide ? 24.0 : 14.0;
 
@@ -199,10 +202,7 @@ class _StatsPageState extends State<StatsPage> {
                       : widget.state.sourceLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    color: AppColors.muted,
-                  ),
+                  style: TextStyle(fontSize: 10.5, color: AppColors.muted),
                 ),
               ),
             ],
@@ -509,7 +509,10 @@ class _ExplainButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: AppColors.w.withValues(alpha: 0.45), width: 1),
+            border: Border.all(
+              color: AppColors.w.withValues(alpha: 0.45),
+              width: 1,
+            ),
           ),
           child: const Text(
             '?',
@@ -591,7 +594,10 @@ class _SourceBadge extends StatelessWidget {
             : const LinearGradient(
                 colors: [Color(0x33FFFFFF), Color(0x14FFFFFF)],
               ),
-        border: Border.all(color: AppColors.w.withValues(alpha: 0.20), width: 1),
+        border: Border.all(
+          color: AppColors.w.withValues(alpha: 0.20),
+          width: 1,
+        ),
       ),
       child: Text(
         text,
@@ -724,20 +730,20 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
           return Opacity(
             opacity: AppColors.isDark ? 1.0 : 0.28,
             child: Stack(
-            children: [
-              for (int i = 0; i < _blobs.length; i++)
-                Positioned(
-                  left:
-                      _blobs[i].$3.dx * size.width -
-                      _blobs[i].$4 / 2 +
-                      math.sin(t + _blobs[i].$5) * _blobs[i].$6,
-                  top:
-                      _blobs[i].$3.dy * size.height -
-                      _blobs[i].$4 / 2 +
-                      math.cos(t * 0.8 + _blobs[i].$5) * _blobs[i].$6 * 0.7,
-                  child: _blobLayers[i],
-                ),
-            ],
+              children: [
+                for (int i = 0; i < _blobs.length; i++)
+                  Positioned(
+                    left:
+                        _blobs[i].$3.dx * size.width -
+                        _blobs[i].$4 / 2 +
+                        math.sin(t + _blobs[i].$5) * _blobs[i].$6,
+                    top:
+                        _blobs[i].$3.dy * size.height -
+                        _blobs[i].$4 / 2 +
+                        math.cos(t * 0.8 + _blobs[i].$5) * _blobs[i].$6 * 0.7,
+                    child: _blobLayers[i],
+                  ),
+              ],
             ),
           );
         },
@@ -1023,10 +1029,7 @@ class _TagBars extends StatelessWidget {
                   ),
                   Text(
                     '${(e.value * 100).round()}%',
-                    style: TextStyle(
-                      fontSize: 9.5,
-                      color: AppColors.muted,
-                    ),
+                    style: TextStyle(fontSize: 9.5, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -1069,7 +1072,10 @@ class _TagCloud extends StatelessWidget {
                 AppColors.w.withValues(alpha: 0.04),
               ],
             ),
-            border: Border.all(color: AppColors.w.withValues(alpha: 0.16), width: 1),
+            border: Border.all(
+              color: AppColors.w.withValues(alpha: 0.16),
+              width: 1,
+            ),
           ),
           child: Text.rich(
             TextSpan(
@@ -1749,10 +1755,7 @@ class _TrendBars extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         '$m',
-                        style: TextStyle(
-                          fontSize: 7.5,
-                          color: AppColors.muted,
-                        ),
+                        style: TextStyle(fontSize: 7.5, color: AppColors.muted),
                       ),
                     ],
                   ),
@@ -1792,19 +1795,13 @@ class _QualityRow extends StatelessWidget {
         ),
         if (posterTitles.isNotEmpty) ...[
           const SizedBox(height: 9),
-          Text(
-            '缺海报',
-            style: TextStyle(fontSize: 9.5, color: AppColors.muted),
-          ),
+          Text('缺海报', style: TextStyle(fontSize: 9.5, color: AppColors.muted)),
           const SizedBox(height: 4),
           ...posterTitles.map(_title),
         ],
         if (overviewTitles.isNotEmpty) ...[
           const SizedBox(height: 8),
-          Text(
-            '缺简介',
-            style: TextStyle(fontSize: 9.5, color: AppColors.muted),
-          ),
+          Text('缺简介', style: TextStyle(fontSize: 9.5, color: AppColors.muted)),
           const SizedBox(height: 4),
           ...overviewTitles.map(_title),
         ],

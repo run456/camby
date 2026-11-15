@@ -96,30 +96,17 @@ void main() {
     });
 
     test('跨月事件不计入；混入估算时整片标估算', () {
-      final r = aggregateMonthWatchMinutes(
-        const [
-          WatchEvent(
-            itemId: 'a',
-            name: 'A',
-            date: '2026-11-02',
-            minutes: 40,
-          ),
-          WatchEvent(
-            itemId: 'a',
-            name: 'A',
-            date: '2026-11-08',
-            minutes: 20,
-            source: WatchSource.imported,
-          ),
-          WatchEvent(
-            itemId: 'b',
-            name: 'B',
-            date: '2026-10-31',
-            minutes: 300,
-          ),
-        ],
-        '2026-11-',
-      );
+      final r = aggregateMonthWatchMinutes(const [
+        WatchEvent(itemId: 'a', name: 'A', date: '2026-11-02', minutes: 40),
+        WatchEvent(
+          itemId: 'a',
+          name: 'A',
+          date: '2026-11-08',
+          minutes: 20,
+          source: WatchSource.imported,
+        ),
+        WatchEvent(itemId: 'b', name: 'B', date: '2026-10-31', minutes: 300),
+      ], '2026-11-');
       expect(r.minutes['a'], 60);
       expect(r.minutes.containsKey('b'), isFalse);
       expect(r.estimated['a'], isTrue);
@@ -181,12 +168,24 @@ void main() {
 
     test('海报墙用大图缓存 + 时长角标 + 全月聚合', () {
       final s = src('lib/pages/watch_calendar_page.dart');
-      expect(s.contains('posterUrlAtWidth(e.posterUrl, 800)'), isTrue);
-      expect(s.contains('memWidth: 480'), isTrue);
-      expect(s.contains('FilterQuality.medium'), isTrue);
-      expect(s.contains('memWidth: 120'), isFalse);
+      // v2.0.102：memWidth 会同时压 memCacheWidth 与 maxWidthDiskCache，
+      // 给 480 等于把大图二次降采样编码。改成 1200 解码 + 磁盘豁免。
+      expect(s.contains('posterUrlAtWidth(e.posterUrl, 1200)'), isTrue);
+      expect(s.contains('FilterQuality.high'), isTrue);
+      expect(s.contains('memWidth: 1200'), isTrue);
+      expect(s.contains('fullResDiskCache: true'), isTrue);
+      expect(s.contains('memWidth: 480'), isFalse);
+      // 注意子串陷阱：'memWidth: 120' 会被 'memWidth: 1200' 命中，
+      // 必须带上逗号才是「旧的 120px 降采样」这一行。
+      expect(s.contains('memWidth: 120,'), isFalse);
       expect(s.contains('aggregateMonthWatchMinutes(events, prefix)'), isTrue);
       expect(s.contains('durationLabel'), isTrue);
+      // 角标无条件出现：0 分钟的记录显示「时长未记」，别让角标整片消失
+      expect(
+        s.contains("durationLabel.isEmpty ? '时长未记' : durationLabel"),
+        isTrue,
+      );
+      expect(s.contains('toImage(pixelRatio: 3.0)'), isTrue);
     });
 
     test('投屏两个开关有通用 HLS 风险提示，默认仍关闭', () {
@@ -199,11 +198,11 @@ void main() {
       expect(ctrl.contains('bool burnSubtitle = false;'), isTrue);
     });
 
-    test('版本与验证文档同步到 v2.0.101', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.101+301'), isTrue);
-      expect(src('README.md').contains('v2.0.101 (301)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.101 (301)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§111'), isTrue);
+    test('版本与验证文档同步到 v2.0.102', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.102+302'), isTrue);
+      expect(src('README.md').contains('v2.0.102 (302)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.102 (302)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§112'), isTrue);
     });
   });
 }

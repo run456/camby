@@ -1,10 +1,59 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.101 (301)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.102 (302)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.102 (302) 观影数据按媒体库隔离 · 海报墙彻底去掉降采样
+
+**用户反馈**：「海报还是被压缩，然后现在的观看数据还是没有做隔离，现在把两个
+媒体库的信息都显示了」。截图里 11 月 15 日的列表同时出现两个库的片子，月报
+海报墙右上角也没有时长角标。
+
+**为什么 v2.0.99 的「按服务器隔离」没解决问题**：
+
+| 数据源 | 作用域 | 结果 |
+|---|---|---|
+| 本机播放事件 | 全服务器共用一份 JSON | 已按 `serverId` 过滤 |
+| 活动日志 `ActivityLog` | **整个服务器** | 所有媒体库的播放记录一起返回 |
+| 已看历史 `PlayedItems` | **整个服务器** | 同上 |
+| 概览 `LibraryStats` | 全库 `_items` | 「影片 121 部」是两库合计 |
+
+也就是说「两个媒体库」若挂在同一台 Emby 服务器下，服务器维度的过滤一道也
+挡不住。本次补齐**媒体库维度**：
+
+- `WatchEvent` / `HistorySeed` 增加 `libraryId`（JSON `lid`），本机事件、
+  活动日志、历史回填统一写入归属；去重键刻意**不加** libraryId，避免升级
+  前后同一条记录去不掉重；
+- `AppState` 建立 `itemId → LibraryView.id` 索引（条目 ParentId + 已加载的
+  库缓存），老事件没有 `lid` 时用 `libraryIdFor()` 现场反查，升级不丢数据；
+- 新增 `watchScopeId`：`null` 跟随媒体库页选择 / `kWatchScopeAll` 全部影片 /
+  指定库 id，持久化在 `watch_scope_view`；`selectedViewId` 也补上持久化；
+- 日历、单日明细、月报、海报墙、概览统计全部按生效范围取数；虚拟库
+  （最近添加 / 继续观看）按「全部」处理；
+- 多库服务器首次启动默认选中第一个真实库，装上就隔离；日历页顶部新增
+  **「观影数据：XXX」** 入口，随时切回「全部影片」。
+- 无法归类的「库外影片」只在「全部影片」范围出现，不假装属于某个库。
+
+**海报为什么改了 480 还是糊**：`CachedImage` 把同一个 `memWidth` **同时**
+传给 `memCacheWidth` 与 `maxWidthDiskCache`。给 480 等于把 800px 的原图
+重新降采样并二次编码存盘，分享图放大后依旧发虚。本次：
+
+- `CachedImage` 新增 `fullResDiskCache`：内存仍按 `memWidth: 1200` 解码
+  （受控、不爆内存），磁盘缓存不再跟着降采样二次编码；海报墙向服务端要
+  `maxWidth=1200` 原图 + `FilterQuality.high`；`imageCacheKey` 保留
+  maxWidth，1200 版落到独立缓存项，不会被列表小图污染；
+- 分享图 `toImage(pixelRatio)` 从 2.0 提到 3.0；
+- 单日列表缩略图从 68 提到 200；
+- 时长角标改为无条件出现：聚合为 0 时显示「时长未记」，不再整片消失。
+
+**验收**：新增 `test/watch_scope_test.dart` 18 例（JSON 往返、范围过滤、
+老事件反查、端到端 A/B 两库切换、大图独立缓存、源码守卫）；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。交付 `camby-2.0.102-release-arm64.apk`
+（versionCode 302）。
 
 ### v2.0.101 (301) 取流鉴权如实显示 · 海报墙清晰度与时长 · 投屏 HLS 风险提示
 

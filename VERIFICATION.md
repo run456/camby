@@ -3557,3 +3557,55 @@ itemId 聚合（海报墙取满 6 张就 break，不能在那里算），
 多次观看累加且不被 6 张截断」与 3 条源码守卫；`flutter test` 全量通过，
 `flutter analyze` 0 error / 0 warning，`tools/perf_audit.py` 无红线。
 交付 `camby-2.0.101-release-arm64.apk`（versionCode 301）。
+
+---
+
+## §112 发布 v2.0.102（观影数据按媒体库隔离 + 海报不降采样）
+
+**需求**：用户装了 v2.0.101 后反馈「海报还是被压缩，然后现在的观看数据
+还是没有做隔离，现在把两个媒体库的信息都显示了」。截图（11 月 15 日
+列表 + 本月海报墙）显示两个库的片子混在同一份日历里，海报放大后发虚，
+右上角也没有时长角标。
+
+**根因 ①（隔离）**：v2.0.99 只做了 `serverId` 维度。但 Emby 的
+`ActivityLog` 与 `PlayedItems` 都是**服务器级**接口，会把该服务器下所有
+媒体库的播放记录一起返回；`LibraryStats` 又基于全库 `_items`，所以
+「影片 121 部」永远是两库合计。用户说的「两个媒体库」挂在同一台服务器
+下，服务器维度过滤一道也挡不住。
+
+**根因 ②（海报）**：`CachedImage` 里 `memCacheWidth` 与
+`maxWidthDiskCache` 共用同一个 `memWidth`。v2.0.101 给的 480 等于把
+800px 原图重新降采样并二次编码存盘 —— 还是压缩。不能简单「不传
+memWidth」（性能审计要求解码尺寸受控），所以新增 `fullResDiskCache`：
+内存按 `memWidth: 1200` 解码，磁盘那份保留服务端原始分辨率，
+两处都受控且不再有二次有损压缩。
+
+**改动**：
+
+- `WatchEvent` / `HistorySeed` 加 `libraryId`（JSON `lid`），本机事件、
+  活动日志、历史回填统一写入；`watchEventKey` 刻意不含 libraryId；
+- `AppState` 新增 `_rebuildLibraryIndex()`（条目 ParentId + 库缓存）、
+  `libraryIdFor()`、`filterWatchEventsForScope()` 的 resolve 兜底，
+  老事件升级后现场反查归属，不丢数据；
+- `watchScopeId`（null 跟随媒体库选择 / `kWatchScopeAll` 全部 / 指定库）
+  持久化 `watch_scope_view`，`selectedViewId` 也补持久化；
+  `effectiveWatchScopeId` 统一解析，虚拟库按全部处理；
+- `scopedItems` / `scopedStats` 让概览、完成率、偏好统计跟着范围走；
+  切范围时 `_prewarmScope()` 预拉该库条目补全索引再刷新；
+- 多库服务器首次启动默认选中第一个真实库；日历页顶部新增
+  「观影数据：XXX」范围选择面板（含版本标识 v2.0.102）；
+- 海报墙 `posterUrlAtWidth(url, 1200)` + `memWidth: 1200` +
+  `fullResDiskCache: true` + `FilterQuality.high`；分享 `pixelRatio: 3.0`；
+  列表缩略图 68 → 200；
+- 时长角标无条件出现，0 分钟显示「时长未记」。
+
+**验证**：`test/watch_scope_test.dart` 18 例全过，含「同一服务器两个库
+切范围后 watchEvents 与 scopedStats 各归各」「老事件 resolve 反查」
+「换宽度换 cacheKey」「memWidth 双参数设计约束」与 3 组源码守卫；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。交付
+`camby-2.0.102-release-arm64.apk`（versionCode 302）。
+
+**真机待确认**：① 页顶「观影数据」chip 是否显示当前库名，切库后日历
+与概览数字是否同步变；② 月报海报是否变清晰（首次加载会重新拉 1200px
+大图，可能闪一下骨架）；③ 右上角时长角标是否出现。

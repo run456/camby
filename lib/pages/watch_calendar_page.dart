@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
 import '../layout.dart';
+import '../models.dart';
 import '../theme.dart';
 import '../ugreen_resource.dart';
 import '../watch_history.dart';
@@ -161,7 +162,8 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
         showToast(context, '月报卡片还没准备好，稍后再试');
         return;
       }
-      final image = await obj.toImage(pixelRatio: 2.0);
+      // v2.0.102：分享图按 3 倍光栅化，文字与海报边缘都不会发虚。
+      final image = await obj.toImage(pixelRatio: 3.0);
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data == null) {
         showToast(context, '月报生成失败');
@@ -278,7 +280,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                   ),
                   if (!widget.state.demoMode)
                     Text(
-                      '仅当前服务器 · 多台服务器的记录互不混算',
+                      '服务器 + 媒体库双重隔离 · 只统计当前范围',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 9.5, color: AppColors.muted),
@@ -296,8 +298,87 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
             onChanged: widget.onModeChanged,
           ),
         ),
+        const SizedBox(height: 8),
+        _scopeChip(),
       ],
     );
+  }
+
+  /// 观影数据范围入口。v2.0.102 之前只按服务器隔离，一台服务器下挂多个
+  /// 媒体库时，活动日志 / 已看历史照样把所有库的记录混进同一份日历。
+  Widget _scopeChip() {
+    final st = widget.state;
+    final scoped = st.effectiveWatchScopeId != null;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: LiquidPress(
+        radius: 12,
+        onTap: _pickWatchScope,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: AppColors.w.withValues(alpha: scoped ? 0.10 : 0.05),
+            border: Border.all(
+              color: scoped
+                  ? AppColors.primary.withValues(alpha: 0.45)
+                  : AppColors.w.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                scoped ? Icons.filter_alt_rounded : Icons.filter_alt_outlined,
+                size: 13,
+                color: scoped ? AppColors.accent : AppColors.muted,
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 190),
+                child: Text(
+                  '观影数据：${st.watchScopeLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                scoped ? '仅此媒体库' : '点此按库隔离',
+                style: TextStyle(fontSize: 9.5, color: AppColors.muted),
+              ),
+              const SizedBox(width: 3),
+              Icon(Icons.expand_more_rounded, size: 14, color: AppColors.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 返回 null = 用户取消；空串 = 跟随媒体库选择；其余 = 范围值。
+  Future<void> _pickWatchScope() async {
+    final st = widget.state;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _WatchScopeSheet(
+        views: st.views,
+        current: st.watchScopeId,
+        followLabel: st.selectedViewId == null ? '全部影片' : '媒体库页当前选择',
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await st.setWatchScope(picked.isEmpty ? null : picked);
+    if (mounted) {
+      showToast(context, '观影数据范围：${st.watchScopeLabel}');
+    }
   }
 
   Widget _monthNav(MonthSummary sum) {
@@ -693,7 +774,9 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
       padding: EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '数据口径：本机播放记录（精确）→ 服务器活动日志明细 → 历史观看回填（按片长估算）。'
-        'v2.0.99 起按服务器隔离，切服务器请在「我的 → 服务器」操作。'
+        'v2.0.102 起按「服务器 + 媒体库」双重隔离，范围在页顶切换；'
+        '活动日志与已看历史都是服务器级接口，按条目所属媒体库过滤，'
+        '无法归类的「库外影片」只在「全部影片」范围出现。'
         '标「估算」的记录只有最后观看日期，时长仅供参考。',
         style: TextStyle(fontSize: 10, color: AppColors.muted, height: 1.5),
       ),
@@ -772,7 +855,8 @@ class _EventRow extends StatelessWidget {
               height: 50,
               child: CachedImage(
                 url: e.posterUrl,
-                memWidth: 68,
+                memWidth: 200,
+                filterQuality: FilterQuality.medium,
                 fallbackLabel: e.name,
                 errorWidget: Container(
                   color: AppColors.secondary.withOpacity(0.22),
@@ -967,39 +1051,43 @@ class _PosterWallCard extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // 以前 memWidth=120 会把**磁盘缓存**里的图直接压成 120px，海报在
-          // 3 列格子里放大后必然糊。改成向服务端要 800、本地按 480 缓存；
-          // maxWidth 进了 imageCacheKey，大图不会命中列表里那份小图缓存。
+          // v2.0.102：memWidth 原本**同时**传给 memCacheWidth 与
+          // maxWidthDiskCache —— 上一版给的 480 等于把 800px 原图重新降采样
+          // 并二次编码存盘，之后要再大的图也拿不回细节。这里向服务端要
+          // 1200px，内存按 1200 解码（受控、不爆内存），磁盘那份用
+          // fullResDiskCache 保留原分辨率，不再二次有损压缩。
+          // maxWidth 进 imageCacheKey，1200 版有独立缓存，不会被列表小图污染。
           CachedImage(
-            url: posterUrlAtWidth(e.posterUrl, 800),
-            memWidth: 480,
-            filterQuality: FilterQuality.medium,
+            url: posterUrlAtWidth(e.posterUrl, 1200),
+            memWidth: 1200,
+            fullResDiskCache: true,
+            filterQuality: FilterQuality.high,
             fallbackLabel: e.name,
             errorWidget: Container(color: const Color(0xFF243352)),
           ),
-          if (durationLabel.isNotEmpty)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xB006080E),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  durationLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 8,
-                    height: 1.1,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2.5),
+              decoration: BoxDecoration(
+                color: const Color(0xCC06080E),
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(color: const Color(0x33FFFFFF)),
+              ),
+              child: Text(
+                durationLabel.isEmpty ? '时长未记' : durationLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 9,
+                  height: 1.1,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
+          ),
           Positioned(
             left: 0,
             right: 0,
@@ -1026,6 +1114,144 @@ class _PosterWallCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 观影数据范围选择面板。刻意不复用媒体库选择器：那边带「最近添加 /
+/// 继续观看」两个虚拟库，而数据范围只能是真实库或「全部影片」。
+class _WatchScopeSheet extends StatelessWidget {
+  const _WatchScopeSheet({
+    required this.views,
+    required this.current,
+    required this.followLabel,
+  });
+
+  final List<LibraryView> views;
+  final String? current;
+  final String followLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final options = <(String, String, String, IconData)>[
+      (kWatchScopeAll, '全部影片', '当前服务器所有媒体库合并统计', Icons.grid_view_rounded),
+      ('', '跟随媒体库选择', followLabel, Icons.link_rounded),
+      for (final v in views)
+        (v.id, v.name, '只统计这个媒体库的观看记录', Icons.folder_outlined),
+    ];
+    return FractionallySizedBox(
+      heightFactor: 0.62,
+      child: Glass(
+        margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+        radius: 22,
+        blur: 22,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  '观影数据范围',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'v2.0.102',
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '服务器与媒体库分别隔离；切范围后日历、月报、概览一起变。',
+              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListView.separated(
+                itemCount: options.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 7),
+                itemBuilder: (_, i) {
+                  final (value, title, desc, icon) = options[i];
+                  final selected = value.isEmpty
+                      ? current == null
+                      : current == value;
+                  return LiquidPress(
+                    radius: 13,
+                    onTap: () => Navigator.pop(context, value),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(13),
+                        color: AppColors.w.withValues(
+                          alpha: selected ? 0.12 : 0.05,
+                        ),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.primary.withValues(alpha: 0.5)
+                              : AppColors.w.withValues(alpha: 0.10),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            icon,
+                            size: 18,
+                            color: selected
+                                ? AppColors.accent
+                                : AppColors.muted,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.ink,
+                                  ),
+                                ),
+                                Text(
+                                  desc,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (selected)
+                            Icon(
+                              Icons.check_circle_rounded,
+                              size: 17,
+                              color: AppColors.accent,
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

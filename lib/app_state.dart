@@ -48,6 +48,18 @@ class AppState extends ChangeNotifier {
   String? _selectedViewId;
   final Map<String, List<MediaItem>> _viewCache = {};
   final Map<String, List<MediaItem>> _previewCache = {};
+
+  /// v2.0.102：观影数据的媒体库范围。
+  /// null = 跟随媒体库页选中的库；[kWatchScopeAll] = 全部影片；
+  /// 其它字符串 = 指定的 LibraryView.id。持久化在 `watch_scope_view`。
+  String? _watchScopeId;
+  bool _watchScopeLoaded = false;
+
+  /// itemId → LibraryView.id。来源：全库条目的 ParentId + 已加载的库缓存。
+  /// 活动日志 / 已看历史都是**服务器级**接口，只能靠它反查条目属于哪个库。
+  Map<String, String> _itemLibraryIndex = const {};
+  LibraryStats? _scopedStatsCache;
+  String? _scopedStatsKey;
   PlaybackReport? _playback;
   ActivitySummary? _activity;
   List<MediaItem> _recentPlayedItems = const [];
@@ -105,33 +117,53 @@ class AppState extends ChangeNotifier {
   /// v2.0.99：**只看当前服务器**。本机事件是全服务器共用一份 JSON 的，
   /// 必须在这里按 [activeServerId] 过滤；不加这一层，切到 B 服务器后
   /// A 的观影记录仍会出现在日历里（用户反馈的「串台」）。
+  ///
+  /// v2.0.102：**再按当前媒体库过滤**。一台服务器下挂多个媒体库时，
+  /// 活动日志（ActivityLog）与「已看历史」（PlayedItems）都是服务器级接口，
+  /// 会把所有库的播放记录一起返回；只按服务器隔离根本挡不住库与库串台。
+  /// 老事件没有 libraryId，用 [libraryIdFor] 现场反查，不会因为升级就消失。
   List<WatchEvent> get watchEvents {
     final sid = _activeServerId;
-    final local = <WatchEvent>[
-      for (final e in _watchEvents)
-        if (e.serverId == sid) e,
-    ];
+    final scope = effectiveWatchScopeId;
+    String? resolve(String id) => libraryIdFor(id);
+    final local = filterWatchEventsForScope(
+      <WatchEvent>[
+        for (final e in _watchEvents)
+          if (e.serverId == sid) e,
+      ],
+      scope,
+      resolve: resolve,
+    );
     final byId = {for (final e in _items) e.id: e};
     final names = <String, String>{
       for (final e in _items) e.id: e.name,
       ..._activityNames,
     };
-    final fromLog = <WatchEvent>[
-      for (final e in _activity?.events ?? const <WatchEvent>[])
-        e.copyWith(
-          name: e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片'),
-          posterUrl: e.posterUrl ?? byId[e.itemId]?.posterUrl,
-          isEpisode: byId[e.itemId]?.type == MediaType.episode,
-          serverId: sid,
-        ),
-    ];
+    final fromLog = filterWatchEventsForScope(
+      <WatchEvent>[
+        for (final e in _activity?.events ?? const <WatchEvent>[])
+          e.copyWith(
+            name: e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片'),
+            posterUrl: e.posterUrl ?? byId[e.itemId]?.posterUrl,
+            isEpisode: byId[e.itemId]?.type == MediaType.episode,
+            serverId: sid,
+            libraryId: libraryIdFor(e.itemId),
+          ),
+      ],
+      scope,
+      resolve: resolve,
+    );
     final merged = mergeWatchEvents(
       local: local,
       activity: fromLog,
       names: names,
     );
     if (merged.isNotEmpty) return merged;
-    return eventsFromHistory(_historySeeds(), days: 30);
+    return filterWatchEventsForScope(
+      eventsFromHistory(_historySeeds(), days: 30),
+      scope,
+      resolve: resolve,
+    );
   }
 
   Iterable<HistorySeed> _historySeeds() sync* {
@@ -146,6 +178,7 @@ class AppState extends ChangeNotifier {
         isEpisode: e.type == MediaType.episode,
         posterUrl: e.posterUrl,
         serverId: _activeServerId,
+        libraryId: libraryIdFor(e.id),
       );
     }
   }
@@ -187,8 +220,16 @@ class AppState extends ChangeNotifier {
   Future<void> _migrateLegacyWatchEvents() async {
     final sid = _activeServerId;
     if (sid == null || sid.isEmpty) return;
-    if (!_watchEvents.any((e) => e.serverId == null)) return;
-    _watchEvents = assignServerToOrphans(_watchEvents, sid);
+    if (!_watchEvents.any((e) => e.serverId == null || e.libraryId == null)) {
+      return;
+    }
+    _watchEvents = assignServerToOrphans(_watchEvents, sid)
+        .map(
+          (e) => e.libraryId == null
+              ? e.copyWith(libraryId: libraryIdFor(e.itemId))
+              : e,
+        )
+        .toList();
     await _persistWatchEvents();
   }
 
@@ -219,6 +260,7 @@ class AppState extends ChangeNotifier {
           isEpisode: e.type == MediaType.episode,
           posterUrl: e.posterUrl ?? byId[e.id]?.posterUrl,
           serverId: sid,
+          libraryId: libraryIdFor(e.id),
         ),
       );
     }
@@ -353,6 +395,8 @@ class AppState extends ChangeNotifier {
   void _invalidateDerived() {
     _recentCache = null;
     _statsCache = null;
+    _scopedStatsCache = null;
+    _scopedStatsKey = null;
   }
 
   List<MediaItem> get items => _items;
@@ -362,6 +406,16 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void installTestItems(List<MediaItem> items) {
     _items = List<MediaItem>.of(items);
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// 测试专用：注入媒体库视图并重建「条目 → 媒体库」归属索引。
+  /// 生产代码里视图来自 `userViews()`，索引由 connect / refresh 重建。
+  @visibleForTesting
+  void installTestViews(List<LibraryView> views) {
+    _views = List<LibraryView>.of(views);
+    _rebuildLibraryIndex();
     _invalidateDerived();
     notifyListeners();
   }
@@ -378,7 +432,8 @@ class AppState extends ChangeNotifier {
   bool get ignoreSslErrors => _server?.ignoreSsl ?? false;
 
   /// 绿联接入诊断文本（设置页「连接诊断」入口展示，含拼好的图片/播放 URL）。
-  String get serverDiagnostics => _server?.diagnostics(
+  String get serverDiagnostics =>
+      _server?.diagnostics(
         sampleItemId: _items.isEmpty ? null : _items.first.id,
         samplePosterUrl: _items.isEmpty ? null : _items.first.posterUrl,
       ) ??
@@ -419,11 +474,7 @@ class AppState extends ChangeNotifier {
     policy.lastProbe = const <ResourceProbeResult>[];
     if (_items.isEmpty) {
       policy.lastProbe = const <ResourceProbeResult>[
-        ResourceProbeResult(
-          label: '图片候选',
-          url: '',
-          error: '媒体库为空，没有可用于自检的条目',
-        ),
+        ResourceProbeResult(label: '图片候选', url: '', error: '媒体库为空，没有可用于自检的条目'),
       ];
       return;
     }
@@ -434,11 +485,13 @@ class AppState extends ChangeNotifier {
         policy.lastProbe = List<ResourceProbeResult>.unmodifiable(results);
 
     if (poster == null || poster.isEmpty) {
-      results.add(const ResourceProbeResult(
-        label: '图片候选',
-        url: '',
-        error: '首条条目没有海报 URL（ImageTags.Primary 缺失）',
-      ));
+      results.add(
+        const ResourceProbeResult(
+          label: '图片候选',
+          url: '',
+          error: '首条条目没有海报 URL（ImageTags.Primary 缺失）',
+        ),
+      );
       publish();
     } else {
       policy.sampleImageUrl = poster;
@@ -472,18 +525,22 @@ class AppState extends ChangeNotifier {
       // 一串注定 404 的 URL 让用户白看。
       if (server.isUgreen) {
         final cap = await server.probeStreamCapability(first.id);
-        results.add(ResourceProbeResult(
-          label: '取流能力',
-          url: '${cap.summary}｜${cap.verdict}',
-        ));
+        results.add(
+          ResourceProbeResult(
+            label: '取流能力',
+            url: '${cap.summary}｜${cap.verdict}',
+          ),
+        );
         publish();
         final urls = await server.resolveStreamUrls(first);
         if (urls.isEmpty) {
-          results.add(const ResourceProbeResult(
-            label: '播放端点',
-            url: '',
-            error: '服务端未声明任何取流协议，且该条目没有可直连地址',
-          ));
+          results.add(
+            const ResourceProbeResult(
+              label: '播放端点',
+              url: '',
+              error: '服务端未声明任何取流协议，且该条目没有可直连地址',
+            ),
+          );
           publish();
           return;
         }
@@ -499,8 +556,7 @@ class AppState extends ChangeNotifier {
           enabled: true,
         );
         for (var i = 0; i < candidates.length; i++) {
-          final r =
-              await ImageSsl.probe(candidates[i], label: '播放候选 ${i + 1}');
+          final r = await ImageSsl.probe(candidates[i], label: '播放候选 ${i + 1}');
           results.add(r);
           publish();
           if (r.ok) break;
@@ -511,12 +567,146 @@ class AppState extends ChangeNotifier {
 
   List<LibraryView> get views => _views;
   String? get selectedViewId => _selectedViewId;
+  String? get watchScopeId => _watchScopeId;
   String get sourceLabel =>
       _demoMode ? '演示媒体库' : '$_userName · ${_server?.host ?? ''}';
 
+  /// 实际生效的观影数据范围：null = 全部影片，其它 = 指定媒体库 id。
+  ///
+  /// 优先级：手动指定的范围 > 媒体库页当前选中的库 > 全部影片。
+  /// 虚拟库（最近添加 / 继续观看）不是真实媒体库，一律按「全部」处理。
+  String? get effectiveWatchScopeId {
+    final s = _watchScopeId;
+    if (s == kWatchScopeAll) return null;
+    if (s != null && s.isNotEmpty && !isVirtualViewId(s)) return s;
+    final sel = _selectedViewId;
+    if (sel == null || isVirtualViewId(sel)) return null;
+    return sel;
+  }
+
+  String get watchScopeLabel {
+    final id = effectiveWatchScopeId;
+    if (id == null) return '全部影片';
+    for (final v in _views) {
+      if (v.id == id) return v.name;
+    }
+    return '指定媒体库';
+  }
+
   set selectedViewId(String? v) {
     _selectedViewId = v;
+    _invalidateDerived();
     notifyListeners();
+    unawaited(_savePrefString('selected_view', v));
+  }
+
+  /// 切换观影数据范围。传 null = 跟随媒体库选择，[kWatchScopeAll] = 全部影片。
+  Future<void> setWatchScope(String? id) async {
+    _watchScopeId = id;
+    _watchScopeLoaded = true;
+    _invalidateDerived();
+    notifyListeners();
+    await _savePrefString('watch_scope_view', id);
+    unawaited(_prewarmScope(effectiveWatchScopeId));
+  }
+
+  Future<void> _savePrefString(String key, String? value) async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (value == null) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, value);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadWatchScope() async {
+    if (disablePersistence) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _watchScopeLoaded = prefs.containsKey('watch_scope_view');
+      _watchScopeId = prefs.getString('watch_scope_view');
+      _selectedViewId = prefs.getString('selected_view');
+    } catch (_) {}
+  }
+
+  /// 首次升级到 v2.0.102：多库服务器默认选中第一个真实库，让「一个媒体库
+  /// 一份观影数据」装上就生效。用户随时可以在日历顶部切回「全部影片」。
+  void _ensureDefaultWatchScope() {
+    if (_watchScopeLoaded) return;
+    _watchScopeLoaded = true;
+    if (_views.length <= 1) return;
+    final first = _views.first.id;
+    if (first.isEmpty) return;
+    _watchScopeId = first;
+    unawaited(_savePrefString('watch_scope_view', first));
+  }
+
+  void _rebuildLibraryIndex() {
+    final viewIds = <String>{for (final v in _views) v.id};
+    final m = <String, String>{};
+    for (final e in _items) {
+      final p = e.parentId;
+      if (p != null && viewIds.contains(p)) m[e.id] = p;
+    }
+    // 已加载过的库缓存更准（能覆盖「库里再分文件夹」的情况）。
+    _viewCache.forEach((vid, list) {
+      if (!viewIds.contains(vid)) return;
+      for (final e in list) m[e.id] = vid;
+    });
+    _itemLibraryIndex = m;
+  }
+
+  String? libraryIdFor(String itemId) => _itemLibraryIndex[itemId];
+
+  /// 切到某个范围时预拉该库条目，把归属索引补全再刷新页面。
+  Future<void> _prewarmScope(String? scopeId) async {
+    if (scopeId == null || _server == null) return;
+    // ParentId 已经能把条目归到这个库就别再打一次全库请求；只有
+    // 「库里再分文件夹」导致零命中时才需要按库拉一次补全索引。
+    if (_itemLibraryIndex.values.contains(scopeId)) return;
+    LibraryView? view;
+    for (final v in _views) {
+      if (v.id == scopeId) {
+        view = v;
+        break;
+      }
+    }
+    if (view == null) return;
+    try {
+      await itemsForView(view);
+      _rebuildLibraryIndex();
+      _invalidateDerived();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// 按当前媒体库范围过滤后的库条目（概览 / 完成率 / 偏好统计都用它）。
+  List<MediaItem> get scopedItems {
+    final scope = effectiveWatchScopeId;
+    if (scope == null) return _items;
+    final cached = _viewCache[scope];
+    if (cached != null && cached.isNotEmpty) return cached;
+    final filtered = <MediaItem>[
+      for (final e in _items)
+        if (_itemLibraryIndex[e.id] == scope) e,
+    ];
+    // 索引还没预热好时别谎报成 0 部，先退回全库，等异步结果刷新。
+    return filtered.isEmpty ? _items : filtered;
+  }
+
+  LibraryStats get scopedStats {
+    final key =
+        '${effectiveWatchScopeId ?? ''}|${_items.length}|'
+        '${_itemLibraryIndex.length}|${_viewCache.length}|${_playCount.length}';
+    final hit = _scopedStatsCache;
+    if (_scopedStatsKey == key && hit != null) return hit;
+    final s = LibraryStats.compute(scopedItems, _playCount);
+    _scopedStatsKey = key;
+    _scopedStatsCache = s;
+    return s;
   }
 
   /// 数据总结：真实统计（带缓存，收藏/刷新等变更时自动失效）
@@ -788,8 +978,12 @@ class AppState extends ChangeNotifier {
     bool played = false,
     double? watchedSeconds,
   }) {
-    _recordLocalWatch(itemId, positionTicks,
-        played: played, watchedSeconds: watchedSeconds);
+    _recordLocalWatch(
+      itemId,
+      positionTicks,
+      played: played,
+      watchedSeconds: watchedSeconds,
+    );
     if (!_progressSyncSupported) return Future.value();
     return _server?.reportPlaybackStop(itemId, positionTicks, played: played) ??
         Future.value();
@@ -835,6 +1029,7 @@ class AppState extends ChangeNotifier {
       isEpisode: item?.type == MediaType.episode,
       posterUrl: item?.posterUrl,
       serverId: _activeServerId,
+      libraryId: libraryIdFor(itemId),
     );
     _watchEvents = [..._watchEvents, ev];
     // 只保留最近 2000 条，长期使用的 JSON 不能无限膨胀。
@@ -1410,6 +1605,8 @@ class AppState extends ChangeNotifier {
     if (cached != null) return cached;
     final list = await _server!.libraryItems(view.id);
     _viewCache[view.id] = list;
+    _rebuildLibraryIndex();
+    _invalidateDerived();
     return list;
   }
 
@@ -1536,6 +1733,7 @@ class AppState extends ChangeNotifier {
     await _loadPlayCount();
     await _loadWatchEvents();
     await _loadServers();
+    await _loadWatchScope();
     if (_servers.isNotEmpty) {
       final active = _servers.firstWhere(
         (e) => e.id == _activeServerId,
@@ -1637,8 +1835,27 @@ class AppState extends ChangeNotifier {
       }
       _viewCache.clear();
       _previewCache.clear();
-      _selectedViewId = null;
+      // 切服务器时旧范围可能指向上一台服务器的库；先失效再重建索引。
+      // selectedViewId 从 prefs 恢复，只在确实指向不存在的库时才清掉，
+      // 不能每次启动都无脑置 null（那样「跟随媒体库选择」永远不生效）。
+      if (_watchScopeId != null &&
+          _watchScopeId != kWatchScopeAll &&
+          !_views.any((v) => v.id == _watchScopeId)) {
+        _watchScopeId = null;
+        _watchScopeLoaded = false;
+        unawaited(_savePrefString('watch_scope_view', null));
+      }
+      if (_selectedViewId != null &&
+          !isVirtualViewId(_selectedViewId) &&
+          !_views.any((v) => v.id == _selectedViewId)) {
+        _selectedViewId = null;
+      }
+      _itemLibraryIndex = const {};
+      _rebuildLibraryIndex();
+      _ensureDefaultWatchScope();
+      _invalidateDerived();
       notifyListeners();
+      unawaited(_prewarmScope(effectiveWatchScopeId));
       await _saveCache();
 
       final prefs = await SharedPreferences.getInstance();
@@ -1687,7 +1904,9 @@ class AppState extends ChangeNotifier {
     _views = [];
     _viewCache.clear();
     _previewCache.clear();
+    _itemLibraryIndex = const {};
     _selectedViewId = null;
+    _invalidateDerived();
     _demoMode = true;
     _offline = false;
     _playback = null;
@@ -1709,7 +1928,9 @@ class AppState extends ChangeNotifier {
     _views = [];
     _viewCache.clear();
     _previewCache.clear();
+    _itemLibraryIndex = const {};
     _selectedViewId = null;
+    _invalidateDerived();
     _demoMode = true;
     _offline = false;
     _error = null;
@@ -1736,6 +1957,7 @@ class AppState extends ChangeNotifier {
       _previewCache.clear();
       _invalidateDerived();
       _views = await s.userViews();
+      _rebuildLibraryIndex();
       _offline = false;
       await _saveCache();
       _loadPlayback();
@@ -1769,6 +1991,7 @@ class AppState extends ChangeNotifier {
       _views = (data['views'] as List? ?? [])
           .map((e) => LibraryView.fromJson(e as Map<String, dynamic>))
           .toList();
+      _rebuildLibraryIndex();
       _previewCache.clear();
       final previews = (data['previews'] as Map?) ?? const {};
       previews.forEach((k, v) {

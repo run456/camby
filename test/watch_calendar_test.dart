@@ -166,10 +166,7 @@ void main() {
 
       // 同一台服务器内仍要去重（本机精确优先）
       final aAgain = b.copyWith(serverId: 'srv-A', minutes: 99);
-      expect(
-        mergeWatchEvents(local: [a], activity: [aAgain]).length,
-        1,
-      );
+      expect(mergeWatchEvents(local: [a], activity: [aAgain]).length, 1);
     });
 
     test('v2.0.99：老事件迁移只补无归属的，已有归属的不动', () {
@@ -191,10 +188,7 @@ void main() {
       expect(migrated[1].serverId, 'srv-B');
 
       // 没确定服务器时不能瞎归属
-      expect(
-        assignServerToOrphans([orphan], null).single.serverId,
-        isNull,
-      );
+      expect(assignServerToOrphans([orphan], null).single.serverId, isNull);
     });
 
     test('进度文案：看完 / 看到 N% / 只有时长', () {
@@ -319,35 +313,32 @@ void main() {
 
     test('历史回填只取最近一年，统一标估算', () {
       final now = DateTime(2026, 10, 15);
-      final evs = eventsFromHistory(
-        [
-          HistorySeed(
-            id: 'a',
-            name: '三个月前',
-            when: now.subtract(const Duration(days: 90)),
-            minutes: 120,
-          ),
-          HistorySeed(
-            id: 'b',
-            name: '太久以前',
-            when: now.subtract(const Duration(days: 400)),
-            minutes: 120,
-          ),
-          HistorySeed(
-            id: 'c',
-            name: '未来',
-            when: now.add(const Duration(days: 2)),
-            minutes: 120,
-          ),
-          HistorySeed(
-            id: '',
-            name: '空 Id',
-            when: now.subtract(const Duration(days: 1)),
-            minutes: 120,
-          ),
-        ],
-        now: now,
-      );
+      final evs = eventsFromHistory([
+        HistorySeed(
+          id: 'a',
+          name: '三个月前',
+          when: now.subtract(const Duration(days: 90)),
+          minutes: 120,
+        ),
+        HistorySeed(
+          id: 'b',
+          name: '太久以前',
+          when: now.subtract(const Duration(days: 400)),
+          minutes: 120,
+        ),
+        HistorySeed(
+          id: 'c',
+          name: '未来',
+          when: now.add(const Duration(days: 2)),
+          minutes: 120,
+        ),
+        HistorySeed(
+          id: '',
+          name: '空 Id',
+          when: now.subtract(const Duration(days: 1)),
+          minutes: 120,
+        ),
+      ], now: now);
       expect(evs.length, 1);
       expect(evs.single.itemId, 'a');
       expect(evs.single.source, WatchSource.imported);
@@ -416,43 +407,32 @@ void main() {
     });
 
     test('徽章优先级：连续 > 马拉松 > 阅片 > 深夜 > 开张', () {
-      expect(
-        WatchCalendar(_days(7)).month(2026, 10).badge,
-        MonthBadge.streak,
-      );
+      expect(WatchCalendar(_days(7)).month(2026, 10).badge, MonthBadge.streak);
       expect(
         WatchCalendar(const [
-          WatchEvent(
-            itemId: 'a',
-            name: 'a',
-            date: '2026-10-04',
-            minutes: 200,
-          ),
+          WatchEvent(itemId: 'a', name: 'a', date: '2026-10-04', minutes: 200),
         ]).month(2026, 10).badge,
         MonthBadge.marathon,
       );
       expect(
-        WatchCalendar(_days(1, minutes: 10, sameId: null)..addAll([
-              for (var i = 0; i < 9; i++)
-                WatchEvent(
-                  itemId: 'x$i',
-                  name: 'x$i',
-                  date: '2026-10-01',
-                  minutes: 10,
-                ),
-            ])).month(2026, 10).badge,
+        WatchCalendar(
+          _days(1, minutes: 10, sameId: null)..addAll([
+            for (var i = 0; i < 9; i++)
+              WatchEvent(
+                itemId: 'x$i',
+                name: 'x$i',
+                date: '2026-10-01',
+                minutes: 10,
+              ),
+          ]),
+        ).month(2026, 10).badge,
         MonthBadge.explorer,
       );
       expect(
-        WatchCalendar(_days(3, minutes: 10, hour: 23))
-            .month(2026, 10)
-            .badge,
+        WatchCalendar(_days(3, minutes: 10, hour: 23)).month(2026, 10).badge,
         MonthBadge.nightOwl,
       );
-      expect(
-        WatchCalendar(_days(1)).month(2026, 10).badge,
-        MonthBadge.kickoff,
-      );
+      expect(WatchCalendar(_days(1)).month(2026, 10).badge, MonthBadge.kickoff);
       expect(monthBadgeLabel(MonthBadge.streak, streak: 9), '连续 9 天');
       expect(monthBadgeIcon(MonthBadge.none), '○');
     });
@@ -480,11 +460,7 @@ void main() {
         total: 2,
       );
       expect(a.events, isEmpty);
-      const e = WatchEvent(
-        itemId: 'a',
-        name: 'a',
-        date: '2026-10-01',
-      );
+      const e = WatchEvent(itemId: 'a', name: 'a', date: '2026-10-01');
       final b = ActivitySummary(
         itemPlays: const {'a': 2},
         hourHist: List<int>.filled(24, 0),
@@ -537,11 +513,7 @@ void main() {
       s.installTestItems([_movie('m1')]);
 
       await s.reportServerPlaybackStart('m1', positionTicks: 0);
-      await s.reportServerPlaybackStop(
-        'm1',
-        10 * 60 * 10000000,
-        played: false,
-      );
+      await s.reportServerPlaybackStop('m1', 10 * 60 * 10000000, played: false);
       expect(s.watchEvents.length, 1);
       expect(s.watchEvents.single.serverId, 'srv-A');
       expect(s.localWatchEvents.single.serverId, 'srv-A');
@@ -553,11 +525,7 @@ void main() {
 
       // B 自己看一部，两台各有一条、互不覆盖
       await s.reportServerPlaybackStart('m1', positionTicks: 0);
-      await s.reportServerPlaybackStop(
-        'm1',
-        20 * 60 * 10000000,
-        played: false,
-      );
+      await s.reportServerPlaybackStop('m1', 20 * 60 * 10000000, played: false);
       expect(s.watchEvents.length, 1);
       expect(s.watchEvents.single.serverId, 'srv-B');
       expect(s.watchEvents.single.minutes, closeTo(20, 0.001));
@@ -584,8 +552,14 @@ void main() {
   group('源码守卫（真机/服务端难以稳定复现的结构性错误）', () {
     test('models：哨兵常量与虚拟判定都在，且未写进 views', () {
       final s = src('lib/models.dart');
-      expect(s.contains("const String kRecentViewId = '__camby_recent__';"), isTrue);
-      expect(s.contains("const String kContinueViewId = '__camby_continue__';"), isTrue);
+      expect(
+        s.contains("const String kRecentViewId = '__camby_recent__';"),
+        isTrue,
+      );
+      expect(
+        s.contains("const String kContinueViewId = '__camby_continue__';"),
+        isTrue,
+      );
       expect(s.contains('bool isVirtualViewId(String? id)'), isTrue);
       expect(s.contains('bool isContinueViewId(String? id)'), isTrue);
       expect(s.contains('final List<WatchEvent> events;'), isTrue);
@@ -647,7 +621,8 @@ void main() {
     test('app_state：起播/退出配对、落盘、恢复、一年回填都在', () {
       final s = src('lib/app_state.dart');
       expect(s.contains('_watchSessions[itemId] = _WatchSession('), isTrue);
-      expect(s.contains('_recordLocalWatch(itemId, positionTicks'), isTrue);
+      expect(s.contains('void _recordLocalWatch('), isTrue);
+      expect(s.contains('_recordLocalWatch('), isTrue);
       expect(s.contains("itemId.startsWith('demo-')"), isTrue);
       expect(s.contains("'watch_events_json'"), isTrue);
       expect(s.contains('await _loadWatchEvents();'), isTrue);
@@ -657,11 +632,23 @@ void main() {
       expect(s.contains('mergeWatchEvents('), isTrue);
       expect(s.contains('_watchEvents.length > 2000'), isTrue);
       // v2.0.99：观影日历按服务器隔离的四道锁，少一道就会重新串台
-      expect(s.contains("for (final e in _watchEvents)\n        if (e.serverId == sid) e,"), isTrue);
+      expect(s.contains('e.serverId == sid'), isTrue);
       expect(s.contains('serverId: _activeServerId,'), isTrue);
       expect(s.contains('assignServerToOrphans(_watchEvents, sid)'), isTrue);
       expect(s.contains('watchEventKey(e)'), isTrue);
       expect(s.contains('_watchSessions.clear();'), isTrue);
+      // v2.0.102：再按媒体库隔离。活动日志 / 已看历史都是服务器级接口，
+      // 少了这一层，一台服务器挂两个库照样串台。
+      expect(s.contains('filterWatchEventsForScope('), isTrue);
+      expect(s.contains('effectiveWatchScopeId'), isTrue);
+      expect(s.contains('_rebuildLibraryIndex()'), isTrue);
+      expect(s.contains('libraryIdFor(e.itemId)'), isTrue);
+      expect(s.contains('setWatchScope('), isTrue);
+      expect(s.contains('scopedStats'), isTrue);
+      expect(
+        s.contains("'lid': libraryId"),
+        isFalse,
+      ); // 序列化在 watch_history.dart
     });
 
     test('stats / calendar：默认日历、双分段、分享成图、同步 CTA', () {
@@ -672,25 +659,35 @@ void main() {
       final page = src('lib/pages/watch_calendar_page.dart');
       expect(page.contains('enum StatsMode { calendar, insight }'), isTrue);
       expect(page.contains('RepaintBoundary('), isTrue);
-      expect(page.contains('toImage(pixelRatio: 2.0)'), isTrue);
+      expect(page.contains('toImage(pixelRatio: 3.0)'), isTrue);
       expect(page.contains('SharePlus.instance.share('), isTrue);
       expect(page.contains('backfillWatchHistory()'), isTrue);
       expect(page.contains('最近一年'), isTrue);
       expect(page.contains('数据口径：本机播放记录'), isTrue);
-      expect(page.contains('仅当前服务器 · 多台服务器的记录互不混算'), isTrue);
+      expect(page.contains('服务器 + 媒体库双重隔离 · 只统计当前范围'), isTrue);
+      // v2.0.102：范围选择器 + 概览按范围取数 + 海报不降采样
+      expect(page.contains('_scopeChip()'), isTrue);
+      expect(page.contains('_WatchScopeSheet('), isTrue);
+      expect(page.contains('kWatchScopeAll'), isTrue);
+      expect(page.contains('posterUrlAtWidth(e.posterUrl, 1200)'), isTrue);
+      expect(page.contains('memWidth: 1200'), isTrue);
+      expect(page.contains('fullResDiskCache: true'), isTrue);
+      expect(page.contains('memWidth: 480'), isFalse);
+      expect(stats.contains('widget.state.scopedStats'), isTrue);
+      expect(stats.contains('widget.state.scopedItems'), isTrue);
       // 明确不做的东西不能偷偷混进来
       expect(page.contains('桌面小组件'), isFalse);
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.101', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.101+301'), isTrue);
-      expect(src('README.md').contains('v2.0.101 (301)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.101 (301)'), isTrue);
+    test('版本与文档同步到 v2.0.102', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.102+302'), isTrue);
+      expect(src('README.md').contains('v2.0.102 (302)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.102 (302)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(src('VERIFICATION.md').contains('§109'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.101 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.102 "),
         isTrue,
       );
     });
