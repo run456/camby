@@ -11,6 +11,7 @@ import '../layout.dart';
 import '../routes.dart';
 import '../pages/diagnostics_dump_page.dart';
 import '../widgets/liquid_press.dart';
+import '../theme_controller.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
 import '../models.dart';
@@ -144,7 +145,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_s.isEmpty) {
       return Container(
         color: AppColors.bg,
-        child: const Center(
+        child: Center(
           child: SizedBox(
             width: 22,
             height: 22,
@@ -160,7 +161,7 @@ class _SettingsPageState extends State<SettingsPage> {
     // 服务器区、Lara 区等重型子树全部建一遍；builder 只在 item 进入视口时
     // 才调用对应的 WidgetBuilder，滚动物理、间距、内容顺序完全不变。
     final cells = <WidgetBuilder>[
-      (_) => const Row(
+      (_) => Row(
         children: [
           Icon(Icons.person_rounded, size: 20, color: AppColors.ink),
           SizedBox(width: 10),
@@ -177,6 +178,8 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       (_) => const SizedBox(height: 14),
       (_) => _ServersSection(state: widget.state),
+      (_) => const SizedBox(height: 12),
+      (_) => const _AppearanceSection(),
       (_) => const SizedBox(height: 12),
       (_) => _Group(
         children: [
@@ -255,11 +258,11 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
 
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0B1120), AppColors.bg],
+          colors: [AppColors.bgTop, AppColors.bg],
         ),
       ),
       child: ListView.builder(
@@ -392,9 +395,9 @@ class _ServersSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.dns_rounded, size: 15, color: AppColors.muted),
+            Icon(Icons.dns_rounded, size: 15, color: AppColors.muted),
             const SizedBox(width: 7),
-            const Text(
+            Text(
               '我的服务器',
               style: TextStyle(
                 fontSize: 12,
@@ -408,7 +411,7 @@ class _ServersSection extends StatelessWidget {
               onTap: () => _openSheet(context, null),
               radius: 8,
               scale: 0.94,
-              child: const Row(
+              child: Row(
                 children: [
                   Icon(Icons.add_rounded, size: 15, color: AppColors.accent),
                   SizedBox(width: 3),
@@ -426,7 +429,7 @@ class _ServersSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 7),
-        const Text(
+        Text(
           '点按卡片切换 · 右侧铅笔编辑 · 垃圾桶删除',
           style: TextStyle(fontSize: 10.5, color: AppColors.muted),
         ),
@@ -457,7 +460,7 @@ class _ServersSection extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 11),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -480,7 +483,7 @@ class _ServersSection extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Icon(
+                  Icon(
                     Icons.arrow_forward_ios_rounded,
                     size: 14,
                     color: AppColors.accent,
@@ -506,7 +509,7 @@ class _ServersSection extends StatelessWidget {
                   style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 3),
-                const Text(
+                Text(
                   '支持 Emby / Jellyfin / 绿联影视中心，可保存多个并随时切换',
                   style: TextStyle(fontSize: 10.5, color: AppColors.muted),
                 ),
@@ -539,7 +542,7 @@ class _ServersSection extends StatelessWidget {
           const SizedBox(height: 2),
           Glass(
             padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
@@ -574,7 +577,7 @@ class _ServersSection extends StatelessWidget {
             },
             radius: 8,
             scale: 0.94,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 '从服务器恢复收藏夹',
@@ -590,7 +593,7 @@ class _ServersSection extends StatelessWidget {
             },
             radius: 8,
             scale: 0.94,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 '断开当前连接',
@@ -609,7 +612,7 @@ class _ServersSection extends StatelessWidget {
             ),
             radius: 8,
             scale: 0.94,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 '连接诊断 · 图片与播放地址',
@@ -626,7 +629,7 @@ class _ServersSection extends StatelessWidget {
             ),
             radius: 8,
             scale: 0.94,
-            child: const Padding(
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 '导出原始条目 JSON（绿联诊断）',
@@ -663,7 +666,7 @@ class _DiagnosticsBodyState extends State<_DiagnosticsBody> {
 
   @override
   Widget build(BuildContext context) {
-    const bodyStyle = TextStyle(
+    final bodyStyle = TextStyle(
       fontSize: 10.5,
       height: 1.55,
       color: AppColors.ink,
@@ -677,7 +680,7 @@ class _DiagnosticsBodyState extends State<_DiagnosticsBody> {
           children: [
             SelectableText(widget.state.serverDiagnostics, style: bodyStyle),
             const SizedBox(height: 14),
-            const Text(
+            Text(
               '资源自检 · 真实 HTTP 状态码',
               style: TextStyle(
                 fontSize: 11.5,
@@ -698,7 +701,7 @@ class _DiagnosticsBodyState extends State<_DiagnosticsBody> {
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Text(
                   _busy ? '自检中…' : '重新自检（图片与播放候选）',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: AppColors.accent,
                   ),
@@ -771,7 +774,7 @@ class _ServerCard extends StatelessWidget {
                         Color(0xFF19B394),
                         Color(0xFF0E7C86),
                       ],
-                      ServerKind.emby => const [
+                      ServerKind.emby => [
                         AppColors.accent,
                         Color(0xFF159F88),
                       ],
@@ -819,11 +822,11 @@ class _ServerCard extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(5),
-                            color: Colors.white.withOpacity(0.08),
+                            color: AppColors.w.withValues(alpha: 0.08),
                           ),
                           child: Text(
                             p.kindLabel,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 8.5,
                               color: AppColors.muted,
                               fontWeight: FontWeight.w600,
@@ -841,7 +844,7 @@ class _ServerCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(5),
                               color: const Color(0x2638E8C8),
                             ),
-                            child: const Text(
+                            child: Text(
                               '当前',
                               style: TextStyle(
                                 fontSize: 8.5,
@@ -857,7 +860,7 @@ class _ServerCard extends StatelessWidget {
                       '${p.address} · ${p.username}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         color: AppColors.muted,
                       ),
@@ -890,7 +893,7 @@ class _ServerCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      gradient: const LinearGradient(
+                      gradient: LinearGradient(
                         colors: [AppColors.accent, Color(0xFF159F88)],
                       ),
                     ),
@@ -910,7 +913,7 @@ class _ServerCard extends StatelessWidget {
                 onTap: onEdit,
                 radius: 12,
                 semanticLabel: '编辑服务器',
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(5),
                   child: Icon(
                     Icons.edit_outlined,
@@ -923,7 +926,7 @@ class _ServerCard extends StatelessWidget {
                 onTap: onDelete,
                 radius: 12,
                 semanticLabel: '删除服务器',
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.all(5),
                   child: Icon(
                     Icons.delete_outline_rounded,
@@ -1242,7 +1245,7 @@ class _ServerSheetState extends State<_ServerSheet> {
                   },
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
                 const SizedBox(height: 12),
                 _Field(controller: _name, label: '备注名（可选）', hint: '家里的服务器'),
@@ -1264,7 +1267,7 @@ class _ServerSheetState extends State<_ServerSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             '协议',
                             style: TextStyle(
                               fontSize: 11,
@@ -1338,7 +1341,7 @@ class _ServerSheetState extends State<_ServerSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             '忽略 SSL 证书校验',
                             style: TextStyle(
                               fontSize: 12,
@@ -1450,7 +1453,7 @@ class _Field extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 11, color: AppColors.muted),
+            style: TextStyle(fontSize: 11, color: AppColors.muted),
           ),
           const SizedBox(height: 6),
           // 固定 48 高：和「协议」切换器（48）同高，两个控件顶底对齐。
@@ -1467,7 +1470,7 @@ class _Field extends StatelessWidget {
                 keyboardType: numeric
                     ? TextInputType.number
                     : TextInputType.text,
-                style: const TextStyle(fontSize: 13, color: AppColors.ink),
+                style: TextStyle(fontSize: 13, color: AppColors.ink),
                 decoration: InputDecoration(
                   hintText: hint,
                   hintStyle: const TextStyle(
@@ -1475,7 +1478,7 @@ class _Field extends StatelessWidget {
                     color: Color(0xFF5D7291),
                   ),
                   filled: true,
-                  fillColor: Colors.white.withOpacity(0.06),
+                  fillColor: AppColors.w.withValues(alpha: 0.06),
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,
                     vertical: 12,
@@ -1483,12 +1486,12 @@ class _Field extends StatelessWidget {
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color: Colors.white.withOpacity(0.12),
+                      color: AppColors.w.withValues(alpha: 0.12),
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(color: AppColors.primary),
+                    borderSide: BorderSide(color: AppColors.primary),
                   ),
                 ),
               ),
@@ -1534,7 +1537,7 @@ class _RowItem extends StatelessWidget {
       decoration: BoxDecoration(
         border: last
             ? null
-            : Border(bottom: BorderSide(color: Colors.white.withOpacity(0.08))),
+            : Border(bottom: BorderSide(color: AppColors.w.withValues(alpha: 0.08))),
       ),
       child: IntrinsicHeight(
         child: Row(
@@ -1554,7 +1557,7 @@ class _RowItem extends StatelessWidget {
                   if (desc != null)
                     Text(
                       desc!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         color: AppColors.muted,
                       ),
@@ -1571,7 +1574,7 @@ class _RowItem extends StatelessWidget {
 }
 
 class _Toggle extends StatelessWidget {
-  const _Toggle({required this.value, this.onChanged});
+  const _Toggle({super.key, required this.value, this.onChanged});
   final bool value;
   final ValueChanged<bool>? onChanged;
 
@@ -1587,11 +1590,11 @@ class _Toggle extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           gradient: value
-              ? const LinearGradient(
+              ? LinearGradient(
                   colors: [AppColors.primary, AppColors.accent],
                 )
               : null,
-          color: value ? null : Colors.white.withOpacity(0.18),
+          color: value ? null : AppColors.w.withValues(alpha: 0.18),
         ),
         child: Align(
           alignment: value ? Alignment.centerRight : Alignment.centerLeft,
@@ -1621,7 +1624,7 @@ class _Segment extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.white.withOpacity(0.08),
+        color: AppColors.w.withValues(alpha: 0.08),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1637,7 +1640,7 @@ class _Segment extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(9),
                 gradient: sel
-                    ? const LinearGradient(
+                    ? LinearGradient(
                         colors: [AppColors.primary, AppColors.secondary],
                       )
                     : null,
@@ -1694,8 +1697,8 @@ class _ProtocolToggle extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(23),
-        color: Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        color: AppColors.w.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.12)),
       ),
       child: Row(
         children: [
@@ -1862,7 +1865,7 @@ class _LaraSectionState extends State<_LaraSection> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFC6D3E6),
                     side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.16),
+                      color: AppColors.w.withValues(alpha: 0.16),
                     ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -1884,6 +1887,60 @@ class _LaraSectionState extends State<_LaraSection> {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+/// 外观（v2.0.98）：深色 / 浅色 / 跟随系统。
+///
+/// 用户的原话是「在设置有切换亮/暗开关」，所以主交互就是一个开关；
+/// 「跟随系统」单独一行 —— 打开它之后深色开关的值会跟着系统走，
+/// 此时再拨深色开关等于把当前亮度**固化**下来（见 ThemeController.setDark）。
+/// 这样两个控件不会互相打架，也不会出现「开关是关的但界面是黑的」。
+class _AppearanceSection extends StatelessWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final tc = ThemeController.instance;
+    return ListenableBuilder(
+      listenable: tc,
+      builder: (context, _) {
+        final dark = tc.isDark;
+        final systemHint = tc.platformDark ? '深色' : '浅色';
+        return _Group(
+          children: [
+            _RowItem(
+              title: '深色模式',
+              desc: tc.followsSystem
+                  ? '跟随系统中（当前系统：$systemHint）'
+                  : dark
+                  ? '深色 · 白字暗底，适合暗光环境'
+                  : '浅色 · 黑字白底，适合白天',
+              trailing: _Toggle(
+                key: const ValueKey('theme-dark-toggle'),
+                value: dark,
+                onChanged: (v) => tc.setDark(v),
+              ),
+            ),
+            _RowItem(
+              title: '跟随系统',
+              desc: '随系统亮暗自动切换，无需手动拨',
+              trailing: _Toggle(
+                key: const ValueKey('theme-system-toggle'),
+                value: tc.followsSystem,
+                onChanged: (v) => tc.setMode(
+                  v
+                      ? ThemeMode.system
+                      : (tc.isDark ? ThemeMode.dark : ThemeMode.light),
+                ),
+              ),
+              last: true,
+            ),
+          ],
+        );
+      },
     );
   }
 }

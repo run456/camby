@@ -133,9 +133,9 @@ class _LiquidPressState extends State<LiquidPress> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withOpacity(widget.tint),
-                      Colors.white.withOpacity(widget.tint * 0.25),
-                      Colors.white.withOpacity(widget.tint * 0.6),
+                      AppColors.w.withValues(alpha: widget.tint),
+                      AppColors.w.withValues(alpha: widget.tint * 0.25),
+                      AppColors.w.withValues(alpha: widget.tint * 0.6),
                     ],
                     stops: const [0.0, 0.5, 1.0],
                   ),
@@ -148,14 +148,14 @@ class _LiquidPressState extends State<LiquidPress> {
                       center: _focus,
                       radius: 1.15,
                       colors: [
-                        Colors.white.withOpacity(widget.glow),
-                        Colors.white.withOpacity(widget.glow * 0.35),
-                        Colors.white.withOpacity(0),
+                        AppColors.w.withValues(alpha: widget.glow),
+                        AppColors.w.withValues(alpha: widget.glow * 0.35),
+                        AppColors.w.withValues(alpha: 0),
                       ],
                       stops: const [0.0, 0.45, 1.0],
                     ),
                     // 玻璃被挤压 → 边缘高光更亮
-                    border: Border.all(color: Colors.white.withOpacity(0.30)),
+                    border: Border.all(color: AppColors.w.withValues(alpha: 0.30)),
                   ),
                 ),
               ),
@@ -209,14 +209,14 @@ class LiquidIconButton extends StatelessWidget {
             colors: active
                 ? const [Color(0x594F8CFF), Color(0x332E6FE0)]
                 : [
-                    Colors.white.withOpacity(0.20),
-                    Colors.white.withOpacity(0.06),
+                    AppColors.w.withValues(alpha: 0.20),
+                    AppColors.w.withValues(alpha: 0.06),
                   ],
           ),
           border: Border.all(
             color: active
                 ? const Color(0x8C4F8CFF)
-                : Colors.white.withOpacity(0.24),
+                : AppColors.w.withValues(alpha: 0.24),
           ),
           boxShadow: const [
             BoxShadow(
@@ -269,10 +269,10 @@ class LiquidPill extends StatelessWidget {
         ? const [Color(0x334F8CFF), Color(0x142E6FE0)]
         : active
         ? const [Color(0x3DFFFFFF), Color(0x1AFFFFFF)]
-        : [Colors.white.withOpacity(0.12), Colors.white.withOpacity(0.06)];
+        : [AppColors.w.withValues(alpha: 0.12), AppColors.w.withValues(alpha: 0.06)];
     final bd = accent
         ? const Color(0x664F8CFF)
-        : Colors.white.withOpacity(active ? 0.32 : 0.18);
+        : AppColors.w.withValues(alpha: active ? 0.32 : 0.18);
     final fg = accent
         ? const Color(0xFFCFE0FF)
         : (onTap == null ? AppColors.muted : AppColors.ink);

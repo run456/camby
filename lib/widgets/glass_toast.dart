@@ -94,7 +94,7 @@ class _ToastBubbleState extends State<_ToastBubble>
                     borderRadius: BorderRadius.circular(22),
                     // 纯深色玻璃：不用渐变描边（渐变叠在视频上会出现亮线）
                     color: const Color(0xE6161C29),
-                    border: Border.all(color: Colors.white.withOpacity(0.16)),
+                    border: Border.all(color: AppColors.w.withValues(alpha: 0.16)),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x4D000000),

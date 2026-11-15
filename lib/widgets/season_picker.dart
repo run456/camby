@@ -104,7 +104,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
     if (widget.seasons.isEmpty) {
       return Text(
         widget.loading ? '正在读取分集…' : '暂无分集信息',
-        style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
       );
     }
     final s = _current;
@@ -130,7 +130,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
             if (total > 0)
               Text(
                 '共 $total 集',
-                style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+                style: TextStyle(fontSize: 10.5, color: AppColors.muted),
               ),
             const Spacer(),
             if (next != null && widget.onPlayNext != null)
@@ -153,7 +153,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.play_arrow_rounded,
                         size: 13,
                         color: AppColors.accent,
@@ -161,7 +161,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
                       const SizedBox(width: 2),
                       Text(
                         '续看 ${episodeBadge(next)}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
                           color: AppColors.accent,
@@ -250,7 +250,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
     if (eps.isEmpty) {
       return Text(
         _loadingIndex == s.index ? '正在读取这一季…' : '这一季还没有分集数据',
-        style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
+        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
       );
     }
     return LayoutBuilder(
@@ -321,11 +321,11 @@ class _EpisodeCell extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(11),
-              color: Colors.white.withValues(alpha: 0.07),
+              color: AppColors.w.withValues(alpha: 0.07),
               border: Border.all(
                 color: partial
                     ? AppColors.primary.withValues(alpha: 0.55)
-                    : Colors.white.withValues(alpha: 0.12),
+                    : AppColors.w.withValues(alpha: 0.12),
               ),
             ),
             child: Center(
@@ -342,7 +342,7 @@ class _EpisodeCell extends StatelessWidget {
             ),
           ),
           if (e.userPlayed)
-            const Positioned(
+            Positioned(
               right: 4,
               top: 3,
               child: Icon(
@@ -361,8 +361,8 @@ class _EpisodeCell extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 2,
-                  backgroundColor: Colors.white.withValues(alpha: 0.14),
-                  valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                  backgroundColor: AppColors.w.withValues(alpha: 0.14),
+                  valueColor: AlwaysStoppedAnimation(AppColors.primary),
                 ),
               ),
             ),
@@ -400,14 +400,14 @@ class _SeasonTab extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(9),
           gradient: selected
-              ? const LinearGradient(
+              ? LinearGradient(
                   colors: [AppColors.primary, AppColors.secondary],
                 )
               : null,
-          color: selected ? null : Colors.white.withValues(alpha: 0.06),
+          color: selected ? null : AppColors.w.withValues(alpha: 0.06),
           border: selected
               ? null
-              : Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              : Border.all(color: AppColors.w.withValues(alpha: 0.12)),
         ),
         child: Text(
           group.label,

@@ -88,7 +88,7 @@ class _SubtitleFilterPageState extends State<SubtitleFilterPage> {
                         const SizedBox(height: 1),
                         Text(
                           '共 ${_items.length} 部 · 来自本地媒体库',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 10.5,
                             color: AppColors.muted,
                           ),

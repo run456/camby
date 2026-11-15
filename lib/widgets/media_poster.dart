@@ -256,7 +256,7 @@ class _PosterCardState extends State<PosterCard> {
                               value: progress,
                               minHeight: 3,
                               backgroundColor: Colors.white.withOpacity(0.18),
-                              valueColor: const AlwaysStoppedAnimation(
+                              valueColor: AlwaysStoppedAnimation(
                                 AppColors.accent,
                               ),
                             ),
@@ -276,7 +276,7 @@ class _PosterCardState extends State<PosterCard> {
                 Row(
                   children: [
                     if (item.rating > 0) ...[
-                      const Icon(
+                      Icon(
                         Icons.star_rounded,
                         size: 11,
                         color: AppColors.warn,
@@ -284,7 +284,7 @@ class _PosterCardState extends State<PosterCard> {
                       const SizedBox(width: 3),
                       Text(
                         item.rating.toStringAsFixed(1),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           color: AppColors.warn,
                         ),
@@ -294,18 +294,25 @@ class _PosterCardState extends State<PosterCard> {
                     if (item.year > 0)
                       Text(
                         '${item.year}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           color: AppColors.muted,
                         ),
                       ),
                     const Spacer(),
                     if (progress != null)
-                      Text(
-                        '剩 ${(item.runtimeMin * (1 - progress)).round()} 分钟',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: AppColors.muted,
+                      // v2.0.98：`Spacer` 之后直接放定宽文本，在窄卡片上
+                      // （媒体库手机 3 列）会撑出 RenderFlex overflow。
+                      // 包一层 loose Flexible，空间不够时省略号收尾。
+                      Flexible(
+                        child: Text(
+                          '剩 ${(item.runtimeMin * (1 - progress)).round()} 分钟',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.muted,
+                          ),
                         ),
                       ),
                   ],
@@ -326,7 +333,7 @@ class _PosterCardState extends State<PosterCard> {
                       item.reason!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         color: AppColors.accent,
                       ),

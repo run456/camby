@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:camby/ugreen_resource.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// v2.0.97：真机「诊断 206、起播全 404」的回归守卫。
+/// v2.0.98：真机「诊断 206、起播全 404」的回归守卫。
 ///
 /// 真机 v2.0.93 播放诊断原文：
 /// ```
@@ -21,7 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// ```
 /// 结论被写反了：探测用的地址（服务端 MediaSources 给的直取地址）和播放
 /// 用的地址（按空协议重新拼的 `/Videos/{id}/stream`）根本不是同一条。
-/// v2.0.97 把实测 2xx 的地址留在 StreamCapability 上并要求起播原样复用。
+/// v2.0.98 把实测 2xx 的地址留在 StreamCapability 上并要求起播原样复用。
 String src(String path) => File(path).readAsStringSync();
 
 const String kRoot = 'https://192.168.5.29:9443';

@@ -113,7 +113,7 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
               children: [
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
-                  child: const Icon(
+                  child: Icon(
                     Icons.arrow_back_rounded,
                     size: 22,
                     color: AppColors.ink,
@@ -135,7 +135,7 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
                       Text(
                         '原始字段（未解析）· 共 ${_items.length} 条'
                         '${_query.isNotEmpty ? ' · 命中 ${list.length}' : ''}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10.5,
                           color: AppColors.muted,
                         ),
@@ -201,16 +201,16 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
           decoration: InputDecoration(
             isDense: true,
             filled: true,
-            fillColor: Colors.white.withOpacity(0.05),
+            fillColor: AppColors.w.withValues(alpha: 0.05),
             hintText: '搜索片名 / Id（如 傲骨贤妻）…',
             hintStyle: TextStyle(
               fontSize: 11.5,
-              color: Colors.white.withOpacity(0.35),
+              color: AppColors.w.withValues(alpha: 0.35),
             ),
             prefixIcon: Icon(
               Icons.search_rounded,
               size: 16,
-              color: Colors.white.withOpacity(0.45),
+              color: AppColors.w.withValues(alpha: 0.45),
             ),
             suffixIcon: _query.isEmpty
                 ? null
@@ -218,7 +218,7 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
                     icon: Icon(
                       Icons.close_rounded,
                       size: 15,
-                      color: Colors.white.withOpacity(0.45),
+                      color: AppColors.w.withValues(alpha: 0.45),
                     ),
                     onPressed: () {
                       _controller.clear();
@@ -228,11 +228,11 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
             contentPadding: const EdgeInsets.symmetric(vertical: 8),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+              borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11),
-              borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+              borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(11),
@@ -264,7 +264,7 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
       );
     }
     if (list.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           '没有匹配的条目',
           style: TextStyle(fontSize: 12, color: AppColors.muted),
@@ -288,8 +288,8 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
               padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(13),
-                color: Colors.white.withOpacity(0.045),
-                border: Border.all(color: Colors.white.withOpacity(0.10)),
+                color: AppColors.w.withValues(alpha: 0.045),
+                border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
               ),
               child: Row(
                 children: [
@@ -308,7 +308,7 @@ class _DiagnosticsDumpPageState extends State<DiagnosticsDumpPage> {
                         const SizedBox(height: 4),
                         Text(
                           '$type · $id',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 10.5,
                             color: AppColors.muted,
                           ),

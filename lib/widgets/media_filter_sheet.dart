@@ -259,11 +259,11 @@ class MediaFilterButton extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withOpacity(0.10),
-                      Colors.white.withOpacity(0.04),
+                      AppColors.w.withValues(alpha: 0.10),
+                      AppColors.w.withValues(alpha: 0.04),
                     ],
                   ),
-                  border: Border.all(color: Colors.white.withOpacity(0.16)),
+                  border: Border.all(color: AppColors.w.withValues(alpha: 0.16)),
                 ),
                 child: Center(
                   child: Row(
@@ -271,7 +271,7 @@ class MediaFilterButton extends StatelessWidget {
                     children: [
                       Text(
                         filter.arrow,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
                           color: AppColors.primary,
@@ -280,7 +280,7 @@ class MediaFilterButton extends StatelessWidget {
                       const SizedBox(width: 4),
                       Text(
                         filter.summary,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           color: AppColors.ink,
@@ -421,14 +421,14 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.88,
       ),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF171C27), Color(0xFF10141D)],
+          colors: [AppColors.surface, AppColors.bg],
         ),
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-        border: Border(top: BorderSide(color: Colors.white12)),
+        border: Border(top: BorderSide(color: AppColors.w.withValues(alpha: 0.12))),
       ),
       child: SafeArea(
         top: false,
@@ -441,7 +441,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
               height: 4,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(2),
-                color: Colors.white.withOpacity(0.22),
+                color: AppColors.w.withValues(alpha: 0.22),
               ),
             ),
             Padding(
@@ -455,7 +455,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                   const Spacer(),
                   Text(
                     '共 ${widget.total} 项 · 已选 $_activeCount 个条件',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       color: AppColors.muted,
                     ),
@@ -588,10 +588,10 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.22),
+                          color: AppColors.w.withValues(alpha: 0.22),
                         ),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Text(
                           '重置',
                           style: TextStyle(
@@ -664,7 +664,7 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w800,
               letterSpacing: 1,
@@ -706,11 +706,11 @@ class _MediaFilterSheetState extends State<_MediaFilterSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(15),
-          color: on ? const Color(0x334F8CFF) : Colors.white.withOpacity(0.06),
+          color: on ? const Color(0x334F8CFF) : AppColors.w.withValues(alpha: 0.06),
           border: Border.all(
             color: on
                 ? const Color(0x874F8CFF)
-                : Colors.white.withOpacity(0.10),
+                : AppColors.w.withValues(alpha: 0.10),
           ),
         ),
         child: Row(
@@ -755,12 +755,12 @@ class _SwitchRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withOpacity(0.04),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        color: AppColors.w.withValues(alpha: 0.04),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
       ),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -819,11 +819,11 @@ class _SortRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             color: active
                 ? const Color(0x264F8CFF)
-                : Colors.white.withOpacity(0.04),
+                : AppColors.w.withValues(alpha: 0.04),
             border: Border.all(
               color: active
                   ? const Color(0x874F8CFF)
-                  : Colors.white.withOpacity(0.10),
+                  : AppColors.w.withValues(alpha: 0.10),
             ),
           ),
           child: Row(
@@ -858,7 +858,7 @@ class _SortRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 11),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(11),
-          color: on ? const Color(0x4D4F8CFF) : Colors.white.withOpacity(0.05),
+          color: on ? const Color(0x4D4F8CFF) : AppColors.w.withValues(alpha: 0.05),
         ),
         child: Center(
           child: Text(

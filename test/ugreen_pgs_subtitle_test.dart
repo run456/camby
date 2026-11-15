@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:camby/models.dart';
 
-/// A1（v2.0.97）：绿联影视中心内置的 PGS / DVDSUB 图像字幕之前会被当成 SRT
+/// A1（v2.0.98）：绿联影视中心内置的 PGS / DVDSUB 图像字幕之前会被当成 SRT
 /// 去请求 `/Subtitles/{idx}/Stream.srt` 端点，绿联无法把图像字幕转文本 → HTTP 404
 /// 「字幕加载失败」。修复后：图像字幕用 [SubtitleTrackInfo.isImage] 标记，
 /// [textUrl]/[textCandidates] 返回空，由播放器改走 MPV 内封轨原生渲染。

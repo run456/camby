@@ -31,17 +31,17 @@ Future<String?> promptFolderName(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withValues(alpha: 0.07),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        color: AppColors.w.withValues(alpha: 0.07),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.16)),
       ),
       child: Center(
         child: TextField(
           controller: ctrl,
           // v2.0.69：禁止自动聚焦，用户点输入框才唤起键盘。
           textInputAction: TextInputAction.done,
-          style: const TextStyle(fontSize: 14, color: Colors.white),
+          style: TextStyle(fontSize: 14, color: AppColors.ink),
           cursorColor: AppColors.primary,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             isDense: true,
             counterText: '',
             border: InputBorder.none,
@@ -225,7 +225,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                     height: 4,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(3),
-                      color: Colors.white.withOpacity(0.26),
+                      color: AppColors.w.withValues(alpha: 0.26),
                     ),
                   ),
                 ),
@@ -304,10 +304,10 @@ class _FolderSheetState extends State<_FolderSheet> {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(23),
                       gradient: _fav ? AppColors.ctaGradient : null,
-                      color: _fav ? null : Colors.white.withOpacity(0.07),
+                      color: _fav ? null : AppColors.w.withValues(alpha: 0.07),
                       border: _fav
                           ? null
-                          : Border.all(color: Colors.white.withOpacity(0.14)),
+                          : Border.all(color: AppColors.w.withValues(alpha: 0.14)),
                       boxShadow: _fav
                           ? const [
                               BoxShadow(
@@ -376,7 +376,7 @@ class _FolderSheetState extends State<_FolderSheet> {
             child: CachedImage(
               url: _item.posterUrlFor(200),
               memWidth: 200,
-              errorWidget: Container(color: Colors.white.withOpacity(0.08)),
+              errorWidget: Container(color: AppColors.w.withValues(alpha: 0.08)),
             ),
           ),
         ),
@@ -399,7 +399,7 @@ class _FolderSheetState extends State<_FolderSheet> {
                 _fav ? '已收藏 · 选择要归入的收藏夹' : '未收藏 · 点红心即可加入收藏',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+                style: TextStyle(fontSize: 10.5, color: AppColors.muted),
               ),
             ],
           ),
@@ -417,8 +417,8 @@ class _FolderSheetState extends State<_FolderSheet> {
       padding: const EdgeInsets.only(left: 12, right: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(13),
-        color: Colors.white.withOpacity(_fav ? 0.05 : 0.03),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        color: AppColors.w.withValues(alpha: _fav ? 0.05 : 0.03),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.14)),
       ),
       child: Row(
         children: [
@@ -436,7 +436,7 @@ class _FolderSheetState extends State<_FolderSheet> {
               textInputAction: TextInputAction.done,
               style: const TextStyle(fontSize: 13),
               cursorColor: AppColors.primary,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.zero,
@@ -507,8 +507,8 @@ class _HeartPill extends StatelessWidget {
                   colors: [Color(0xFFFF5E7A), Color(0xFFFF8A6B)],
                 )
               : null,
-          color: on ? null : Colors.white.withOpacity(0.06),
-          border: on ? null : Border.all(color: Colors.white.withOpacity(0.18)),
+          color: on ? null : AppColors.w.withValues(alpha: 0.06),
+          border: on ? null : Border.all(color: AppColors.w.withValues(alpha: 0.18)),
           boxShadow: on
               ? const [
                   BoxShadow(
@@ -563,7 +563,7 @@ class _CreateBtn extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           color: enabled
               ? AppColors.primary.withOpacity(0.92)
-              : Colors.white.withOpacity(0.06),
+              : AppColors.w.withValues(alpha: 0.06),
         ),
         child: Text(
           '创建',
@@ -611,14 +611,14 @@ class _FolderRow extends StatelessWidget {
                 )
               : LinearGradient(
                   colors: [
-                    Colors.white.withOpacity(0.07),
-                    Colors.white.withOpacity(0.04),
+                    AppColors.w.withValues(alpha: 0.07),
+                    AppColors.w.withValues(alpha: 0.04),
                   ],
                 ),
           border: Border.all(
             color: selected
                 ? const Color(0x994F8CFF)
-                : Colors.white.withOpacity(0.12),
+                : AppColors.w.withValues(alpha: 0.12),
           ),
         ),
         child: Row(
@@ -643,7 +643,7 @@ class _FolderRow extends StatelessWidget {
             ),
             Text(
               '$count',
-              style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
             ),
             const SizedBox(width: 9),
             AnimatedContainer(
@@ -656,7 +656,7 @@ class _FolderRow extends StatelessWidget {
                 border: Border.all(
                   color: selected
                       ? AppColors.primary
-                      : Colors.white.withOpacity(0.34),
+                      : AppColors.w.withValues(alpha: 0.34),
                   width: 1.5,
                 ),
               ),

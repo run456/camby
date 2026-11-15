@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:inspire_blur/inspire_blur.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:gbk_codec/gbk_codec.dart';
@@ -10,6 +11,7 @@ import 'subtitles/online_subtitle.dart';
 import 'app_state.dart';
 import 'models.dart';
 import 'theme.dart';
+import 'theme_controller.dart';
 import 'widgets/liquid_press.dart';
 import 'widgets/status_bar_blur.dart';
 import 'widgets/haptics.dart';
@@ -87,15 +89,83 @@ class _FocusResetObserver extends NavigatorObserver {
   }
 }
 
-class CambyApp extends StatelessWidget {
+class CambyApp extends StatefulWidget {
   const CambyApp({super.key});
 
   @override
+  State<CambyApp> createState() => _CambyAppState();
+}
+
+/// App 根（v2.0.98 起改为 Stateful）。
+///
+/// 主题必须在这里决定：它在 `MaterialApp` 之上，而 [AppShell] 是
+/// MaterialApp 的 home —— 主题状态放 AppShell 里就来不及影响
+/// `scaffoldBackgroundColor` / 对话框 / 状态栏。
+///
+/// 亮度有两条来源，任一变化都要重算：
+///  · 用户在设置页的选择（[ThemeController.mode]）；
+///  · 系统亮暗切换（仅「跟随系统」时生效，靠 [didChangePlatformBrightness]）。
+class _CambyAppState extends State<CambyApp> with WidgetsBindingObserver {
+  final ThemeController _theme = ThemeController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _theme.setPlatformDark(
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.dark,
+    );
+    _theme.addListener(_onThemeChanged);
+    // 读持久化的外观选择。读不到就按默认深色走，绝不阻断启动。
+    unawaited(_theme.load());
+  }
+
+  void _onThemeChanged() {
+    if (!mounted) return;
+    // 先切全局调色板再 setState：页面 build 时读到的必须是新配色，
+    // 否则会有一帧「新主题壳 + 旧配色内容」的闪烁。
+    AppColors.apply(dark: _theme.isDark);
+    setState(() {});
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    _theme.setPlatformDark(
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.dark,
+    );
+  }
+
+  @override
+  void dispose() {
+    _theme.removeListener(_onThemeChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final dark = _theme.isDark;
+    AppColors.apply(dark: dark);
     return MaterialApp(
       title: 'Camby',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark(),
+      theme: AppTheme.build(dark: dark),
+      // 状态栏 / 导航栏图标：浅色底上必须是深色图标，否则整条看不见。
+      // 播放页会自己切沉浸模式，那里的覆盖优先。
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: dark
+              ? Brightness.light
+              : Brightness.dark,
+        ),
+        child: child ?? const SizedBox.shrink(),
+      ),
       // v2.0.69：路由出栈时一律清掉输入框焦点。详情页是半透明路由，
       // pop 时 Flutter 偶尔会把焦点还给上一条路由里曾经聚焦的 TextField，
       // 于是「返回首页却弹出键盘」。这里统一收口，键盘只由用户点输入框唤起。
@@ -353,7 +423,10 @@ class _AppShellState extends State<AppShell>
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _state,
+      // v2.0.98：主题也在这里监听。MaterialApp 重建不会往下推（AppShell 是
+      // const 实例，Element 会复用），所以必须由本页主动重算一遍，否则切到
+      // 浅色后画面还停在旧配色上。
+      listenable: Listenable.merge([_state, ThemeController.instance]),
       builder: (context, _) {
         final pages = <Widget>[
           HomePage(
@@ -548,9 +621,9 @@ class GlassNavBarState extends State<GlassNavBar> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppNav.barRadius),
               // 与 LibraryIndexSegment 完全同款的雾面底：纯色、无三段渐变。
-              color: Colors.white.withValues(alpha: 0.06),
+              color: AppColors.w.withValues(alpha: 0.06),
               border: Border.all(
-                color: Colors.white.withValues(alpha: 0.10),
+                color: AppColors.w.withValues(alpha: 0.10),
                 width: 1,
               ),
               boxShadow: const [
@@ -597,7 +670,7 @@ class GlassNavBarState extends State<GlassNavBar> {
           gradient: sel ? AppNav.capsuleGradient : null,
           border: sel
               ? Border.all(
-                  color: Colors.white.withValues(alpha: 0.26),
+                  color: AppColors.w.withValues(alpha: 0.26),
                   width: 1,
                 )
               : null,
@@ -611,7 +684,7 @@ class GlassNavBarState extends State<GlassNavBar> {
                 Icon(
                   item.$1,
                   size: 22,
-                  color: Colors.white.withValues(alpha: sel ? 0.96 : 0.55),
+                  color: AppColors.w.withValues(alpha: sel ? 0.96 : 0.55),
                 ),
                 // 文字宽度从 0 展开，与胶囊 44 → 96 共用同一条曲线：
                 // 任意时刻内容都比容器窄，不会触发 RenderFlex 溢出。

@@ -236,7 +236,7 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
           decoration: BoxDecoration(
             color: const Color(0xF2141A28),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.5),
@@ -340,10 +340,10 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
             width: 76,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.white,
+                color: AppColors.ink,
               ),
             ),
           ),
@@ -351,8 +351,8 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
             child: SliderTheme(
               data: SliderThemeData(
                 activeTrackColor: AppColors.accent,
-                inactiveTrackColor: Colors.white.withOpacity(0.16),
-                thumbColor: Colors.white,
+                inactiveTrackColor: AppColors.w.withValues(alpha: 0.16),
+                thumbColor: AppColors.isDark ? Colors.white : AppColors.primary,
                 overlayColor: AppColors.accent.withOpacity(0.2),
                 trackHeight: 3.5,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
@@ -398,10 +398,10 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
             width: 76,
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.white,
+                color: AppColors.ink,
               ),
             ),
           ),
@@ -412,8 +412,10 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
               value: value,
               activeColor: AppColors.accent,
               activeTrackColor: AppColors.accent.withOpacity(0.5),
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: Colors.white.withOpacity(0.25),
+              inactiveThumbColor: AppColors.isDark
+                  ? Colors.white
+                  : AppColors.primary,
+              inactiveTrackColor: AppColors.w.withValues(alpha: 0.25),
               onChanged: onChanged,
             ),
           ),
@@ -461,11 +463,11 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                         borderRadius: BorderRadius.circular(15),
                         color: selected
                             ? AppColors.accent
-                            : Colors.white.withOpacity(0.10),
+                            : AppColors.w.withValues(alpha: 0.10),
                         border: Border.all(
                           color: selected
                               ? const Color(0x66FFFFFF)
-                              : Colors.white.withOpacity(0.14),
+                              : AppColors.w.withValues(alpha: 0.14),
                         ),
                       ),
                       child: Text(
@@ -474,8 +476,8 @@ class _SubtitleStyleSheetState extends State<SubtitleStyleSheet> {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: selected
-                              ? Colors.white
-                              : const Color(0xFFC9D6EA),
+                              ? AppColors.ink
+                              : AppColors.muted,
                         ),
                       ),
                     ),
@@ -506,10 +508,10 @@ class _CloseButton extends StatelessWidget {
         height: 30,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.10),
-          border: Border.all(color: Colors.white.withOpacity(0.14)),
+          color: AppColors.w.withValues(alpha: 0.10),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.14)),
         ),
-        child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+        child: Icon(Icons.close_rounded, size: 16, color: AppColors.ink),
       ),
     );
   }
@@ -542,11 +544,11 @@ class _HeaderBtn extends StatelessWidget {
                   colors: [Color(0xFF2F7FE8), Color(0xFF4F9CFF)],
                 )
               : null,
-          color: primary ? null : Colors.white.withOpacity(0.10),
+          color: primary ? null : AppColors.w.withValues(alpha: 0.10),
           border: Border.all(
             color: primary
                 ? const Color(0x66FFFFFF)
-                : Colors.white.withOpacity(0.14),
+                : AppColors.w.withValues(alpha: 0.14),
           ),
           boxShadow: primary
               ? const [
@@ -564,7 +566,7 @@ class _HeaderBtn extends StatelessWidget {
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
-              color: primary ? Colors.white : const Color(0xFFC9D6EA),
+              color: primary ? Colors.white : AppColors.muted,
             ),
           ),
         ),

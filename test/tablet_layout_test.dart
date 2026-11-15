@@ -163,7 +163,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    // v2.0.97：空态改成「插画 + 双 CTA」，不再是两张卡 + 大片留白
+    // v2.0.98：空态改成「插画 + 双 CTA」，不再是两张卡 + 大片留白
     expect(find.text('还没有收藏的影片'), findsOneWidget);
     expect(find.text('新建收藏夹'), findsWidgets);
     expect(tester.takeException(), isNull);

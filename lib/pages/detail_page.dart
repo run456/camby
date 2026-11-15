@@ -668,7 +668,7 @@ class _DetailPageState extends State<DetailPage> {
                   dense: true,
                   title: Text(t.label, style: const TextStyle(fontSize: 13.5)),
                   trailing: _selectedSubtitle?.index == t.index
-                      ? const Icon(Icons.check_rounded, color: AppColors.accent)
+                      ? Icon(Icons.check_rounded, color: AppColors.accent)
                       : null,
                   onTap: () => Navigator.of(ctx).pop(t),
                 ),
@@ -676,7 +676,7 @@ class _DetailPageState extends State<DetailPage> {
                 dense: true,
                 title: const Text('关闭字幕', style: TextStyle(fontSize: 13.5)),
                 trailing: _selectedSubtitle == null
-                    ? const Icon(Icons.check_rounded, color: AppColors.accent)
+                    ? Icon(Icons.check_rounded, color: AppColors.accent)
                     : null,
                 onTap: () => Navigator.of(ctx).pop(_offSubtitle),
               ),
@@ -1517,7 +1517,7 @@ class _DetailPageState extends State<DetailPage> {
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
                   _descExpanded ? '收起' : '更多',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11.5,
                     color: AppColors.accent,
                     fontWeight: FontWeight.w600,
@@ -1825,7 +1825,7 @@ class _DetailPageState extends State<DetailPage> {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [item.colors.first, AppColors.bg],
+                      colors: [item.colors.first, Color(0xFF06080E)],
                     ),
                   ),
                 ),
@@ -2148,7 +2148,8 @@ class _DetailPageState extends State<DetailPage> {
     final titleLift = (posterH * 0.18).clamp(56.0, 150.0);
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      // v2.0.98：详情页整页恒深（沉浸式），滚动回弹时露出的底也必须是深色。
+      backgroundColor: const Color(0xFF06080E),
       body: Stack(
         children: [
           // 整页底色：同一张竖版海报模糊 + 深色遮罩
@@ -2274,11 +2275,14 @@ class _DetailPageState extends State<DetailPage> {
                                                 gradient: LinearGradient(
                                                   begin: Alignment.topLeft,
                                                   end: Alignment.bottomRight,
+                                                  // v2.0.98：整页是「模糊海报 + 黑遮罩」的沉浸式
+                                                  // 深色页，封面兜底渐变必须恒深 —— 上面压着白色
+                                                  // 标题，跟着主题变亮就会糊成一片。
                                                   colors: [
                                                     item.colors.first
                                                         .withOpacity(0.9),
-                                                    AppColors.bgTop,
-                                                    AppColors.bg,
+                                                    Color(0xFF0A0F1A),
+                                                    Color(0xFF06080E),
                                                   ],
                                                 ),
                                               ),
@@ -2639,7 +2643,7 @@ class _DetailPageState extends State<DetailPage> {
           if (!_mediaExpanded && path.length > 88)
             GestureDetector(
               onTap: () => setState(() => _mediaExpanded = true),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
                   '展开',
@@ -2654,7 +2658,7 @@ class _DetailPageState extends State<DetailPage> {
           else if (_mediaExpanded && path.length > 88)
             GestureDetector(
               onTap: () => setState(() => _mediaExpanded = false),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
                   '收起',
@@ -2700,7 +2704,7 @@ class _DetailPageState extends State<DetailPage> {
       return const ListSkeleton(itemCount: 3, height: 190, shimmer: false);
     }
     if (list.isEmpty)
-      return const Text(
+      return Text(
         '暂无相关推荐',
         style: TextStyle(fontSize: 11.5, color: AppColors.muted),
       );
@@ -2878,7 +2882,7 @@ class _VersionPicker extends StatelessWidget {
                       v.versionSubtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10.5,
                         color: AppColors.muted,
                       ),
@@ -2982,7 +2986,7 @@ class _VersionPicker extends StatelessWidget {
               '${p.versionSubtitle}${p.isPrimary ? ' · 默认' : ''}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+              style: TextStyle(fontSize: 10.5, color: AppColors.muted),
             ),
       onTap: () => Navigator.of(ctx).pop(i),
     );
@@ -3052,7 +3056,7 @@ class _SectionLabel extends StatelessWidget {
         if (trailing != null)
           Text(
             trailing!,
-            style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+            style: TextStyle(fontSize: 10.5, color: AppColors.muted),
           ),
       ],
     );
@@ -3094,7 +3098,7 @@ class _SubtitlePill extends StatelessWidget {
                 label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: AppColors.ink,
                   fontWeight: FontWeight.w600,
@@ -3102,7 +3106,7 @@ class _SubtitlePill extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            const Icon(
+            Icon(
               Icons.keyboard_arrow_down_rounded,
               size: 16,
               color: AppColors.muted,
@@ -3617,7 +3621,7 @@ class _MiniLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     text,
-    style: const TextStyle(
+    style: TextStyle(
       fontSize: 10.5,
       fontWeight: FontWeight.w600,
       color: AppColors.muted,

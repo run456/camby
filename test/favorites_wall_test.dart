@@ -46,7 +46,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('收藏'), findsOneWidget);
-    // v2.0.97：收藏页改成「统计条 + 收藏夹横滑大卡 + 最近收藏」
+    // v2.0.98：收藏页改成「统计条 + 收藏夹横滑大卡 + 最近收藏」
     expect(find.text('我的收藏夹'), findsOneWidget);
     expect(find.text('收藏影片'), findsOneWidget);
     expect(find.text('全部'), findsOneWidget);

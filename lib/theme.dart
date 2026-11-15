@@ -4,28 +4,231 @@ import 'dart:ui';
 
 import 'widgets/liquid_press.dart';
 
-/// Camby 设计系统
-/// Material 3 Expressive + 毛玻璃 Frosted Glass（v2.0.81 起，液态玻璃已移除）
-class AppColors {
-  static const bg = Color(0xFF06080E);
-  static const bgTop = Color(0xFF0A0F1A);
-  static const surface = Color(0xFF101726);
-  static const ink = Color(0xFFF2F7FF);
-  static const muted = Color(0xFF8B9BB4);
-  static const primary = Color(0xFF4F8CFF); // 蓝紫主色（v2.0.75 回归原配色）
-  static const secondary = Color(0xFF7B5CFF);
-  static const accent = Color(0xFF5B8CFF); // 亮蓝强调
-  static const cyan = Color(0xFF38E8C8);
-  static const warn = Color(0xFFFFC55A);
-  static const danger = Color(0xFFFF6B8A);
+/// 一套调色板（v2.0.98 · 浅色玻璃主题）。
+///
+/// 深色沿用 v2.0.75 起的原配色，浅色是新增的。真正被 global 引用的是
+/// [AppColors] 这层门面 —— 页面里 390 处 `AppColors.xxx` 一个字都不用改。
+///
+/// **为什么不做成 ThemeExtension**：那需要把 390 处引用全改成
+/// `context.colors.xxx`，改动面比收益大得多，且 `const` 上下文更麻烦。
+/// 这里走「全局可切换调色板 + 切换时整棵树重建」，代价是切换瞬间要重建
+/// 一次 UI（低频操作），换来零侵入的迁移。
+abstract class AppPalette {
+  const AppPalette();
 
-  /// 主行动按钮渐变：蓝 → 紫（与 v2.0.22 起的原配方一致）。
-  /// v2.0.73/74 试过青绿系，真机确认原蓝色才是目标，v2.0.75 全量回退。
-  static const ctaGradient = LinearGradient(
+  bool get isDark;
+
+  Color get bg;
+  Color get bgTop;
+  Color get surface;
+
+  /// 主文字。
+  Color get ink;
+
+  /// 次级文字（正文字号用，比 [ink] 淡一档）。
+  Color get inkSoft;
+
+  /// 卡片标题（海报下方那行片名）。比 [inkSoft] 再亮/暗一点，
+  /// 让「标题」与「元信息」拉开一档。
+  Color get cardTitle;
+
+  /// 胶囊标签的前景色（评分 / 年份徽章）。
+  Color get chipFg;
+
+  Color get muted;
+  Color get primary;
+  Color get secondary;
+  Color get accent;
+  Color get cyan;
+  Color get warn;
+  Color get danger;
+
+  LinearGradient get ctaGradient;
+
+  /// 叠加层基色：深色主题是**白**，浅色主题是**黑**。
+  ///
+  /// 全站 451 处 `Colors.white.withValues(alpha: 0.06)` 这种「往上提亮一档」
+  /// 的半透层，在浅色底上完全失效（白叠白 = 看不见）。统一改成
+  /// `AppColors.w.withValues(...)` 后，浅色下自动变成「往下压暗一档」，
+  /// 层级关系原样保留。
+  Color get w;
+
+  /// 毛玻璃底板与其描边 / 投影。
+  Color get glassBase;
+  Color get glassBorder;
+  Color get glassShadow;
+
+  /// 骨架屏。
+  Color get skeletonBase;
+  Color get skeletonHi;
+}
+
+/// 深色（原配色，v2.0.75 起未变）。
+class _DarkPalette extends AppPalette {
+  const _DarkPalette();
+
+  @override
+  bool get isDark => true;
+
+  @override
+  Color get bg => const Color(0xFF06080E);
+  @override
+  Color get bgTop => const Color(0xFF0A0F1A);
+  @override
+  Color get surface => const Color(0xFF101726);
+  @override
+  Color get ink => const Color(0xFFF2F7FF);
+  @override
+  Color get inkSoft => const Color(0xFFC3D3EE);
+  @override
+  Color get cardTitle => const Color(0xFFE2EAF8);
+  @override
+  Color get chipFg => const Color(0xFFDBE7FB);
+  @override
+  Color get muted => const Color(0xFF8B9BB4);
+  @override
+  Color get primary => const Color(0xFF4F8CFF);
+  @override
+  Color get secondary => const Color(0xFF7B5CFF);
+  @override
+  Color get accent => const Color(0xFF5B8CFF);
+  @override
+  Color get cyan => const Color(0xFF38E8C8);
+  @override
+  Color get warn => const Color(0xFFFFC55A);
+  @override
+  Color get danger => const Color(0xFFFF6B8A);
+
+  @override
+  LinearGradient get ctaGradient => const LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
     colors: [Color(0xFF4F8CFF), Color(0xFF7B5CFF)],
   );
+
+  @override
+  Color get w => Colors.white;
+  @override
+  Color get glassBase => const Color(0xFF0B1220);
+  @override
+  Color get glassBorder => const Color(0x17FFFFFF);
+  @override
+  Color get glassShadow => const Color(0x24000000);
+  @override
+  Color get skeletonBase => const Color(0xFF121B2C);
+  @override
+  Color get skeletonHi => const Color(0xFF1C2A42);
+}
+
+/// 浅色（v2.0.98 新增）。
+///
+/// 不是把深色「反相」—— 那样会得到一片刺眼的纯白。这里按设计稿给的
+/// 方向走**冷调灰白**：底 0xFFF3F5FA、卡片纯白、文字墨黑，
+/// 强调色整体压深一档以保证白底上的对比度（蓝 4F8CFF → 3B6FE0）。
+class _LightPalette extends AppPalette {
+  const _LightPalette();
+
+  @override
+  bool get isDark => false;
+
+  @override
+  Color get bg => const Color(0xFFF3F5FA);
+  @override
+  Color get bgTop => const Color(0xFFFFFFFF);
+  @override
+  Color get surface => const Color(0xFFFFFFFF);
+  @override
+  Color get ink => const Color(0xFF151A24);
+  @override
+  Color get inkSoft => const Color(0xFF3C4759);
+  @override
+  Color get cardTitle => const Color(0xFF2A3346);
+  @override
+  Color get chipFg => const Color(0xFF33405A);
+  @override
+  Color get muted => const Color(0xFF6B7A90);
+  @override
+  Color get primary => const Color(0xFF3B6FE0);
+  @override
+  Color get secondary => const Color(0xFF6A4BF0);
+  @override
+  Color get accent => const Color(0xFF3F72E8);
+  @override
+  Color get cyan => const Color(0xFF0E9E90);
+  @override
+  Color get warn => const Color(0xFFCE8613);
+  @override
+  Color get danger => const Color(0xFFD93E62);
+
+  @override
+  LinearGradient get ctaGradient => const LinearGradient(
+    begin: Alignment.centerLeft,
+    end: Alignment.centerRight,
+    colors: [Color(0xFF3B6FE0), Color(0xFF6A4BF0)],
+  );
+
+  @override
+  Color get w => Colors.black;
+  @override
+  Color get glassBase => const Color(0xFFFFFFFF);
+  @override
+  Color get glassBorder => const Color(0x14000000);
+  @override
+  Color get glassShadow => const Color(0x1A1B2A4A);
+  @override
+  Color get skeletonBase => const Color(0xFFE6EAF2);
+  @override
+  Color get skeletonHi => const Color(0xFFF1F4F9);
+}
+
+/// Camby 设计系统
+/// Material 3 Expressive + 毛玻璃 Frosted Glass（v2.0.81 起，液态玻璃已移除）
+///
+/// v2.0.98：从「一组 const 颜色」改成「转发到当前 [palette] 的门面」。
+/// 引用点写法完全不变（`AppColors.ink`），只是不再能在 `const` 上下文里用 ——
+/// 全项目 50 处 `const` 已随本次改造清掉。
+class AppColors {
+  const AppColors._();
+
+  static const AppPalette darkPalette = _DarkPalette();
+  static const AppPalette lightPalette = _LightPalette();
+
+  static AppPalette _palette = darkPalette;
+
+  /// 当前调色板。切换主题时由 [ThemeController] 调 [apply]。
+  static AppPalette get palette => _palette;
+
+  /// 切到指定亮度。幂等；返回是否真的发生了变化。
+  static bool apply({required bool dark}) {
+    final next = dark ? darkPalette : lightPalette;
+    if (identical(_palette, next)) return false;
+    _palette = next;
+    return true;
+  }
+
+  static bool get isDark => _palette.isDark;
+
+  static Color get bg => _palette.bg;
+  static Color get bgTop => _palette.bgTop;
+  static Color get surface => _palette.surface;
+  static Color get ink => _palette.ink;
+  static Color get inkSoft => _palette.inkSoft;
+  static Color get cardTitle => _palette.cardTitle;
+  static Color get chipFg => _palette.chipFg;
+  static Color get muted => _palette.muted;
+  static Color get primary => _palette.primary;
+  static Color get secondary => _palette.secondary;
+  static Color get accent => _palette.accent;
+  static Color get cyan => _palette.cyan;
+  static Color get warn => _palette.warn;
+  static Color get danger => _palette.danger;
+
+  /// 主行动按钮渐变：蓝 → 紫（与 v2.0.22 起的原配方一致）。
+  /// v2.0.73/74 试过青绿系，真机确认原蓝色才是目标，v2.0.75 全量回退。
+  static LinearGradient get ctaGradient => _palette.ctaGradient;
+
+  /// 叠加层基色：深色主题白、浅色主题黑。见 [AppPalette.w]。
+  static Color get w => _palette.w;
 }
 
 /// 底部导航视觉 token（v2.0.68 · 低干扰雾面分段条）。
@@ -108,10 +311,10 @@ class AppSurface {
   /// 避免整块面积过大而发白。投影自 v2.0.54 起不再使用。
   static BoxDecoration soft({double radius = 14, double opacity = 0.06}) =>
       BoxDecoration(
-        color: Colors.white.withValues(alpha: opacity),
+        color: AppColors.w.withValues(alpha: opacity),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.16),
+          color: AppColors.w.withValues(alpha: 0.16),
           width: 1,
         ),
       );
@@ -146,14 +349,14 @@ class AppType {
   /// 年份、计数、胶囊等元信息。
   static const TextStyle micro = TextStyle(fontSize: 10);
 
-  /// 卡片标题（浅色，海报下方）。
-  static const TextStyle cardTitle = TextStyle(
+  /// 卡片标题（海报下方）。
+  static TextStyle get cardTitle => TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w600,
-    color: Color(0xFFE2EAF8),
+    color: AppColors.cardTitle,
   );
 
-  /// 海报内叠加的片名（白字）。
+  /// 海报内叠加的片名（恒白 —— 压在图片上，不随主题走）。
   static const TextStyle posterTitle = TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w700,
@@ -162,7 +365,7 @@ class AppType {
   );
 
   /// 卡片元信息（年份 / 剩余时长）。
-  static const TextStyle cardMeta = TextStyle(
+  static TextStyle get cardMeta => TextStyle(
     fontSize: 10,
     color: AppColors.muted,
   );
@@ -185,58 +388,87 @@ class AppMotion {
   static const Duration press = Duration(milliseconds: 90);
 }
 
-/// 骨架渐变：低饱和的深色玻璃底，与 [PosterBox] 同一套视觉语言，
+/// 骨架渐变：低饱和的玻璃底，与 [PosterBox] 同一套视觉语言，
 /// 但去掉高饱和色块，避免加载态比真实海报还抢眼。
+///
+/// v2.0.98：改成按主题取值。浅色下用冷灰白，深色下沿用原深蓝。
 class SkeletonColors {
   const SkeletonColors._();
 
-  static const Color base = Color(0xFF121B2C);
-  static const Color hi = Color(0xFF1C2A42);
+  static Color get base => AppColors.palette.skeletonBase;
+  static Color get hi => AppColors.palette.skeletonHi;
 
-  static const LinearGradient gradient = LinearGradient(
+  static LinearGradient get gradient => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [base, hi, base],
-    stops: [0.0, 0.52, 1.0],
+    stops: const [0.0, 0.52, 1.0],
   );
 
   /// 文字条：比海报块更暗一档，形成层次。
-  static const LinearGradient bar = LinearGradient(
+  static LinearGradient get bar => LinearGradient(
     begin: Alignment.centerLeft,
     end: Alignment.centerRight,
-    colors: [Color(0xFF182337), Color(0xFF22314A), Color(0xFF182337)],
-    stops: [0.0, 0.5, 1.0],
+    colors: _barColors,
+    stops: const [0.0, 0.5, 1.0],
   );
+
+  static List<Color> get _barColors {
+    if (!AppColors.isDark) {
+      return const [
+        Color(0xFFE9EDF4),
+        Color(0xFFF3F6FB),
+        Color(0xFFE9EDF4),
+      ];
+    }
+    return const [
+      Color(0xFF182337),
+      Color(0xFF22314A),
+      Color(0xFF182337),
+    ];
+  }
 }
 
 class AppTheme {
-  static ThemeData dark() {
-    const cs = ColorScheme.dark(
+  /// v2.0.98：单一入口按亮度构建。调用前 [AppColors.apply] 必须已经切过 ——
+  /// 两者是同一份状态的两种投影，必须同步，否则会出现「页面是浅色、
+  /// 对话框是深色」的错位。
+  static ThemeData build({required bool dark}) {
+    final scheme = ColorScheme(
+      brightness: dark ? Brightness.dark : Brightness.light,
       primary: AppColors.primary,
+      onPrimary: Colors.white,
       secondary: AppColors.secondary,
+      onSecondary: Colors.white,
       tertiary: AppColors.accent,
+      onTertiary: Colors.white,
       surface: AppColors.surface,
       onSurface: AppColors.ink,
+      error: AppColors.danger,
+      onError: Colors.white,
     );
     return ThemeData(
       useMaterial3: true,
-      colorScheme: cs,
+      colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.bg,
-      brightness: Brightness.dark,
+      brightness: dark ? Brightness.dark : Brightness.light,
       splashFactory: InkSparkle.splashFactory,
-      textTheme: const TextTheme(
-        displayLarge: TextStyle(
+      // 浅色下 Material 组件的默认水波纹是黑色，压在彩色按钮上会显脏；
+      // 统一用主色的低透明版本，深浅两套都能看。
+      highlightColor: AppColors.w.withValues(alpha: 0.05),
+      textTheme: TextTheme(
+        displayLarge: const TextStyle(
           fontSize: 29,
           fontWeight: FontWeight.w800,
           letterSpacing: -0.7,
           height: 1.15,
         ),
-        titleLarge: TextStyle(
+        titleLarge: const TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.3,
         ),
-        titleMedium: TextStyle(
+        titleMedium: const TextStyle(
           fontSize: 15.5,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.2,
@@ -244,7 +476,7 @@ class AppTheme {
         bodyMedium: TextStyle(
           fontSize: 13,
           height: 1.6,
-          color: Color(0xFFC3D3EE),
+          color: AppColors.inkSoft,
         ),
         // v2.0.64：卡片标题 11 / 元信息 10，与 AppType.caption、micro 对齐。
         bodySmall: TextStyle(fontSize: 11, color: AppColors.muted),
@@ -255,7 +487,28 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
       ),
+      // 弹窗 / 底部面板：深浅两套各给一个与页面同族的底，避免 Material
+      // 默认的纯白（深色下）或纯黑（浅色下）像贴了块补丁。
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: dark ? const Color(0xFF1B2436) : const Color(0xFF2A3345),
+        contentTextStyle: const TextStyle(color: Colors.white, fontSize: 12.5),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
+  }
+
+  /// 兼容旧调用点（测试里还有几处直接调 `dark()`）。
+  static ThemeData dark() {
+    AppColors.apply(dark: true);
+    return build(dark: true);
   }
 }
 
@@ -311,18 +564,25 @@ class Glass extends StatelessWidget {
   );
   static final Map<double, ImageFilter> _blurCache = <double, ImageFilter>{};
 
-  /// 深色半透底板：单色、无渐变、无白纱。
-  static const Color _base = Color(0xFF0B1220);
+  /// 半透底板：深色是冷蓝黑，浅色是纯白。见 [AppPalette.glassBase]。
+  static Color get _base => AppColors.palette.glassBase;
 
   @override
   Widget build(BuildContext context) {
     final r = BorderRadius.circular(radius);
+    final dark = AppColors.isDark;
 
     // tint 保留给旧调用点：只极轻微调亮底板，不铺渐变、不产生白边。
     final tintNow = tint * 0.7 * 0.25;
-    final baseAlpha = blurEnabled ? (soft ? 0.55 : 0.66) : 0.42;
+    // 浅色下玻璃要更实一点：白底叠白玻璃如果太透，会看不清边界，
+    // 于是整体从「磨砂玻璃」滑向「脏抹布」。深色维持原配方。
+    final baseAlpha = blurEnabled
+        ? (soft
+              ? (dark ? 0.55 : 0.72)
+              : (dark ? 0.66 : 0.82))
+        : (dark ? 0.42 : 0.66);
     final fillColor = Color.alphaBlend(
-      Colors.white.withValues(alpha: tintNow),
+      AppColors.w.withValues(alpha: tintNow),
       _base,
     ).withValues(alpha: baseAlpha);
 
@@ -336,7 +596,11 @@ class Glass extends StatelessWidget {
         gradient: gradient,
         border: border
             ? Border.all(
-                color: Colors.white.withValues(alpha: 0.09),
+                // 深色：一道极细的冷白边表达厚度；
+                // 浅色：同一条边换成淡墨，否则白边在白底上等于没有。
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.09)
+                    : const Color(0x14000000),
                 width: 0.8,
               )
             : null,
@@ -366,11 +630,12 @@ class Glass extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: r,
-        boxShadow: const [
+        // 浅色下阴影要更淡更散：深色投影落在白底上会变成一圈脏边。
+        boxShadow: [
           BoxShadow(
-            color: Color(0x24000000),
-            blurRadius: 12,
-            offset: Offset(0, 4),
+            color: AppColors.palette.glassShadow,
+            blurRadius: dark ? 12 : 18,
+            offset: Offset(0, dark ? 4 : 6),
           ),
         ],
       ),
@@ -543,17 +808,17 @@ class ChipLabel extends StatelessWidget {
         ? const Color(0x33FFB64D)
         : cyan
         ? const Color(0x2E38E8C8)
-        : Colors.white.withOpacity(0.13);
+        : AppColors.w.withValues(alpha: 0.13);
     final bd = gold
         ? const Color(0x66FFB64D)
         : cyan
         ? const Color(0x6638E8C8)
-        : Colors.white.withOpacity(0.16);
+        : AppColors.w.withValues(alpha: 0.16);
     final fg = gold
         ? const Color(0xFFFFD9A1)
         : cyan
         ? const Color(0xFFA7F3E4)
-        : (color ?? const Color(0xFFDBE7FB));
+        : (color ?? AppColors.chipFg);
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: small ? 7 : 9,
@@ -647,7 +912,7 @@ class PosterBox extends StatelessWidget {
                   value: progress,
                   minHeight: 4,
                   backgroundColor: Colors.white.withOpacity(0.18),
-                  valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                  valueColor: AlwaysStoppedAnimation(AppColors.accent),
                 ),
               ),
             ),

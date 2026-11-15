@@ -494,7 +494,7 @@ class _PersonPageState extends State<PersonPage> {
               ),
             ),
             const SizedBox(width: 4),
-            const Text(
+            Text(
               '部影片',
               style: TextStyle(fontSize: 10.5, color: AppColors.muted),
             ),
@@ -589,7 +589,7 @@ class _PersonPageState extends State<PersonPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(label,
-                style: const TextStyle(fontSize: 9, color: AppColors.muted)),
+                style: TextStyle(fontSize: 9, color: AppColors.muted)),
             const SizedBox(height: 2),
             Text(
               value,
@@ -679,7 +679,7 @@ class _PersonPageState extends State<PersonPage> {
     return [
       const SliverToBoxAdapter(child: SizedBox(height: 12)),
       if (_loading)
-        const SliverToBoxAdapter(
+        SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(
@@ -990,7 +990,7 @@ class _OverviewText extends StatelessWidget {
             if (text.length > 90)
               TextSpan(
                 text: expanded ? ' 收起' : ' 更多',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: AppColors.accent,
                   fontWeight: FontWeight.w600,

@@ -257,7 +257,7 @@ class _TranslateSheetState extends State<_TranslateSheet> {
                           const SizedBox(height: 10),
                           Text(
                             _error!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11.5,
                               height: 1.5,
                               color: AppColors.danger,
@@ -304,7 +304,7 @@ class _TranslateSheetState extends State<_TranslateSheet> {
         side: BorderSide(
           color: accent
               ? AppColors.accent.withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.16),
+              : AppColors.w.withValues(alpha: 0.16),
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -335,7 +335,7 @@ class _PrimaryButton extends StatelessWidget {
           gradient: LinearGradient(
             colors: onTap == null
                 ? const [Color(0xFF3A4B6B), Color(0xFF3A4B6B)]
-                : const [AppColors.primary, Color(0xFF7B6BF0)],
+                : [AppColors.primary, Color(0xFF7B6BF0)],
           ),
         ),
         child: Material(
@@ -379,12 +379,12 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 15, 10, 12),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          bottom: BorderSide(color: AppColors.w.withValues(alpha: 0.08)),
         ),
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.translate_rounded,
             size: 17,
             color: AppColors.accent,
@@ -449,9 +449,9 @@ class _TextCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.045),
+          color: AppColors.w.withValues(alpha: 0.045),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.08)),
         ),
         child: child,
       );
@@ -484,10 +484,10 @@ class _StylePicker extends StatelessWidget {
                 side: BorderSide(
                   color: value == s
                       ? AppColors.accent.withValues(alpha: 0.5)
-                      : Colors.white.withValues(alpha: 0.12),
+                      : AppColors.w.withValues(alpha: 0.12),
                 ),
               ),
-              backgroundColor: Colors.white.withValues(alpha: 0.04),
+              backgroundColor: AppColors.w.withValues(alpha: 0.04),
             ),
         ],
       );

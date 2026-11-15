@@ -166,7 +166,7 @@ class _CastingSheetState extends State<_CastingSheet> {
           width: 36,
           height: 4,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.2),
+            color: AppColors.w.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -207,8 +207,8 @@ class _CastingSheetState extends State<_CastingSheet> {
               height: 30,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.10),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+                color: AppColors.w.withValues(alpha: 0.10),
+                border: Border.all(color: AppColors.w.withValues(alpha: 0.14)),
               ),
               child: const Icon(
                 Icons.close_rounded,
@@ -245,7 +245,7 @@ class _CastingSheetState extends State<_CastingSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(
+          SizedBox(
             width: 26,
             height: 26,
             child: CircularProgressIndicator(
@@ -270,7 +270,7 @@ class _CastingSheetState extends State<_CastingSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.error_outline_rounded,
             size: 32,
             color: AppColors.warn,
@@ -297,7 +297,7 @@ class _CastingSheetState extends State<_CastingSheet> {
           Icon(
             Icons.cast_rounded,
             size: 36,
-            color: Colors.white.withValues(alpha: 0.35),
+            color: AppColors.w.withValues(alpha: 0.35),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -362,7 +362,7 @@ class _CastingSheetState extends State<_CastingSheet> {
             borderRadius: BorderRadius.circular(14),
             color: selected
                 ? AppColors.accent.withValues(alpha: 0.18)
-                : Colors.white.withValues(alpha: 0.04),
+                : AppColors.w.withValues(alpha: 0.04),
             border: Border.all(
               color: selected
                   ? AppColors.accent.withValues(alpha: 0.5)
@@ -491,7 +491,7 @@ class _CastingSheetState extends State<_CastingSheet> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.cast_rounded, size: 22, color: AppColors.accent),
+          Icon(Icons.cast_rounded, size: 22, color: AppColors.accent),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -522,7 +522,7 @@ class _CastingSheetState extends State<_CastingSheet> {
                     '字幕：${c.castSubtitleLabel}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10.5,
                       color: AppColors.accent,
                     ),
@@ -561,8 +561,8 @@ class _CastingSheetState extends State<_CastingSheet> {
           child: LinearProgressIndicator(
             value: (total > 0 ? cur / total : 0.0).clamp(0.0, 1.0).toDouble(),
             minHeight: 4,
-            backgroundColor: Colors.white.withValues(alpha: 0.10),
-            valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accent),
+            backgroundColor: AppColors.w.withValues(alpha: 0.10),
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
           ),
         ),
         const SizedBox(height: 6),
@@ -602,8 +602,8 @@ class _CastingSheetState extends State<_CastingSheet> {
       height: 44,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white.withValues(alpha: 0.07),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        color: AppColors.w.withValues(alpha: 0.07),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.14)),
       ),
       child: Icon(icon, size: 20, color: AppColors.accent),
     ),
@@ -654,7 +654,7 @@ class _CastingSheetState extends State<_CastingSheet> {
           ),
           if (sub != null && !sub.isTextFriendly) ...<Widget>[
             const SizedBox(height: 6),
-            const Text(
+            Text(
               '这是图形字幕，电视多半不认；建议打开下面的「字幕烧录」。',
               style: TextStyle(
                 fontSize: 10.5,
@@ -692,11 +692,11 @@ class _CastingSheetState extends State<_CastingSheet> {
             borderRadius: BorderRadius.circular(9),
             color: selected
                 ? AppColors.accent.withValues(alpha: 0.20)
-                : Colors.white.withValues(alpha: 0.05),
+                : AppColors.w.withValues(alpha: 0.05),
             border: Border.all(
               color: selected
                   ? AppColors.accent.withValues(alpha: 0.6)
-                  : Colors.white.withValues(alpha: 0.12),
+                  : AppColors.w.withValues(alpha: 0.12),
             ),
           ),
           child: Text(
@@ -807,7 +807,7 @@ class _CastingSheetState extends State<_CastingSheet> {
           ),
           if (!isLanReachableUrl(url)) ...[
             const SizedBox(height: 6),
-            const Text(
+            Text(
               '当前服务器地址电视可能无法访问，请在服务器设置里改用局域网 IP。',
               style: TextStyle(
                 fontSize: 10.5,
@@ -829,7 +829,7 @@ class _CastingSheetState extends State<_CastingSheet> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w700,
           color: AppColors.accent,

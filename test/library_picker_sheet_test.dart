@@ -4,7 +4,7 @@ import 'package:camby/widgets/library_picker_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// v2.0.97（设计稿 P0）：媒体库选择弹窗。
+/// v2.0.98（设计稿 P0）：媒体库选择弹窗。
 ///
 /// 旧实现把所有 UserView 平铺成一条横滑 chip —— 库一多就找不到、看不到总数、
 /// 选中的还会被滑出视野。这里守住三件容易改坏的事：

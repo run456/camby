@@ -34,8 +34,8 @@ class StatsModeSegment extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        color: AppColors.w.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
       ),
       child: Row(
         children: [
@@ -68,7 +68,7 @@ class StatsModeSegment extends StatelessWidget {
                 )
               : null,
           border: Border.all(
-            color: on ? Colors.white.withOpacity(0.26) : Colors.transparent,
+            color: on ? AppColors.w.withValues(alpha: 0.26) : Colors.transparent,
           ),
         ),
         child: Row(
@@ -79,7 +79,7 @@ class StatsModeSegment extends StatelessWidget {
                   ? Icons.calendar_month_outlined
                   : Icons.insights_outlined,
               size: 13,
-              color: on ? Colors.white : Colors.white.withOpacity(0.55),
+              color: on ? Colors.white : AppColors.w.withValues(alpha: 0.55),
             ),
             const SizedBox(width: 5),
             Text(
@@ -87,7 +87,7 @@ class StatsModeSegment extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: on ? FontWeight.w800 : FontWeight.w600,
-                color: on ? Colors.white : Colors.white.withOpacity(0.55),
+                color: on ? Colors.white : AppColors.w.withValues(alpha: 0.55),
               ),
             ),
           ],
@@ -263,7 +263,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
       children: [
         Row(
           children: [
-            const Icon(
+            Icon(
               Icons.calendar_month_outlined,
               size: 20,
               color: AppColors.ink,
@@ -285,7 +285,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10.5,
                       color: AppColors.muted,
                     ),
@@ -361,7 +361,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                   child: Center(
                     child: Text(
                       w,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
                         color: AppColors.muted,
                         fontWeight: FontWeight.w600,
@@ -396,7 +396,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Text(
+              Text(
                 '颜色越亮，当天看得越久',
                 style: TextStyle(fontSize: 9.5, color: AppColors.muted),
               ),
@@ -411,9 +411,9 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(13),
-                    border: Border.all(color: Colors.white.withOpacity(0.18)),
+                    border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
                   ),
-                  child: const Text(
+                  child: Text(
                     '回到本月',
                     style: TextStyle(fontSize: 10, color: AppColors.muted),
                   ),
@@ -450,13 +450,13 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
           borderRadius: BorderRadius.circular(12),
           color: has
               ? AppColors.primary.withOpacity(0.10 + 0.32 * intensity)
-              : (on ? Colors.white.withOpacity(0.08) : Colors.transparent),
+              : (on ? AppColors.w.withValues(alpha: 0.08) : Colors.transparent),
           border: Border.all(
             color: on
                 ? AppColors.accent
                 : today
-                    ? Colors.white.withOpacity(0.42)
-                    : Colors.white.withOpacity(0.07),
+                    ? AppColors.w.withValues(alpha: 0.42)
+                    : AppColors.w.withValues(alpha: 0.07),
             width: on ? 1.4 : 0.8,
           ),
         ),
@@ -524,7 +524,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
             sum.isEmpty
                 ? '这个月还没有观影记录。选一个有颜色的日子，或翻到上个月的日历看看。'
                 : '本月共 ${sum.titles} 部作品 · 最长连续 ${sum.bestStreak} 天 · ${monthBadgeLabel(sum.badge, streak: sum.bestStreak)}',
-            style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+            style: TextStyle(fontSize: 10.5, color: AppColors.muted),
           ),
         ],
       ),
@@ -564,13 +564,13 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
               if (list.isNotEmpty)
                 Text(
                   '${list.length} 次观看',
-                  style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
             ],
           ),
           const SizedBox(height: 9),
           if (d == null)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
               child: Center(
                 child: Text(
@@ -672,7 +672,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '分享图按当前海报墙生成；海报来自媒体库，未缓存时会显示占位色块。',
             style: TextStyle(fontSize: 9.5, color: AppColors.muted),
           ),
@@ -682,7 +682,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
   }
 
   Widget _footnote() {
-    return const Padding(
+    return Padding(
       padding: EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '数据口径：本机播放记录（精确）→ 服务器活动日志明细 → 历史观看回填（按片长估算）。'
@@ -707,7 +707,7 @@ class _NavBtn extends StatelessWidget {
       height: 30,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
       ),
       child: Icon(icon, size: 17, color: AppColors.ink),
     ),
@@ -738,7 +738,7 @@ class _Metric extends StatelessWidget {
         const SizedBox(height: 3),
         Text(
           label,
-          style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+          style: TextStyle(fontSize: 9.5, color: AppColors.muted),
         ),
       ],
     ),
@@ -755,8 +755,8 @@ class _EventRow extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.white.withOpacity(0.045),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        color: AppColors.w.withValues(alpha: 0.045),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
@@ -771,7 +771,7 @@ class _EventRow extends StatelessWidget {
                 fallbackLabel: e.name,
                 errorWidget: Container(
                   color: AppColors.secondary.withOpacity(0.22),
-                  child: const Icon(
+                  child: Icon(
                     Icons.movie_outlined,
                     size: 15,
                     color: AppColors.muted,
@@ -800,14 +800,14 @@ class _EventRow extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: e.progress.clamp(0.0, 1.0).toDouble(),
                     minHeight: 3,
-                    backgroundColor: Colors.white.withOpacity(0.10),
-                    valueColor: const AlwaysStoppedAnimation(AppColors.accent),
+                    backgroundColor: AppColors.w.withValues(alpha: 0.10),
+                    valueColor: AlwaysStoppedAnimation(AppColors.accent),
                   ),
                 ),
                 const SizedBox(height: 5),
                 Text(
                   '${e.progressLabel} · ${e.minutes > 0 ? '${e.minutes.round()} 分钟' : '时长未知'}',
-                  style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                  style: TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
               ],
             ),
@@ -856,19 +856,20 @@ class _PosterWallCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
+        // 「观影月报」是深色对比卡：上面压白字，浅色主题下也保持深色。
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [Color(0xFF16223C), Color(0xFF0B1120)],
         ),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.12)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.calendar_month_outlined, size: 14, color: AppColors.accent),
+              Icon(Icons.calendar_month_outlined, size: 14, color: AppColors.accent),
               const SizedBox(width: 6),
               Text(
                 '$year 年 $month 月 · 观影月报',
@@ -894,9 +895,9 @@ class _PosterWallCard extends StatelessWidget {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
-                color: Colors.white.withOpacity(0.05),
+                color: AppColors.w.withValues(alpha: 0.05),
               ),
-              child: const Text(
+              child: Text(
                 '这个月还没有观影记录',
                 style: TextStyle(fontSize: 11, color: AppColors.muted),
               ),
@@ -929,7 +930,7 @@ class _PosterWallCard extends StatelessWidget {
               ),
             ],
           const SizedBox(height: 10),
-          const Row(
+          Row(
             children: [
               Spacer(),
               Text(
@@ -1003,7 +1004,7 @@ class _SyncCard extends StatelessWidget {
           style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           '首次可同步最近一年服务器标记为「已看」的记录，按片长估算观看时长，'
           '并在日历里标注「估算」。已经存在的本机记录不会被覆盖。',
           style: TextStyle(fontSize: 10.5, color: AppColors.muted, height: 1.5),

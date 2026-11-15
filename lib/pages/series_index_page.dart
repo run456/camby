@@ -94,7 +94,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.collections_bookmark_outlined,
                       size: 20,
                       color: AppColors.ink,
@@ -115,7 +115,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                           ),
                           Text(
                             '系列 · 共 ${all.length} 个 · ${state.items.length} 部影片',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 10.5,
                               color: AppColors.muted,
                             ),
@@ -148,8 +148,8 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                                 ? (_scanDone / _scanTotal).clamp(0.0, 1.0)
                                 : null,
                             minHeight: 4,
-                            backgroundColor: Colors.white.withOpacity(0.10),
-                            valueColor: const AlwaysStoppedAnimation<Color>(
+                            backgroundColor: AppColors.w.withValues(alpha: 0.10),
+                            valueColor: AlwaysStoppedAnimation<Color>(
                               AppColors.primary,
                             ),
                           ),
@@ -158,7 +158,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                       const SizedBox(width: 8),
                       Text(
                         '$_scanDone / $_scanTotal',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           color: AppColors.muted,
                         ),
@@ -283,7 +283,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                     height: 12,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(
+                : Icon(
                     Icons.collections_bookmark_outlined,
                     size: 14,
                     color: AppColors.primary,
@@ -373,7 +373,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
             ),
           if (notes.isNotEmpty) ...[
             const SizedBox(height: 10),
-            const Text(
+            Text(
               '说明',
               style: TextStyle(
                 fontSize: 11.5,
@@ -418,21 +418,21 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
       child: TextField(
         controller: _controller,
         onChanged: (v) => setState(() => _query = v),
-        style: const TextStyle(fontSize: 12, color: Colors.white),
+        style: TextStyle(fontSize: 12, color: AppColors.ink),
         cursorColor: AppColors.primary,
         decoration: InputDecoration(
           isDense: true,
           filled: true,
-          fillColor: Colors.white.withOpacity(0.05),
+          fillColor: AppColors.w.withValues(alpha: 0.05),
           hintText: '搜索系列名…',
           hintStyle: TextStyle(
             fontSize: 11.5,
-            color: Colors.white.withOpacity(0.35),
+            color: AppColors.w.withValues(alpha: 0.35),
           ),
           prefixIcon: Icon(
             Icons.search_rounded,
             size: 16,
-            color: Colors.white.withOpacity(0.45),
+            color: AppColors.w.withValues(alpha: 0.45),
           ),
           suffixIcon: _query.isEmpty
               ? null
@@ -440,7 +440,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                   icon: Icon(
                     Icons.close_rounded,
                     size: 15,
-                    color: Colors.white.withOpacity(0.45),
+                    color: AppColors.w.withValues(alpha: 0.45),
                   ),
                   onPressed: () {
                     _controller.clear();
@@ -450,11 +450,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+            borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+            borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
@@ -488,11 +488,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                     borderRadius: BorderRadius.circular(14),
                     color: _sort == i
                         ? AppColors.primary.withOpacity(0.20)
-                        : Colors.white.withOpacity(0.05),
+                        : AppColors.w.withValues(alpha: 0.05),
                     border: Border.all(
                       color: _sort == i
                           ? AppColors.primary.withOpacity(0.5)
-                          : Colors.white.withOpacity(0.10),
+                          : AppColors.w.withValues(alpha: 0.10),
                     ),
                   ),
                   child: Center(
@@ -505,7 +505,7 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
                             : FontWeight.w600,
                         color: _sort == i
                             ? Colors.white
-                            : Colors.white.withOpacity(0.6),
+                            : AppColors.w.withValues(alpha: 0.6),
                       ),
                     ),
                   ),
@@ -589,8 +589,8 @@ class _SeriesTile extends StatelessWidget {
         padding: const EdgeInsets.all(9),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(13),
-          color: Colors.white.withOpacity(0.045),
-          border: Border.all(color: Colors.white.withOpacity(0.10)),
+          color: AppColors.w.withValues(alpha: 0.045),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -625,7 +625,7 @@ class _SeriesTile extends StatelessWidget {
                   const SizedBox(height: 5),
                   Text(
                     '$count 部影片',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
                       color: AppColors.muted,
                     ),
@@ -633,7 +633,7 @@ class _SeriesTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 20),
               child: Icon(
                 Icons.chevron_right_rounded,

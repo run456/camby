@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
 import 'haptics.dart';
 import 'liquid_press.dart';
 
@@ -39,8 +40,8 @@ class LibraryIndexSegment extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        color: AppColors.w.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
       ),
       child: Row(
         children: [
@@ -74,21 +75,21 @@ class LibraryIndexSegment extends StatelessWidget {
                 )
               : null,
           border: Border.all(
-            color: on ? Colors.white.withOpacity(0.26) : Colors.transparent,
+            color: on ? AppColors.w.withValues(alpha: 0.26) : Colors.transparent,
           ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(_icons[i], size: 13,
-                color: on ? Colors.white : Colors.white.withOpacity(0.55)),
+                color: on ? Colors.white : AppColors.w.withValues(alpha: 0.55)),
             const SizedBox(width: 5),
             Text(
               _labels[i],
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: on ? FontWeight.w800 : FontWeight.w600,
-                color: on ? Colors.white : Colors.white.withOpacity(0.55),
+                color: on ? Colors.white : AppColors.w.withValues(alpha: 0.55),
               ),
             ),
           ],

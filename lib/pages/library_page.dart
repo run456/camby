@@ -414,7 +414,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   children: [
                     Row(
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.grid_view_rounded,
                           size: 20,
                           color: AppColors.ink,
@@ -424,12 +424,13 @@ class _LibraryPageState extends State<LibraryPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
+                              Text(
                                 '媒体库',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: -0.4,
+                                  color: AppColors.ink,
                                 ),
                               ),
                               Text(
@@ -438,7 +439,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     : state.demoMode
                                         ? '演示数据'
                                         : '${state.sourceLabel} · ${shown.length} 项',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10.5,
                                   color: AppColors.muted,
                                 ),
@@ -449,7 +450,7 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         ),
                         if (state.loading || _viewLoading)
-                          const SizedBox(
+                          SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
@@ -552,10 +553,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(13),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.22),
+                                    color: AppColors.w.withValues(alpha: 0.22),
                                   ),
                                 ),
-                                child: const Center(
+                                child: Center(
                                   child: Text(
                                     '清空',
                                     style: TextStyle(
@@ -723,22 +724,25 @@ class _FilterChip extends StatelessWidget {
 /// 的实线灰胶囊明确区分；不引入 dotted_border 之类的新依赖，虚线用
 /// `Path.computeMetrics()` 自己切段画。
 class _VirtualChip extends StatelessWidget {
-  const _VirtualChip({
+  _VirtualChip({
     required this.selected,
     required this.onTap,
     this.label = '最近添加',
     this.icon = Icons.schedule_rounded,
-    this.color = AppColors.secondary,
-  });
+    Color? color,
+  }) : color = color ?? AppColors.secondary;
   final bool selected;
   final VoidCallback onTap;
   final String label;
   final IconData icon;
+
+  /// v2.0.98：默认色改成构造期解析 —— 调色板不再是编译期常量，
+  /// 没法继续写在可选参数的默认值里。
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final line = selected ? color : color.withOpacity(0.62);
+    final line = selected ? color : color.withValues(alpha: 0.62);
     return LiquidPress(
       radius: 17,
       scale: 0.95,
@@ -755,7 +759,9 @@ class _VirtualChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
-          color: selected ? color.withOpacity(0.26) : color.withOpacity(0.08),
+          color: selected
+              ? color.withValues(alpha: 0.26)
+              : color.withValues(alpha: 0.08),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -848,13 +854,13 @@ class _Chip extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         gradient: selected
-            ? const LinearGradient(
+            ? LinearGradient(
                 colors: [AppColors.primary, AppColors.secondary],
               )
             : null,
-        color: selected ? null : Colors.white.withOpacity(0.07),
+        color: selected ? null : AppColors.w.withValues(alpha: 0.07),
         border: Border.all(
-          color: selected ? Colors.transparent : Colors.white.withOpacity(0.12),
+          color: selected ? Colors.transparent : AppColors.w.withValues(alpha: 0.12),
         ),
       ),
       child: Row(

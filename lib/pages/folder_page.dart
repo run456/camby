@@ -88,7 +88,7 @@ class _FolderPageState extends State<FolderPage> {
                             const SizedBox(height: 1),
                             Text(
                               '${items.length} 部影片',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10.5,
                                 color: AppColors.muted,
                               ),
@@ -186,7 +186,7 @@ class _FolderPageState extends State<FolderPage> {
               height: 4,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(3),
-                color: Colors.white.withOpacity(0.26),
+                color: AppColors.w.withValues(alpha: 0.26),
               ),
             ),
             const SizedBox(height: 16),
@@ -240,11 +240,11 @@ class _FolderPageState extends State<FolderPage> {
           borderRadius: BorderRadius.circular(14),
           color: danger
               ? const Color(0x1FFF6B8A)
-              : Colors.white.withOpacity(0.06),
+              : AppColors.w.withValues(alpha: 0.06),
           border: Border.all(
             color: danger
                 ? const Color(0x55FF6B8A)
-                : Colors.white.withOpacity(0.12),
+                : AppColors.w.withValues(alpha: 0.12),
           ),
         ),
         child: Row(

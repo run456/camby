@@ -83,7 +83,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.people_outline_rounded,
+                    Icon(Icons.people_outline_rounded,
                         size: 20, color: AppColors.ink),
                     const SizedBox(width: 10),
                     Expanded(
@@ -101,7 +101,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                           ),
                           Text(
                             '演员 · 共 ${all.length} 位 · 已收藏 $favCount 位',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 10.5,
                               color: AppColors.muted,
                             ),
@@ -122,7 +122,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                 // Emby 的 People 没有性别字段，服务端没给 gender 时这档只能
                 // 按「有无头像」近似，可能混入有头像的男优；切「全部」可兜底。
                 if (_scope == 1)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.only(top: 6, left: 2, right: 2),
                     child: Text(
                       '「女演员」按头像近似筛选 · 服务端未提供性别，可能混入有头像的男优',
@@ -262,8 +262,8 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: Colors.white.withOpacity(0.05),
-        border: Border.all(color: Colors.white.withOpacity(0.09)),
+        color: AppColors.w.withValues(alpha: 0.05),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.09)),
       ),
       child: Row(
         children: [
@@ -278,7 +278,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
                     color: _scope == i
-                        ? Colors.white.withOpacity(0.16)
+                        ? AppColors.w.withValues(alpha: 0.16)
                         : Colors.transparent,
                   ),
                   child: Center(
@@ -290,7 +290,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                             _scope == i ? FontWeight.w800 : FontWeight.w600,
                         color: _scope == i
                             ? Colors.white
-                            : Colors.white.withOpacity(0.55),
+                            : AppColors.w.withValues(alpha: 0.55),
                       ),
                     ),
                   ),
@@ -308,22 +308,22 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
       child: TextField(
         controller: _controller,
         onChanged: (v) => setState(() => _query = v),
-        style: const TextStyle(fontSize: 12, color: Colors.white),
+        style: TextStyle(fontSize: 12, color: AppColors.ink),
         cursorColor: AppColors.primary,
         decoration: InputDecoration(
           isDense: true,
           filled: true,
-          fillColor: Colors.white.withOpacity(0.05),
+          fillColor: AppColors.w.withValues(alpha: 0.05),
           hintText: '搜索演员名字…',
           hintStyle:
-              TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.35)),
+              TextStyle(fontSize: 11.5, color: AppColors.w.withValues(alpha: 0.35)),
           prefixIcon: Icon(Icons.search_rounded,
-              size: 16, color: Colors.white.withOpacity(0.45)),
+              size: 16, color: AppColors.w.withValues(alpha: 0.45)),
           suffixIcon: _query.isEmpty
               ? null
               : IconButton(
                   icon: Icon(Icons.close_rounded,
-                      size: 15, color: Colors.white.withOpacity(0.45)),
+                      size: 15, color: AppColors.w.withValues(alpha: 0.45)),
                   onPressed: () {
                     _controller.clear();
                     setState(() => _query = '');
@@ -332,11 +332,11 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
           contentPadding: const EdgeInsets.symmetric(vertical: 8),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+            borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.10)),
+            borderSide: BorderSide(color: AppColors.w.withValues(alpha: 0.10)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(11),
@@ -371,11 +371,11 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                     borderRadius: BorderRadius.circular(14),
                     color: _sort == i
                         ? AppColors.primary.withOpacity(0.20)
-                        : Colors.white.withOpacity(0.05),
+                        : AppColors.w.withValues(alpha: 0.05),
                     border: Border.all(
                       color: _sort == i
                           ? AppColors.primary.withOpacity(0.5)
-                          : Colors.white.withOpacity(0.10),
+                          : AppColors.w.withValues(alpha: 0.10),
                     ),
                   ),
                   child: Center(
@@ -387,7 +387,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                             _sort == i ? FontWeight.w800 : FontWeight.w600,
                         color: _sort == i
                             ? Colors.white
-                            : Colors.white.withOpacity(0.6),
+                            : AppColors.w.withValues(alpha: 0.6),
                       ),
                     ),
                   ),
@@ -480,7 +480,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                          color: Colors.white.withOpacity(0.18)),
+                          color: AppColors.w.withValues(alpha: 0.18)),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x55000000),
@@ -513,7 +513,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
                           border: Border.all(
                               color: AppColors.danger.withOpacity(0.6)),
                         ),
-                        child: const Icon(Icons.favorite_rounded,
+                        child: Icon(Icons.favorite_rounded,
                             size: 10, color: AppColors.danger),
                       ),
                     ),
@@ -530,7 +530,7 @@ class _ActorIndexPageState extends State<ActorIndexPage> {
           ),
           Text(
             '${e.count} 部',
-            style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+            style: TextStyle(fontSize: 9.5, color: AppColors.muted),
           ),
         ],
       ),

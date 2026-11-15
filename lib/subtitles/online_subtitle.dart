@@ -23,6 +23,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../theme.dart';
 import 'subtitles.dart'; // Subtitles.parseAny / SubtitleCue
 import '../widgets/glass_sheet.dart'; // 与播放页共用玻璃面板 / 行组件
 
@@ -702,9 +703,9 @@ class _OnlineSubtitleSheetState extends State<_OnlineSubtitleSheet> {
                           height: 30,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Colors.white.withValues(alpha: 0.10),
+                            color: AppColors.w.withValues(alpha: 0.10),
                             border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.14),
+                              color: AppColors.w.withValues(alpha: 0.14),
                             ),
                           ),
                           child: const Icon(
@@ -721,13 +722,13 @@ class _OnlineSubtitleSheetState extends State<_OnlineSubtitleSheet> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: TextField(
                     controller: _ctrl,
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    style: TextStyle(color: AppColors.ink, fontSize: 13),
                     decoration: InputDecoration(
                       hintText: '影片标题 / 番号',
                       hintStyle: const TextStyle(color: Color(0xFF9FB0CC)),
                       isDense: true,
                       filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.05),
+                      fillColor: AppColors.w.withValues(alpha: 0.05),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,

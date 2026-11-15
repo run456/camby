@@ -219,9 +219,9 @@ class _SearchPageState extends State<SearchPage> {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.10),
+        color: AppColors.w.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withOpacity(0.16)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.16)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -266,7 +266,7 @@ class _SearchPageState extends State<SearchPage> {
       child: KeyedSubtree(
         key: ValueKey('search-bg-${url ?? 'none'}'),
         child: url == null
-            ? const ColoredBox(color: AppColors.bg)
+            ? ColoredBox(color: AppColors.bg)
             : ImageFiltered(
                 imageFilter: ImageFilter.blur(sigmaX: 42, sigmaY: 42),
                 child: SizedBox.expand(
@@ -314,15 +314,15 @@ class _SearchPageState extends State<SearchPage> {
                           height: 44,
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.10),
+                            color: AppColors.w.withValues(alpha: 0.10),
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.16),
+                              color: AppColors.w.withValues(alpha: 0.16),
                             ),
                           ),
                           child: Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 // v2.0.68：与一级 Tab / 媒体库分段统一空心图标族。
                                 Icons.search_outlined,
                                 size: 18,
@@ -338,11 +338,11 @@ class _SearchPageState extends State<SearchPage> {
                                     _onChanged(v);
                                   },
                                   onSubmitted: _submit,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 14,
                                     color: AppColors.ink,
                                   ),
-                                  decoration: const InputDecoration(
+                                  decoration: InputDecoration(
                                     border: InputBorder.none,
                                     hintText: '搜索片名 / 演员 / 标签',
                                     hintStyle: TextStyle(
@@ -357,7 +357,7 @@ class _SearchPageState extends State<SearchPage> {
                                   radius: 10,
                                   semanticLabel: '清空',
                                   onTap: _clearSearch,
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.close_rounded,
                                     size: 16,
                                     color: AppColors.muted,
@@ -478,9 +478,9 @@ class _ModeTabs extends StatelessWidget {
       height: 34,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
+        color: AppColors.w.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.12)),
       ),
       child: Row(
         children: [_seg(0, '影片', filmCount), _seg(1, '演员', actorCount)],
@@ -505,8 +505,8 @@ class _ModeTabs extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withOpacity(0.26),
-                      Colors.white.withOpacity(0.12),
+                      AppColors.w.withValues(alpha: 0.26),
+                      AppColors.w.withValues(alpha: 0.12),
                     ],
                   )
                 : null,
@@ -585,7 +585,7 @@ class _HotRow extends StatelessWidget {
           if (item.userPlayCount > 0)
             Text(
               '${item.userPlayCount} 次',
-              style: const TextStyle(fontSize: 11, color: AppColors.muted),
+              style: TextStyle(fontSize: 11, color: AppColors.muted),
             ),
         ],
       ),
@@ -669,8 +669,8 @@ class _ActorGrid extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.08),
-                      border: Border.all(color: Colors.white.withOpacity(0.16)),
+                      color: AppColors.w.withValues(alpha: 0.08),
+                      border: Border.all(color: AppColors.w.withValues(alpha: 0.16)),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: url == null
@@ -702,7 +702,7 @@ class _ActorGrid extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 '${hit.works} 部作品',
-                style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                style: TextStyle(fontSize: 10, color: AppColors.muted),
               ),
             ],
           ),

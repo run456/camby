@@ -132,12 +132,12 @@ class _TagPageState extends State<TagPage> {
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              Colors.white.withOpacity(0.20),
-                              Colors.white.withOpacity(0.06),
+                              AppColors.w.withValues(alpha: 0.20),
+                              AppColors.w.withValues(alpha: 0.06),
                             ],
                           ),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.24),
+                            color: AppColors.w.withValues(alpha: 0.24),
                           ),
                         ),
                         child: const Icon(
@@ -163,7 +163,7 @@ class _TagPageState extends State<TagPage> {
                 ),
                 Text(
                   '${items.length} 部',
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                  style: TextStyle(fontSize: 12, color: AppColors.muted),
                 ),
               ],
             ),

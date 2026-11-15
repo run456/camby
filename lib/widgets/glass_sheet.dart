@@ -66,8 +66,8 @@ class GlassPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: blur
-                    ? Colors.white.withValues(alpha: 0.18)
-                    : Colors.white.withValues(alpha: 0.10),
+                    ? AppColors.w.withValues(alpha: 0.18)
+                    : AppColors.w.withValues(alpha: 0.10),
               ),
               boxShadow: [
                 BoxShadow(
@@ -88,8 +88,8 @@ class GlassPanel extends StatelessWidget {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.white.withValues(alpha: 0.12),
-                              Colors.white.withValues(alpha: 0.04),
+                              AppColors.w.withValues(alpha: 0.12),
+                              AppColors.w.withValues(alpha: 0.04),
                             ],
                           ),
                         ),
@@ -184,7 +184,7 @@ class SheetRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             color: selected
                 ? AppColors.accent.withValues(alpha: 0.18)
-                : Colors.white.withValues(alpha: 0.04),
+                : AppColors.w.withValues(alpha: 0.04),
             border: Border.all(
               color: selected
                   ? AppColors.accent.withValues(alpha: 0.5)
@@ -216,7 +216,7 @@ class SheetRow extends StatelessWidget {
                 ),
               if (selected) ...[
                 const SizedBox(width: 8),
-                const Icon(
+                Icon(
                   Icons.check_rounded,
                   size: 16,
                   color: AppColors.accent,
@@ -294,9 +294,9 @@ class AppSheet extends StatelessWidget {
                       height: 30,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: Colors.white.withValues(alpha: 0.10),
+                        color: AppColors.w.withValues(alpha: 0.10),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.14),
+                          color: AppColors.w.withValues(alpha: 0.14),
                         ),
                       ),
                       child: const Icon(
@@ -412,7 +412,7 @@ Future<T?> showAppDialog<T>({
                         ),
                         child: Text(
                           a.label,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: AppColors.accent,

@@ -112,7 +112,12 @@ class _StatsPageState extends State<StatsPage> {
       return Stack(
         children: [
           const Positioned.fill(child: _LiquidBackground()),
-          Container(color: Colors.black.withOpacity(0.34)),
+          Container(
+            // 深色：黑 34% 压暗斑块；浅色：白 62% 提亮，否则整页是脏灰。
+            color: AppColors.isDark
+                ? Colors.black.withValues(alpha: 0.34)
+                : Colors.white.withValues(alpha: 0.62),
+          ),
           WatchCalendarView(
             state: widget.state,
             onModeChanged: (m) => setState(() => _mode = m),
@@ -194,7 +199,7 @@ class _StatsPageState extends State<StatsPage> {
                       : widget.state.sourceLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10.5,
                     color: AppColors.muted,
                   ),
@@ -406,7 +411,11 @@ class _StatsPageState extends State<StatsPage> {
         const Positioned.fill(child: _LiquidBackground()),
         // v2.0.76：压一层更重的黑，光球只当「玻璃后面有点东西」，
         // 不再是整屏彩色雾——那是卡片显脏的源头。
-        Container(color: Colors.black.withOpacity(0.34)),
+        Container(
+          color: AppColors.isDark
+              ? Colors.black.withValues(alpha: 0.34)
+              : Colors.white.withValues(alpha: 0.62),
+        ),
         ListView.builder(
           padding: EdgeInsets.fromLTRB(hpad, top + 10, hpad, 150),
           // 平板（≥840）：卡片两两并排成双栏，避免条形图被拉到 1000+dp 宽
@@ -500,7 +509,7 @@ class _ExplainButton extends StatelessWidget {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withOpacity(0.45), width: 1),
+            border: Border.all(color: AppColors.w.withValues(alpha: 0.45), width: 1),
           ),
           child: const Text(
             '?',
@@ -582,7 +591,7 @@ class _SourceBadge extends StatelessWidget {
             : const LinearGradient(
                 colors: [Color(0x33FFFFFF), Color(0x14FFFFFF)],
               ),
-        border: Border.all(color: Colors.white.withOpacity(0.20), width: 1),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.20), width: 1),
       ),
       child: Text(
         text,
@@ -709,7 +718,12 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
         animation: _c,
         builder: (context, _) {
           final t = _c.value * 2 * math.pi;
-          return Stack(
+          // v2.0.98：浅色主题下这 4 块高饱和径向斑块会糊成一片脏色，
+          // 压到 28% 只留一点冷暖偏移。AnimatedBuilder 每帧重跑 build，
+          // 所以切主题时会自己跟上（不需要额外监听）。
+          return Opacity(
+            opacity: AppColors.isDark ? 1.0 : 0.28,
+            child: Stack(
             children: [
               for (int i = 0; i < _blobs.length; i++)
                 Positioned(
@@ -724,6 +738,7 @@ class _LiquidBackgroundState extends State<_LiquidBackground>
                   child: _blobLayers[i],
                 ),
             ],
+            ),
           );
         },
       ),
@@ -867,7 +882,7 @@ class _OverviewGrid extends StatelessWidget {
                               rows[r][i].$1,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 8.5,
                                 color: AppColors.muted,
                                 height: 1.1,
@@ -925,9 +940,9 @@ class _CompletionCard extends StatelessWidget {
 
         if (list.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Container(height: 1, color: Colors.white.withOpacity(0.07)),
+          Container(height: 1, color: AppColors.w.withValues(alpha: 0.07)),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '最近播放 10 部',
             style: TextStyle(fontSize: 10, color: AppColors.muted),
           ),
@@ -960,7 +975,7 @@ class _CompletionCard extends StatelessWidget {
                   ),
                   Text(
                     '$pct%',
-                    style: const TextStyle(fontSize: 9, color: AppColors.muted),
+                    style: TextStyle(fontSize: 9, color: AppColors.muted),
                   ),
                 ],
               ),
@@ -1008,7 +1023,7 @@ class _TagBars extends StatelessWidget {
                   ),
                   Text(
                     '${(e.value * 100).round()}%',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 9.5,
                       color: AppColors.muted,
                     ),
@@ -1021,8 +1036,8 @@ class _TagBars extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: e.value,
                   minHeight: 5,
-                  backgroundColor: Colors.white.withOpacity(0.1),
-                  valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                  backgroundColor: AppColors.w.withValues(alpha: 0.1),
+                  valueColor: AlwaysStoppedAnimation(AppColors.primary),
                 ),
               ),
             ],
@@ -1050,11 +1065,11 @@ class _TagCloud extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             gradient: LinearGradient(
               colors: [
-                Colors.white.withOpacity(0.14),
-                Colors.white.withOpacity(0.04),
+                AppColors.w.withValues(alpha: 0.14),
+                AppColors.w.withValues(alpha: 0.04),
               ],
             ),
-            border: Border.all(color: Colors.white.withOpacity(0.16), width: 1),
+            border: Border.all(color: AppColors.w.withValues(alpha: 0.16), width: 1),
           ),
           child: Text.rich(
             TextSpan(
@@ -1067,7 +1082,7 @@ class _TagCloud extends StatelessWidget {
               children: [
                 TextSpan(
                   text: ' ${e.value}',
-                  style: const TextStyle(fontSize: 9, color: AppColors.muted),
+                  style: TextStyle(fontSize: 9, color: AppColors.muted),
                 ),
               ],
             ),
@@ -1121,12 +1136,12 @@ class _QualityChips extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         gradient: LinearGradient(
                           colors: [
-                            Colors.white.withOpacity(0.12),
-                            Colors.white.withOpacity(0.04),
+                            AppColors.w.withValues(alpha: 0.12),
+                            AppColors.w.withValues(alpha: 0.04),
                           ],
                         ),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.14),
+                          color: AppColors.w.withValues(alpha: 0.14),
                           width: 1,
                         ),
                       ),
@@ -1137,7 +1152,7 @@ class _QualityChips extends StatelessWidget {
                             fit: BoxFit.scaleDown,
                             child: Text(
                               '${(rows[r][i].$2 * 100).round()}%',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w800,
                                 color: AppColors.ink,
@@ -1149,7 +1164,7 @@ class _QualityChips extends StatelessWidget {
                             fit: BoxFit.scaleDown,
                             child: Text(
                               rows[r][i].$1,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 9,
                                 color: AppColors.muted,
                               ),
@@ -1192,8 +1207,8 @@ class _CoverageGauge extends StatelessWidget {
               CircularProgressIndicator(
                 value: rate,
                 strokeWidth: 7,
-                backgroundColor: Colors.white.withOpacity(0.1),
-                valueColor: const AlwaysStoppedAnimation(AppColors.secondary),
+                backgroundColor: AppColors.w.withValues(alpha: 0.1),
+                valueColor: AlwaysStoppedAnimation(AppColors.secondary),
               ),
               Text(
                 '${(rate * 100).round()}%',
@@ -1209,7 +1224,7 @@ class _CoverageGauge extends StatelessWidget {
         Expanded(
           child: Text.rich(
             TextSpan(
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10.5,
                 color: AppColors.muted,
                 height: 1.6,
@@ -1218,7 +1233,7 @@ class _CoverageGauge extends StatelessWidget {
                 const TextSpan(text: '已看 '),
                 TextSpan(
                   text: '$watched',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.ink,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1226,7 +1241,7 @@ class _CoverageGauge extends StatelessWidget {
                 const TextSpan(text: ' / 库内 '),
                 TextSpan(
                   text: '$total',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.ink,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1234,7 +1249,7 @@ class _CoverageGauge extends StatelessWidget {
                 const TextSpan(text: ' 部\n还有 '),
                 TextSpan(
                   text: '${total - watched} 部',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: AppColors.ink,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1272,7 +1287,7 @@ class _TopPeople extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: AppColors.ctaGradient,
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.22),
+                    color: AppColors.w.withValues(alpha: 0.22),
                     width: 1,
                   ),
                 ),
@@ -1308,8 +1323,8 @@ class _TopPeople extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: w,
                     minHeight: 5,
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    valueColor: const AlwaysStoppedAnimation(AppColors.primary),
+                    backgroundColor: AppColors.w.withValues(alpha: 0.1),
+                    valueColor: AlwaysStoppedAnimation(AppColors.primary),
                   ),
                 ),
               ),
@@ -1318,7 +1333,7 @@ class _TopPeople extends StatelessWidget {
                 child: Text(
                   '${p['count']} $unit',
                   textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+                  style: TextStyle(fontSize: 9.5, color: AppColors.muted),
                 ),
               ),
             ],
@@ -1443,7 +1458,7 @@ class _TopItems extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: AppColors.ctaGradient,
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.22),
+                    color: AppColors.w.withValues(alpha: 0.22),
                     width: 1,
                   ),
                 ),
@@ -1473,7 +1488,7 @@ class _TopItems extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 '${e.$2} 次',
-                style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+                style: TextStyle(fontSize: 9.5, color: AppColors.muted),
               ),
             ],
           ),
@@ -1509,7 +1524,7 @@ class _ContinueList extends StatelessWidget {
                     colors: [Color(0xFFFFC55A), Color(0xFFFF8A4C)],
                   ),
                   border: Border.all(
-                    color: Colors.white.withOpacity(0.22),
+                    color: AppColors.w.withValues(alpha: 0.22),
                     width: 1,
                   ),
                 ),
@@ -1538,7 +1553,7 @@ class _ContinueList extends StatelessWidget {
               ),
               Text(
                 sub,
-                style: const TextStyle(fontSize: 9.5, color: AppColors.muted),
+                style: TextStyle(fontSize: 9.5, color: AppColors.muted),
               ),
             ],
           ),
@@ -1575,7 +1590,7 @@ class _DailyBars extends StatelessWidget {
       children: [
         Text(
           '合计 ${hours.toStringAsFixed(hours >= 10 ? 0 : (hours >= 1 ? 1 : 2))} 小时 · $totalPlays 次播放',
-          style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+          style: TextStyle(fontSize: 10.5, color: AppColors.muted),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -1603,9 +1618,9 @@ class _DailyBars extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(10),
-                    color: Colors.white.withOpacity(0.04),
+                    color: AppColors.w.withValues(alpha: 0.04),
                   ),
-                  child: const Text(
+                  child: Text(
                     '近 30 天无观看时长记录',
                     style: TextStyle(fontSize: 10, color: AppColors.muted),
                   ),
@@ -1641,7 +1656,7 @@ class _HourBars extends StatelessWidget {
       children: [
         Text(
           '共 $total 次播放 · 高峰 ${_label(peak)}:00–${(_label(peak).isEmpty ? '' : (peak * 2 + 2).toString().padLeft(2, '0'))}:00',
-          style: const TextStyle(fontSize: 10.5, color: AppColors.muted),
+          style: TextStyle(fontSize: 10.5, color: AppColors.muted),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -1676,7 +1691,7 @@ class _HourBars extends StatelessWidget {
               child: Text(
                 _label(i),
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 7, color: AppColors.muted),
+                style: TextStyle(fontSize: 7, color: AppColors.muted),
               ),
             );
           }),
@@ -1734,7 +1749,7 @@ class _TrendBars extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         '$m',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 7.5,
                           color: AppColors.muted,
                         ),
@@ -1777,7 +1792,7 @@ class _QualityRow extends StatelessWidget {
         ),
         if (posterTitles.isNotEmpty) ...[
           const SizedBox(height: 9),
-          const Text(
+          Text(
             '缺海报',
             style: TextStyle(fontSize: 9.5, color: AppColors.muted),
           ),
@@ -1786,7 +1801,7 @@ class _QualityRow extends StatelessWidget {
         ],
         if (overviewTitles.isNotEmpty) ...[
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '缺简介',
             style: TextStyle(fontSize: 9.5, color: AppColors.muted),
           ),
@@ -1823,7 +1838,7 @@ class _QualityRow extends StatelessWidget {
           Container(
             width: 3,
             height: 3,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.muted,
               shape: BoxShape.circle,
             ),

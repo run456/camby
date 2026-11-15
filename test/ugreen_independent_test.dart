@@ -248,7 +248,7 @@ void main() {
       final s = src('lib/pages/library_page.dart');
       expect(s.contains('if (isContinueViewId(vid)) return widget.state.continueWatching;'),
           isTrue);
-      // v2.0.97：chip 行改成「全部 + 常用 + ⊞ 全部媒体库」，其余收进弹窗
+      // v2.0.98：chip 行改成「全部 + 常用 + ⊞ 全部媒体库」，其余收进弹窗
       expect(s.contains("'全部媒体库'"), isTrue);
       expect(s.contains('showLibraryPickerSheet('), isTrue);
       expect(s.contains('_selectView(kContinueViewId)'), isTrue);
@@ -289,12 +289,12 @@ void main() {
   });
 
   group('版本与文档同步', () {
-    test('版本、UA、文档均为 v2.0.97', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.97+297'), isTrue);
-      expect(src('README.md').contains('v2.0.97 (297)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.97 (297)'), isTrue);
+    test('版本、UA、文档均为 v2.0.98', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.98+298'), isTrue);
+      expect(src('README.md').contains('v2.0.98 (298)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.98 (298)'), isTrue);
       expect(src('VERIFICATION.md').contains('§108'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.97'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.98'),
           isTrue);
     });
   });

@@ -2289,7 +2289,7 @@ class PlayerPageState extends State<PlayerPage>
         child: SingleChildScrollView(
           child: SelectableText(
             buf.join('\n'),
-            style: const TextStyle(
+            style: TextStyle(
               // 注意：播放页被 UI 度量守卫禁止出现 10.5（那是缓冲速率字号），
               // 这里用 11 保持同一视觉档位。
               fontSize: 11,
@@ -2431,7 +2431,7 @@ class PlayerPageState extends State<PlayerPage>
                 ),
               ),
               if (_initializing && !_bootOverlayVisible)
-                const Center(
+                Center(
                   child: CircularProgressIndicator(color: AppColors.primary),
                 ),
               // v1.7.55：起播 / 切内核等待期**唯一**的加载弹窗。
@@ -2482,14 +2482,14 @@ class PlayerPageState extends State<PlayerPage>
                                 : ((_attempts.isEmpty && _probes.isEmpty)
                                       ? '无可用片源 · 模拟播放'
                                       : '播放失败 · ${_failBrief}'),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               color: AppColors.accent,
                             ),
                           ),
                           if (_attempts.isNotEmpty || _probes.isNotEmpty) ...[
                             const SizedBox(width: 4),
-                            const Icon(
+                            Icon(
                               Icons.chevron_right_rounded,
                               size: 13,
                               color: AppColors.accent,
@@ -2605,7 +2605,7 @@ class PlayerPageState extends State<PlayerPage>
                                 value: _adjustValue,
                                 minHeight: 5,
                                 backgroundColor: Colors.white.withOpacity(0.2),
-                                valueColor: const AlwaysStoppedAnimation(
+                                valueColor: AlwaysStoppedAnimation(
                                   AppColors.accent,
                                 ),
                               ),

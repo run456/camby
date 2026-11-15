@@ -159,7 +159,7 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(3),
-                  color: Colors.white.withValues(alpha: 0.22),
+                  color: AppColors.w.withValues(alpha: 0.22),
                 ),
               ),
             ),
@@ -168,7 +168,7 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
               padding: const EdgeInsets.fromLTRB(18, 6, 10, 2),
               child: Row(
                 children: [
-                  const Text(
+                  Text(
                     '我的媒体',
                     style: TextStyle(
                       fontSize: 19,
@@ -182,7 +182,7 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                     padding: const EdgeInsets.only(top: 3),
                     child: Text(
                       '共 $total 个 · ${widget.views.length} 个服务器库',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10.5,
                         color: AppColors.muted,
                         fontWeight: FontWeight.w600,
@@ -208,14 +208,14 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.white.withValues(alpha: 0.06),
+                    color: AppColors.w.withValues(alpha: 0.06),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.10),
+                      color: AppColors.w.withValues(alpha: 0.10),
                     ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.search_rounded,
                         size: 16,
                         color: AppColors.muted,
@@ -225,11 +225,11 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                         child: TextField(
                           controller: _search,
                           onChanged: (v) => setState(() => _q = v),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12.5,
                             color: AppColors.ink,
                           ),
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             isDense: true,
                             border: InputBorder.none,
                             hintText: '搜索媒体库',
@@ -313,7 +313,7 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
                               '没有匹配「$_q」的媒体库',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 12,
                                 color: AppColors.muted,
                               ),
@@ -345,7 +345,7 @@ class _SectionLabel extends StatelessWidget {
         children: [
           Text(
             text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w800,
               color: AppColors.ink,
@@ -356,7 +356,7 @@ class _SectionLabel extends StatelessWidget {
             const SizedBox(width: 7),
             Text(
               hint!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 10,
                 color: AppColors.muted,
                 fontWeight: FontWeight.w500,
@@ -402,7 +402,7 @@ class _AllCard extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? AppColors.primary.withValues(alpha: 0.55)
-                : Colors.white.withValues(alpha: 0.12),
+                : AppColors.w.withValues(alpha: 0.12),
           ),
         ),
         child: Row(
@@ -425,7 +425,7 @@ class _AllCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   '全部影片',
                   style: TextStyle(
                     fontSize: 15,
@@ -436,7 +436,7 @@ class _AllCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '$count 部 · 跨所有媒体库',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10.5,
                     color: AppColors.muted,
                     fontWeight: FontWeight.w600,
@@ -446,7 +446,7 @@ class _AllCard extends StatelessWidget {
             ),
             const Spacer(),
             if (selected)
-              const Icon(
+              Icon(
                 Icons.check_circle_rounded,
                 size: 19,
                 color: AppColors.accent,
@@ -505,7 +505,7 @@ class _ViewCard extends StatelessWidget {
           border: Border.all(
             color: selected
                 ? AppColors.primary.withValues(alpha: 0.75)
-                : Colors.white.withValues(alpha: virtual ? 0.16 : 0.10),
+                : AppColors.w.withValues(alpha: virtual ? 0.16 : 0.10),
             width: selected ? 1.4 : 1,
           ),
         ),
@@ -532,7 +532,7 @@ class _ViewCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white.withValues(alpha: 0.66),
+                      color: AppColors.w.withValues(alpha: 0.66),
                     ),
                   ),
                 ],
@@ -548,7 +548,7 @@ class _ViewCard extends StatelessWidget {
                       child: Icon(
                         icon ?? Icons.folder_outlined,
                         size: 26,
-                        color: Colors.white.withValues(alpha: 0.82),
+                        color: AppColors.w.withValues(alpha: 0.82),
                       ),
                     )
                   : _Collage(previews: previews, name: name, colors: colors),
@@ -581,7 +581,7 @@ class _Collage extends StatelessWidget {
           style: TextStyle(
             fontSize: 26,
             fontWeight: FontWeight.w900,
-            color: Colors.white.withValues(alpha: 0.42),
+            color: AppColors.w.withValues(alpha: 0.42),
           ),
         ),
       );

@@ -54,7 +54,7 @@ class EmptyState extends StatelessWidget {
                     end: Alignment.bottomRight,
                     colors: [Color(0x224F8CFF), Color(0x0C7B5CFF)],
                   ),
-                  border: Border.all(color: Colors.white.withOpacity(0.18)),
+                  border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
                 ),
                 child: Icon(icon, size: 30, color: AppColors.ink.withOpacity(0.86)),
               ),
@@ -62,7 +62,7 @@ class EmptyState extends StatelessWidget {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w800,
                   color: AppColors.ink,
@@ -75,7 +75,7 @@ class EmptyState extends StatelessWidget {
                   child: Text(
                     reason!,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10.5,
                       color: AppColors.muted,
                       height: 1.6,
@@ -140,7 +140,7 @@ class _PrimaryCta extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: AppRadii.pillBr,
           gradient: AppColors.ctaGradient,
-          border: Border.all(color: Colors.white.withOpacity(0.20)),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.20)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -190,7 +190,7 @@ class EmptyHint extends StatelessWidget {
         Text(
           message,
           textAlign: align,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
             color: AppColors.muted,
             height: 1.5,

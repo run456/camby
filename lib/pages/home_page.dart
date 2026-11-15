@@ -773,7 +773,7 @@ class _HomePageState extends State<HomePage> {
                                               ),
                                               child: Row(
                                                 children: [
-                                                  const Icon(
+                                                  Icon(
                                                     Icons.refresh_rounded,
                                                     size: 15,
                                                     color: AppColors.primary,
@@ -781,7 +781,7 @@ class _HomePageState extends State<HomePage> {
                                                   const SizedBox(width: 10),
                                                   Text(
                                                     '暂无内容 · 点此重试',
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 11,
                                                       color: AppColors.muted,
                                                     ),
@@ -1029,7 +1029,7 @@ class _HomePageState extends State<HomePage> {
                           decoration: BoxDecoration(
                             color: i == cur
                                 ? Colors.white
-                                : Colors.white.withOpacity(0.32),
+                                : AppColors.w.withValues(alpha: 0.32),
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
@@ -1136,8 +1136,8 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
-          color: Colors.white.withOpacity(0.16),
-          border: Border.all(color: Colors.white.withOpacity(0.22)),
+          color: AppColors.w.withValues(alpha: 0.16),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.22)),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
@@ -1252,7 +1252,7 @@ class _HomePageState extends State<HomePage> {
                       decoration: BoxDecoration(
                         color: sel
                             ? Colors.white
-                            : Colors.white.withOpacity(0.32),
+                            : AppColors.w.withValues(alpha: 0.32),
                         borderRadius: BorderRadius.circular(3),
                       ),
                     );
@@ -1272,8 +1272,8 @@ class _HomePageState extends State<HomePage> {
                 ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(999),
-                  color: Colors.white.withOpacity(0.16),
-                  border: Border.all(color: Colors.white.withOpacity(0.22)),
+                  color: AppColors.w.withValues(alpha: 0.16),
+                  border: Border.all(color: AppColors.w.withValues(alpha: 0.22)),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1324,11 +1324,11 @@ class _Pill extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Colors.white.withOpacity(0.24),
-                  Colors.white.withOpacity(0.08),
+                  AppColors.w.withValues(alpha: 0.24),
+                  AppColors.w.withValues(alpha: 0.08),
                 ],
               ),
-              border: Border.all(color: Colors.white.withOpacity(0.26)),
+              border: Border.all(color: AppColors.w.withValues(alpha: 0.26)),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x40000000),
@@ -1358,7 +1358,7 @@ class _Badge extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.45),
         borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1420,13 +1420,13 @@ class _RowHeader extends StatelessWidget {
                 children: [
                   Text(
                     action!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12.5,
                       color: AppColors.muted,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
                     size: 16,
                     color: AppColors.muted,
@@ -1502,7 +1502,7 @@ class ContinueCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.black.withOpacity(0.38),
-                    border: Border.all(color: Colors.white.withOpacity(0.7)),
+                    border: Border.all(color: AppColors.w.withValues(alpha: 0.7)),
                   ),
                   child: const Icon(
                     Icons.play_arrow_rounded,
@@ -1569,8 +1569,8 @@ class ContinueCard extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: progress,
                       minHeight: 3,
-                      backgroundColor: Colors.white.withOpacity(0.18),
-                      valueColor: const AlwaysStoppedAnimation(
+                      backgroundColor: AppColors.w.withValues(alpha: 0.18),
+                      valueColor: AlwaysStoppedAnimation(
                         AppColors.primary,
                       ),
                     ),

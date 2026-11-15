@@ -68,11 +68,11 @@ class SortChipRow extends StatelessWidget {
                   colors: [Color(0x3D4F8CFF), Color(0x1A5F8CFF)],
                 )
               : null,
-          color: on ? null : Colors.white.withOpacity(0.05),
+          color: on ? null : AppColors.w.withValues(alpha: 0.05),
           border: Border.all(
             color: on
                 ? const Color(0x884F8CFF)
-                : Colors.white.withOpacity(0.12),
+                : AppColors.w.withValues(alpha: 0.12),
           ),
         ),
         child: Text(

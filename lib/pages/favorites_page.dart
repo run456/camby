@@ -118,7 +118,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                       const Spacer(),
                       Text(
                         subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           color: AppColors.muted,
                           fontWeight: FontWeight.w600,
@@ -209,7 +209,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         // 我的收藏夹
         Row(
           children: [
-            const Text(
+            Text(
               '我的收藏夹',
               style: TextStyle(
                 fontSize: 14,
@@ -232,7 +232,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
+                      Text(
                         '管理',
                         style: TextStyle(
                           fontSize: 11.5,
@@ -240,7 +240,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                           color: AppColors.muted,
                         ),
                       ),
-                      const Icon(
+                      Icon(
                         Icons.chevron_right_rounded,
                         size: 14,
                         color: AppColors.muted,
@@ -283,7 +283,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
           const SizedBox(height: 20),
           Row(
             children: [
-              const Text(
+              Text(
                 '最近收藏',
                 style: TextStyle(
                   fontSize: 14,
@@ -395,7 +395,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               height: 4,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(3),
-                color: Colors.white.withValues(alpha: 0.26),
+                color: AppColors.w.withValues(alpha: 0.26),
               ),
             ),
             const SizedBox(height: 14),
@@ -420,12 +420,12 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 ),
                 subtitle: Text(
                   '${f.itemIds.length} 部',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
                     color: AppColors.muted,
                   ),
                 ),
-                trailing: const Icon(
+                trailing: Icon(
                   Icons.more_horiz_rounded,
                   size: 18,
                   color: AppColors.muted,
@@ -477,7 +477,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               height: 4,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(3),
-                color: Colors.white.withOpacity(0.26),
+                color: AppColors.w.withValues(alpha: 0.26),
               ),
             ),
             const SizedBox(height: 16),
@@ -530,11 +530,11 @@ class _FavoritesPageState extends State<FavoritesPage> {
           borderRadius: BorderRadius.circular(14),
           color: danger
               ? const Color(0x1FFF6B8A)
-              : Colors.white.withOpacity(0.06),
+              : AppColors.w.withValues(alpha: 0.06),
           border: Border.all(
             color: danger
                 ? const Color(0x55FF6B8A)
-                : Colors.white.withOpacity(0.12),
+                : AppColors.w.withValues(alpha: 0.12),
           ),
         ),
         child: Row(
@@ -571,7 +571,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
       return Center(
         key: const ValueKey('actors-empty'),
         child: state.favPersonsLoading
-            ? const Column(
+            ? Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SizedBox(
@@ -669,7 +669,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               height: 4,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(3),
-                color: Colors.white.withOpacity(0.26),
+                color: AppColors.w.withValues(alpha: 0.26),
               ),
             ),
             const SizedBox(height: 14),
@@ -773,7 +773,7 @@ class _StackTile extends StatelessWidget {
                             borderRadius: BorderRadius.circular(9),
                             color: Colors.black.withOpacity(0.42),
                             border: Border.all(
-                              color: Colors.white.withOpacity(0.16),
+                              color: AppColors.w.withValues(alpha: 0.16),
                             ),
                           ),
                           child: Text(
@@ -802,7 +802,7 @@ class _StackTile extends StatelessWidget {
           const SizedBox(height: 1),
           Text(
             '$count 部影片',
-            style: const TextStyle(fontSize: 10, color: AppColors.muted),
+            style: TextStyle(fontSize: 10, color: AppColors.muted),
           ),
         ],
       ),
@@ -876,7 +876,7 @@ class _StackTile extends StatelessWidget {
             child: Icon(
               Icons.movie_creation_outlined,
               size: depth == 0 ? 24 : 19,
-              color: Colors.white.withOpacity(depth == 0 ? 0.30 : 0.15),
+              color: AppColors.w.withValues(alpha: depth == 0 ? 0.30 : 0.15),
             ),
           ),
         ),
@@ -888,7 +888,7 @@ class _StackTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
           width: depth == 0 ? 1.4 : 1.0,
-          color: Colors.white.withOpacity(depth == 0 ? 0.26 : 0.20),
+          color: AppColors.w.withValues(alpha: depth == 0 ? 0.26 : 0.20),
         ),
         boxShadow: const [
           BoxShadow(
@@ -929,7 +929,7 @@ class _StackTile extends StatelessWidget {
       child: Icon(
         Icons.movie_creation_outlined,
         size: 26,
-        color: Colors.white.withOpacity(0.22),
+        color: AppColors.w.withValues(alpha: 0.22),
       ),
     ),
   );
@@ -963,8 +963,8 @@ class _SyncButtonState extends State<_SyncButton> {
         height: 34,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.white.withOpacity(0.06),
-          border: Border.all(color: Colors.white.withOpacity(0.12)),
+          color: AppColors.w.withValues(alpha: 0.06),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.12)),
         ),
         child: _busy
             ? const Padding(
@@ -1050,7 +1050,7 @@ class _NewFolderTile extends StatelessWidget {
                   final box = CustomPaint(
                     painter: _DashedRRectPainter(
                       radius: 14,
-                      color: Colors.white.withOpacity(0.26),
+                      color: AppColors.w.withValues(alpha: 0.26),
                     ),
                     child: Center(
                       child: Column(
@@ -1061,9 +1061,9 @@ class _NewFolderTile extends StatelessWidget {
                             height: 40,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.white.withOpacity(0.06),
+                              color: AppColors.w.withValues(alpha: 0.06),
                               border: Border.all(
-                                color: Colors.white.withOpacity(0.14),
+                                color: AppColors.w.withValues(alpha: 0.14),
                               ),
                             ),
                             child: const Icon(
@@ -1073,7 +1073,7 @@ class _NewFolderTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 9),
-                          const Text(
+                          Text(
                             '新建收藏夹',
                             style: TextStyle(
                               fontSize: 11.5,
@@ -1098,7 +1098,7 @@ class _NewFolderTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 9),
-          const Text(
+          Text(
             '新建收藏夹',
             style: TextStyle(
               fontSize: 12.5,
@@ -1107,7 +1107,7 @@ class _NewFolderTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 1),
-          const Text(
+          Text(
             '输入名称创建',
             style: TextStyle(fontSize: 10, color: AppColors.muted),
           ),
@@ -1197,7 +1197,7 @@ class _ActorTile extends StatelessWidget {
                     height: size,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(0.18)),
+                      border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x55000000),
@@ -1230,7 +1230,7 @@ class _ActorTile extends StatelessWidget {
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 2),
-          const Text(
+          Text(
             '♥ 已收藏',
             style: TextStyle(fontSize: 9, color: AppColors.danger),
           ),
@@ -1251,7 +1251,7 @@ class _ActorTile extends StatelessWidget {
     child: Icon(
       Icons.person_rounded,
       size: 28,
-      color: Colors.white.withOpacity(0.35),
+      color: AppColors.w.withValues(alpha: 0.35),
     ),
   );
 }
@@ -1289,7 +1289,7 @@ class _StatsBar extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [Color(0x1FFFFFFF), Color(0x0AFFFFFF)],
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
       ),
       child: Row(
         children: [
@@ -1312,7 +1312,7 @@ class _StatsBar extends StatelessWidget {
       children: [
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w900,
             letterSpacing: -0.3,
@@ -1322,7 +1322,7 @@ class _StatsBar extends StatelessWidget {
         const SizedBox(height: 1),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 9.5,
             fontWeight: FontWeight.w600,
             color: AppColors.muted,
@@ -1337,7 +1337,7 @@ class _StatsBar extends StatelessWidget {
       width: 1,
       height: 24,
       margin: const EdgeInsets.symmetric(horizontal: 12),
-      color: Colors.white.withValues(alpha: 0.08),
+      color: AppColors.w.withValues(alpha: 0.08),
     );
   }
 
@@ -1347,7 +1347,7 @@ class _StatsBar extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: Colors.white.withValues(alpha: 0.05),
+        color: AppColors.w.withValues(alpha: 0.05),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1374,7 +1374,7 @@ class _StatsBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(999),
-          color: on ? Colors.white.withValues(alpha: 0.16) : null,
+          color: on ? AppColors.w.withValues(alpha: 0.16) : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1444,12 +1444,12 @@ class _FavoritesEmpty extends StatelessWidget {
                   height: 78,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: AppColors.w.withValues(alpha: 0.05),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.12),
+                      color: AppColors.w.withValues(alpha: 0.12),
                     ),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.favorite_border_rounded,
                     size: 34,
                     color: AppColors.accent,
@@ -1460,7 +1460,7 @@ class _FavoritesEmpty extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        const Text(
+        Text(
           '还没有收藏的影片',
           textAlign: TextAlign.center,
           style: TextStyle(
@@ -1475,7 +1475,7 @@ class _FavoritesEmpty extends StatelessWidget {
               ? '在影片详情页点心形即可加入收藏，\n也可以先建个收藏夹把想看的片归归类。'
               : '还没有连接服务器。先在「我的 → 我的服务器」连接，\n再回来收藏影片。',
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11.5,
             height: 1.6,
             color: AppColors.muted,
@@ -1516,12 +1516,12 @@ class _FavoritesEmpty extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(13),
-                    color: Colors.white.withValues(alpha: 0.06),
+                    color: AppColors.w.withValues(alpha: 0.06),
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.12),
+                      color: AppColors.w.withValues(alpha: 0.12),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     '新建收藏夹',
                     style: TextStyle(
                       fontSize: 13,
@@ -1535,7 +1535,7 @@ class _FavoritesEmpty extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        const Text(
+        Text(
           '收藏夹会同步到服务器，换设备也在。',
           textAlign: TextAlign.center,
           style: TextStyle(
