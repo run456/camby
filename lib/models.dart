@@ -17,7 +17,7 @@ enum MediaType { movie, series, episode, season }
 /// 单独抽出来是因为鉴权字符串在播放内核、图片加载、资源自检三处都要拼，
 /// 以前每处各自硬编码一个版本号，发版时必漏一处（v2.0.89 的图片头里就
 /// 还留着上一版号）。**发版时只改这里和 pubspec 两处。**
-const String kClientVersion = '2.0.92';
+const String kClientVersion = '2.0.93';
 
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
@@ -2049,6 +2049,8 @@ class SeasonGroup {
     this.posterUrl,
     this.episodeCount = 0,
     this.episodes = const [],
+    this.seriesId,
+    this.seriesName = '',
   });
 
   /// 季号：`ParentIndexNumber` / `Season.IndexNumber`，特别篇为 0
@@ -2066,6 +2068,21 @@ class SeasonGroup {
 
   /// 该季分集（已按 [compareEpisodes] 排好）
   final List<MediaItem> episodes;
+
+  /// 这一季挂在哪个 Series 条目下（v2.0.93）。
+  ///
+  /// 标准 Emby / Jellyfin 一个剧集一个 Series，所有季都在同一个 id 下，
+  /// 这里恒为当前剧的 id。**绿联影视中心不同**：它把每一季登记成独立的
+  /// Series 条目（`瑞克和莫蒂 第5季`、`瑞克和莫蒂 第7季` 各是一个），
+  /// 于是「同一部剧」在库里是好几条。合并展示时，点某一季必须知道该去
+  /// 哪个 Series 拉分集 —— 就是靠这个字段。
+  final String? seriesId;
+
+  /// 该季所属 Series 的显示名（诊断与合并去重用）
+  final String seriesName;
+
+  /// 是否已经拿到分集（合并来的兄弟季初始为空，点开时才拉）
+  bool get hasEpisodes => episodes.isNotEmpty;
 
   /// 是否为特别篇（`Season 0`）。Emby 惯例：0 季是花絮/特别篇。
   bool get isSpecial => index == 0;
@@ -2144,4 +2161,144 @@ String episodeBadge(MediaItem e, {int fallbackIndex = 0}) {
   final s = e.seasonNumber ?? 1;
   final n = e.episodeNumber ?? (fallbackIndex + 1);
   return 'S${s}E$n';
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 「同一部剧被拆成多条」的识别与合并（v2.0.93）
+//
+// 标准 Emby / Jellyfin：一个 Series 下面挂 Season 1..N，库里只有一条记录。
+// 绿联影视中心：把**每一季登记成一条独立的 Series**（「瑞克和莫蒂 第5季」
+// 与「瑞克和莫蒂 第7季」是两条），于是打开第 5 季的详情页，季标签只有
+// 第 5 季，看不到第 7 季 —— 用户说的「同一部剧没有合起来」就是这个。
+//
+// 合并靠名字：剥掉「第N季 / Season N / Sxx」后缀得到基名，基名相同的
+// Series 认为是同一部剧的不同季。基名必须归一化后**完全相等**才合并，
+// 宁可漏合也不能把《梦魇绝镇》和《梦魇绝镇：起源》错并成一部。
+// ─────────────────────────────────────────────────────────────────────────
+
+/// 季/部后缀的正则（结尾锚定）。
+///
+/// 覆盖中英常见写法：`第5季` `第五季` `5季` `Season 2` `season2`
+/// `S02` `S2`。刻意**不**匹配 `Part 2` / `下` 这种语义模糊的尾巴。
+/// 注意：Dart 的 RegExp 基于 ECMAScript，**不支持 lookbehind**，
+/// 所以 `Sxx` 那支把前置分隔符写进匹配里（靠 `m.start` 一并剥掉）。
+final RegExp _seasonSuffixRe = RegExp(
+  // 分隔符是可选的：中文剧名常写成「瑞克和莫蒂第7季」，中间没有空格
+  r'(?:[\s\-_·:：.()（）]+)?'
+  r'(?:'
+  r'第\s*[0-9０-９一二三四五六七八九十]+\s*[季部]'
+  r'|season\s*[0-9]+'
+  r'|[0-9]+\s*季'
+  r'|[sS][0-9]{1,2}'
+  r')'
+  r'[\s\-_·:：.()（）]*$',
+  caseSensitive: false,
+);
+
+/// 剥掉季后缀，得到「这部剧叫什么」。
+///
+/// 大写/小写、全角括号、尾部空白一并归一；只有确实剥掉了后缀才返回新值，
+/// 否则原样返回（避免把 `S.W.A.T.` 这种名字啃掉）。
+String seriesBaseName(String name) {
+  var s = name.trim();
+  if (s.isEmpty) return s;
+  // 尾部若只剩一个孤零零的括号，先去掉
+  s = s.replaceAll(RegExp(r'[\s\-_·]+$'), '');
+  final m = _seasonSuffixRe.firstMatch(s);
+  if (m == null || m.start == 0) return s;
+  final base = s.substring(0, m.start).trim();
+  // 剥完只剩空串说明整个名字就是「第5季」，那不算季后缀
+  if (base.isEmpty) return s;
+  return base;
+}
+
+/// 从 Series 名字里取季号；没有季后缀时返回 null。
+///
+/// `瑞克和莫蒂 第5季` → 5、`From Season 2` → 2、`某剧 S03` → 3、
+/// `梦魇绝镇` → null（标准 Emby 的剧名，季信息在 Season 条目里）。
+int? seasonFromSeriesName(String name) {
+  final s = name.trim();
+  if (s.isEmpty) return null;
+  final m = _seasonSuffixRe.firstMatch(s);
+  if (m == null) return null;
+  final raw = m.group(0) ?? '';
+  final ascii = RegExp(r'[0-9]+').firstMatch(raw);
+  if (ascii != null) {
+    final n = int.tryParse(ascii.group(0)!);
+    if (n != null && n >= 0 && n <= 99) return n;
+  }
+  // 中文数字：只做到 19，再多也不会是「第几季」了。
+  // 必须**先**判「十X」再判单字，否则「第十二季」会先命中「十」直接返回 10。
+  const cn = '零一二三四五六七八九';
+  final teen = RegExp(r'十([一二三四五六七八九])').firstMatch(raw);
+  if (teen != null) return 10 + cn.indexOf(teen.group(1)!);
+  if (raw.contains('十')) return 10;
+  final c = RegExp(r'[一二三四五六七八九]').firstMatch(raw);
+  if (c != null) return cn.indexOf(c.group(0)!) ;
+}
+
+/// 合并「本剧的季」与「同剧其它季的 Series」，按季号升序去重。
+///
+/// [current] 是当前 Series 的季（已带分集），[siblings] 是从其它 Series
+/// 推导出来的季（分集为空，靠 [SeasonGroup.seriesId] 按需拉取）。
+/// 同季号以 [current] 为准 —— 它一定带分集，且是用户点进来的那一条。
+List<SeasonGroup> mergeSeasonGroups(
+  List<SeasonGroup> current,
+  List<SeasonGroup> siblings,
+) {
+  final byIndex = <int, SeasonGroup>{};
+  for (final g in current) {
+    byIndex[g.index] = g;
+  }
+  for (final g in siblings) {
+    final exist = byIndex[g.index];
+    if (exist == null) {
+      byIndex[g.index] = g;
+      continue;
+    }
+    // 同季号：保留带分集的那一份；两份都空就保留先到的
+    if (!exist.hasEpisodes && g.hasEpisodes) byIndex[g.index] = g;
+  }
+  final keys = byIndex.keys.toList()..sort();
+  return [for (final k in keys) byIndex[k]!];
+}
+
+/// 从全库列表里找出「同一部剧的其它季」，转成待合并的 [SeasonGroup]。
+///
+/// 只在 [pool] 里找 `type == series` 且基名与 [current] 相同的条目 ——
+/// 不额外发请求，直接用 AppState 已加载的全量列表。基名归一化后必须
+/// **完全相等**，`《梦魇绝镇》` 与 `《梦魇绝镇：起源》` 不会被并到一起。
+///
+/// 季号优先取名字里的后缀（`第5季` → 5）；名字里没有季号的 Series
+/// 不参与合并（无法判断它属于哪一季，硬塞进去只会多出一个错标签）。
+List<SeasonGroup> siblingSeasonGroups(
+  MediaItem current,
+  List<MediaItem> pool,
+) {
+  if (!current.isSeries) return const [];
+  final base = seriesBaseName(current.name);
+  if (base.isEmpty) return const [];
+  final out = <SeasonGroup>[];
+  final seen = <int>{};
+  for (final p in pool) {
+    if (p.id == current.id || !p.isSeries) continue;
+    if (seriesBaseName(p.name) != base) continue;
+    final idx = seasonFromSeriesName(p.name);
+    if (idx == null) continue;
+    if (!seen.add(idx)) continue;
+    out.add(
+      SeasonGroup(
+        index: idx,
+        name: p.name,
+        id: p.id,
+        // 兄弟季的季号与 Series id 都记下来：点开时才知道去哪一季拉分集
+        seriesId: p.id,
+        seriesName: p.name,
+        posterUrl: p.posterUrl,
+        episodeCount: p.childCount,
+      ),
+    );
+  }
+  out.sort((a, b) => a.index.compareTo(b.index));
+  return out;
 }

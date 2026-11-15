@@ -522,7 +522,23 @@ class EmbyServer {
     if (isHttpPath && !cap.protocols.contains('http')) {
       return <String>[p, ...declared];
     }
-    if (declared.isNotEmpty) return declared;
+    // v2.0.93：协议未声明、但预检已经拿到 200/206 —— 说明这个端点确实能
+    // 出数据（实测 `video/x-matroska` + 206）。这时候别再只给一条 URL：
+    // 部分固件对 `Static=true` 走的是另一套 handler（不校验 Range），
+    // Exo 在自己的网络栈上用开放区间取流被拒时，换这一条就可能过。
+    if (declared.isNotEmpty) {
+      final first = declared.first;
+      if (cap.statusCode == 200 || cap.statusCode == 206) {
+        // 注意不能用 streamUrl(direct: true)：绿联下它跟不带 Static 的
+        // 完全同一条（见 streamUrl 注释），拼不出差异，这里显式构造。
+        final q = (_token ?? '').isEmpty ? '' : '&api_key=$_token';
+        final alt = '$assetUrl/Videos/${item.id}/stream?Static=true$q';
+        if (!declared.contains(alt)) {
+          return <String>[first, alt, ...declared.skip(1)];
+        }
+      }
+      return declared;
+    }
     return <String>[if (isHttpPath) p];
   }
 

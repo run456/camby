@@ -3307,3 +3307,93 @@ v2.0.91 改成 **先问、再取**：先读 Item 的
 `SingleChildScrollView + Row`（季数很少，无需虚拟滚动）与固定列数的
 `Column<Row>` 等比格子（`Expanded + AspectRatio`）；复跑
 `tools/perf_audit.py` 未命中。
+
+---
+
+## §107 发布 v2.0.93（同剧多季合并 · 端点通但内核拉不动的定性）
+
+需求：v2.0.92 装包后两条反馈 + 一张播放诊断截图：
+
+> 选集有了，但是同一部剧还是没有合起来，你看绿联的图，它是先选季再选集，
+> 然后播放时，报错信息如图
+
+**问题 1 定性**：绿联影视中心把**每一季登记成一条独立的 Series**。
+截图 1/2 是《瑞克和莫蒂》的两个详情页，一个「续看 S5E1」、一个「续看 S7E1」，
+说明库里是 `瑞克和莫蒂 第5季` 与 `瑞克和莫蒂 第7季` 两条记录，各自只带自己
+那一季的分集。v2.0.92 的季标签只读当前 Series 的 `/Shows/{id}/Seasons`，
+自然只看到一季 —— 用户说「没有合起来」就是这个。
+
+**实现**：
+
+- `models.dart` 新增三个纯函数：
+  - `seriesBaseName()`：剥掉 `第N季` / `第五季` / `Season N` / `Sxx` 后缀得到
+    基名。Dart 的 RegExp 不支持 lookbehind，`Sxx` 那支把前置分隔符写进匹配；
+  - `seasonFromSeriesName()`：从剧名取季号，支持阿拉伯与中文数字（到 12）；
+  - `siblingSeasonGroups()`：在全库列表里找基名相同的其它 Series，转成
+    待合并的季。**基名归一化后必须完全相等**，宁可漏合也不能把
+    《梦魇绝镇》和《梦魇绝镇：起源》错并成一部；
+  - `mergeSeasonGroups()`：季号去重升序，同季号以带分集的那份为准。
+- `SeasonGroup` 增 `seriesId` / `seriesName` / `hasEpisodes`：合并进来的兄弟季
+  初始没有分集，靠 `seriesId` 知道点开时去哪个 Series 拉。
+- `SeasonPicker` 增 `onLoadSeason`：切到没有分集的季才发请求，加载中显示
+  「正在读取这一季…」，同一季不重复拉。
+- 详情页 `_loadExtras()` 改为 `mergeSeasonGroups(本剧季, 兄弟季)`。
+
+**问题 2 定性**：诊断截图给出了完整证据链 ——
+
+| 项 | 值 |
+|---|---|
+| 声明协议 | （未声明）· MediaSources 1 条 |
+| 预检探测 | **HTTP 206 · `video/x-matroska`** |
+| Exo 起播 | `/Videos/7760/stream` → `Source error` |
+
+**206 说明地址、鉴权、证书全对，服务端确实在吐 matroska 字节流。**
+问题不在「拼错 URL」，而在 ExoPlayer 这一侧的取流方式：探测用闭合区间
+`Range: bytes=0-0`，Exo 的 `DefaultHttpDataSource` 用开放区间 `bytes=0-`，
+部分固件对后者直接断连/拒绝 → `Source error`（`TYPE_SOURCE` 是 IO 层，
+不是解析层）。
+
+v2.0.92 那版之所以「只留一条记录就哑火」，是因为 libmpv 的 `open()` 是
+**异步**的：收下 `loadfile` 就返回，HTTP 失败要过一会儿才写进 `path`
+属性。`_start()` 当场判定成功，把 `_attempts` 清了，用户对着黑屏。
+
+**实现**：
+
+- `_start()` 在绿联 + MPV 时，`open()` 后再等 900ms 回读 `lastError`，
+  有错就 `throw`，交给外层记进 `_attempts` 并试下一条 —— 不再「静默成功」。
+- `_attempts` 每条前加内核标签（`Exo · /Videos/…` / `MPV · …`），两条网络栈
+  的失败不再混在一起。
+- `_shortErr()` 补 `416（不支持 Range）` 与 5xx 的识别。
+- `AppState.exoStreamUnavailable`：绿联下 Exo 失败一次就记住，下次开播直接
+  走 MPV，不再每次陪它黑屏十几秒。连接 / 断开 / 演示模式三处重置。
+- `resolveStreamUrls()`：预检拿到 200/206 时追加一条 `?Static=true` 变体
+  （部分固件对 Static 走另一套 handler，不校验 Range），此时才有两条候选
+  可试。
+- `StreamCapability.verdict` 增加「未声明协议但端点实测可用」分支，把结论
+  从「需要抓一次播放请求」改成「地址和鉴权都没问题，问题在播放内核的
+  取流方式，本机已自动改试 MPV」。
+
+**验证（v2.0.93）**：`flutter test` 全过（新增 `test/series_merge_test.dart`
+25 条：基名归一化含「不同剧不能并」的反向断言、中文/英文季号解析、
+兄弟季识别、合并去重、面板按需加载与重复请求抑制、Exo 记忆与内核标签、
+Static 兜底与诊断文案）；`flutter analyze` 0 error / 0 warning；
+`tools/perf_audit.py` 未命中红线。
+
+**真机待确认**：沙箱无法访问 `192.168.5.29`。装包后：
+① 进《瑞克和莫蒂》任一季详情页，季标签应出现多季（因库里是 4 条独立
+Series 时会有 4 个标签）；点另一季应现场拉分集并显示集号。
+② 播放若失败，诊断里会看到 `Exo · …` 与 `MPV · …` 两条记录；若 MPV 成功、
+Exo 失败，则第二次开播会直接走 MPV 跳过黑屏。
+
+**交付**：`camby-2.0.93-release-arm64.apk`。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='293' versionName='2.0.93'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.92 逐项一致（6 项，未新增）。
+解包 `lib/arm64-v8a/libapp.so` 除版本串（已升 2.0.93）外 21 项关键字符串全部
+命中：本版新增的 `选集` / `续看 ` / `正在读取这一季` / `这一季还没有分集数据` /
+`地址和鉴权都没问题` / `本机已自动改试 MPV` / `不支持 Range`，以及前版的
+`Emby / Jellyfin / 绿联影视中心，同一个入口` / `特别篇` /
+`SupportedStreamingProtocols` / `服务端取流能力` / `X-Emby-Token` /
+`tls-verify` / `播放诊断` / `连接诊断` / `重新自检` / `观影日历` 均未丢失。
+`classes.dex` 中 `setIgnoreSsl` / `hdrCapabilities` / `createMulticastLock` /
+`SSLContext` / `X509TrustManager` 未破坏；`res/` 与 v2.0.92 逐文件 diff 零差异
+（目录指纹同为 `1d250ccf…`）。本地提交 + tag `v2.0.93`，未推 GitHub。

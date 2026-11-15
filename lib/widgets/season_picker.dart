@@ -21,6 +21,7 @@ class SeasonPicker extends StatefulWidget {
     this.loading = false,
     this.initialSeason,
     this.onPlayNext,
+    this.onLoadSeason,
   });
 
   /// 按季号升序排好的季列表（来自 `EmbyServer.seasons()`）
@@ -38,6 +39,13 @@ class SeasonPicker extends StatefulWidget {
   /// 「继续播放」入口：给出建议的下一集，为空则不显示
   final MediaItem? Function()? onPlayNext;
 
+  /// 按需加载某一季的分集（v2.0.93）。
+  ///
+  /// 绿联把每一季登记成独立的 Series 条目，「同剧其它季」只有在用户点开
+  /// 那个季标签时才需要拉分集 —— 一次进详情页就打 5、6 个请求并不划算。
+  /// 返回 null 表示这个季确实没有分集。
+  final Future<List<MediaItem>> Function(SeasonGroup group)? onLoadSeason;
+
   @override
   State<SeasonPicker> createState() => _SeasonPickerState();
 }
@@ -45,6 +53,18 @@ class SeasonPicker extends StatefulWidget {
 class _SeasonPickerState extends State<SeasonPicker> {
   int _si = 0;
   bool _inited = false;
+
+  /// 已按需拉到分集的季：季号 → 分组（覆盖 widget.seasons 里的同名项）
+  final Map<int, SeasonGroup> _loaded = {};
+
+  /// 正在拉取的季号
+  int? _loadingIndex;
+
+  /// 当前展示的季：优先用已加载的那份
+  SeasonGroup get _current {
+    final g = widget.seasons[_si];
+    return _loaded[g.index] ?? g;
+  }
 
   /// 集号网格一行放几个。窄屏 5 个（绿联原版也是 5~6 个），
   /// 宽屏交给 [LayoutBuilder] 按 64dp 一格自动算。
@@ -87,11 +107,11 @@ class _SeasonPickerState extends State<SeasonPicker> {
         style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
       );
     }
-    final s = widget.seasons[_si];
-    final total = widget.seasons.fold<int>(
-      0,
-      (a, g) => a + (g.episodes.isNotEmpty ? g.episodes.length : g.episodeCount),
-    );
+    final s = _current;
+    final total = widget.seasons.fold<int>(0, (a, g) {
+      final got = _loaded[g.index] ?? g;
+      return a + (got.hasEpisodes ? got.episodes.length : got.episodeCount);
+    });
     final next = widget.onPlayNext?.call();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,6 +184,44 @@ class _SeasonPickerState extends State<SeasonPicker> {
     );
   }
 
+  /// 切到第 [i] 季；该季还没分集就顺手拉一次。
+  ///
+  /// 「同剧其它季」在合并进来时只带季号与 Series id，分集要等真正点开
+  /// 才请求 —— 绿联一部剧常有 5~8 条 Series，一次进详情页全打一遍太浪费。
+  void _selectSeason(int i) {
+    if (i == _si) return;
+    setState(() => _si = i);
+    final g = widget.seasons[i];
+    final has = (_loaded[g.index] ?? g).hasEpisodes;
+    if (has || widget.onLoadSeason == null) return;
+    _loadSeason(g);
+  }
+
+  Future<void> _loadSeason(SeasonGroup g) async {
+    if (_loadingIndex == g.index) return;
+    setState(() => _loadingIndex = g.index);
+    try {
+      final list = await widget.onLoadSeason!(g);
+      if (!mounted) return;
+      setState(() {
+        _loadingIndex = null;
+        // 空列表也记下来：这样同一季不会被反复重拉，界面给「暂无分集」
+        _loaded[g.index] = SeasonGroup(
+          index: g.index,
+          name: g.name,
+          id: g.id,
+          posterUrl: g.posterUrl,
+          episodeCount: list.isEmpty ? g.episodeCount : list.length,
+          episodes: list,
+          seriesId: g.seriesId,
+          seriesName: g.seriesName,
+        );
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingIndex = null);
+    }
+  }
+
   /// 季标签行。
   ///
   /// 季数最多十几条，用 `Row` + 横向滚动一次性铺完即可 —— 既不需要虚拟滚动
@@ -179,10 +237,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
             _SeasonTab(
               group: widget.seasons[i],
               selected: i == _si,
-              onTap: () {
-                if (i == _si) return;
-                setState(() => _si = i);
-              },
+              onTap: () => _selectSeason(i),
             ),
           ],
         ],
@@ -194,7 +249,7 @@ class _SeasonPickerState extends State<SeasonPicker> {
     final eps = s.episodes;
     if (eps.isEmpty) {
       return Text(
-        '这一季还没有分集数据',
+        _loadingIndex == s.index ? '正在读取这一季…' : '这一季还没有分集数据',
         style: const TextStyle(fontSize: 11.5, color: AppColors.muted),
       );
     }

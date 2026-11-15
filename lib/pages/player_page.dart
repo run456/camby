@@ -595,6 +595,14 @@ class PlayerPageState extends State<PlayerPage>
       // Exo 侧没有任何色调映射 / DV 参数入口，HDR 与 DV 一律切 MPV。
       // 用户仍可在本页手动切回 Exo（尊重选择），但播放信息会给出提示。
       if (_plan.forceMpv) _engine = PlaybackEngine.mpv;
+      // v2.0.93：这台服务器已经证实 Exo 拉不动流（见 AppState 里那条注释），
+      // 就别再让用户每次陪 Exo 黑屏十几秒 —— 直接上 MPV。用户仍可在播放页
+      // 顶栏手动切回 Exo，那属于「我就是要试一次」的主动选择，不拦。
+      if (_engine == PlaybackEngine.exo &&
+          widget.state.exoStreamUnavailable &&
+          (widget.state.server?.isUgreen ?? false)) {
+        _engine = PlaybackEngine.mpv;
+      }
       // v1.7.50：自动连播 / strm 优先 Exo / ASS 特效的设置行已按设计稿移除，
       // 行为固定取默认值（开 / 开 / 开），字段保留供播放流程引用。
     } catch (_) {}
@@ -953,6 +961,9 @@ class PlayerPageState extends State<PlayerPage>
     // 走通就能播，比原地报「无可用片源」有用得多。
     if (_engine == PlaybackEngine.exo && !_triedMpvOnFailure && !allRejected) {
       _triedMpvOnFailure = true;
+      // 记下来：这台服务器上 Exo 拉不动流。下次开播直接走 MPV，不再让它
+      // 先失败一轮 —— 绿联 + 自签 HTTPS 是稳定复现的，不值得每次都试。
+      if (srv != null && srv.isUgreen) widget.state.markExoStreamUnavailable();
       if (await _tryAll(PlaybackEngine.mpv, ordered)) return;
     }
 
@@ -1017,6 +1028,18 @@ class PlayerPageState extends State<PlayerPage>
         headers: headers,
       );
       await p.setSpeed(_playbackSpeed);
+      // v2.0.93：libmpv 的 open 是异步的 —— 收下 loadfile 就返回，
+      // 真正的 HTTP 失败要过一会儿才写进 `path` 属性。绿联这种端点
+      // 「探测 206 但内核拉不动」的场景，如果不在这里等一下，就会出现
+      // 「进度条在走、画面全黑、诊断里只有一条记录」的哑火。
+      if (engine == PlaybackEngine.mpv &&
+          (widget.state.server?.isUgreen ?? false)) {
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        final mpvErr = p.lastError;
+        // 不在这里 dispose：外层 catch 会统一收尾，重复 dispose 反而会
+        // 让 media_kit 抛「already disposed」把真实错因盖掉。
+        if (mpvErr.isNotEmpty) throw StateError('libmpv: $mpvErr');
+      }
       if (!mounted) {
         await p.dispose();
         return false;
@@ -1050,8 +1073,12 @@ class PlayerPageState extends State<PlayerPage>
       return true;
     } catch (e) {
       final le = p?.lastError ?? '';
+      // v2.0.93：标出是哪个内核失败 —— 两个内核的网络栈完全不同，
+      // 混在一起看根本分不清是「Exo 的 Range 不被接受」还是「MPV 证书」。
+      final tag = engine == PlaybackEngine.exo ? 'Exo' : 'MPV';
       _attempts.add(
-        '${_shortUrl(url)} → ${le.isEmpty ? _shortErr('$e') : _shortErr(le)}'
+        '$tag · ${_shortUrl(url)} → '
+        '${le.isEmpty ? _shortErr('$e') : _shortErr(le)}'
         '${headers.isEmpty ? '（未带鉴权头）' : ''}',
       );
       await p?.dispose();
@@ -1081,6 +1108,15 @@ class PlayerPageState extends State<PlayerPage>
     if (s.contains('Handshake') || s.contains('CERTIFICATE')) return 'TLS 证书被拒';
     if (s.contains('403') || s.contains('Forbidden')) return 'HTTP 403';
     if (s.contains('404')) return 'HTTP 404';
+    // v2.0.93：416 是「Range 不被接受」的典型信号 —— 探测用闭合区间
+    // （bytes=0-0）能过，播放器用开放区间（bytes=0-）就可能被拒。
+    if (s.contains('416') || s.contains('Range Not Satisfiable')) {
+      return 'HTTP 416（不支持 Range）';
+    }
+    if (RegExp(r'\b5\d\d\b').hasMatch(s)) {
+      final m2 = RegExp(r'\b5\d\d\b').firstMatch(s);
+      return 'HTTP ${m2?.group(0)}';
+    }
     if (s.contains('timed out') || s.contains('Timeout')) return '连接超时';
     return s.length > 90 ? '${s.substring(0, 90)}…' : s;
   }

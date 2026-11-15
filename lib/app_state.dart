@@ -360,6 +360,24 @@ class AppState extends ChangeNotifier {
   /// 当前是否为绿联影视中心（独立服务器类型，v2.0.88）。
   bool get isUgreenServer => _server?.isUgreen ?? false;
 
+  /// Exo 在这个服务器上是否已被证实拉不动流（v2.0.93）。
+  ///
+  /// 绿联 / 自签 HTTPS 下有个反复出现的现象：`Range: bytes=0-0` 探测能拿
+  /// 到 206，但 ExoPlayer 的 `DefaultHttpDataSource` 用开放区间取流就报
+  /// `Source error`。既然 Exo 这条栈跟它合不来，就没必要**每次**都先陪它
+  /// 失败一轮（每次黑屏十几秒）。第一次失败后记住，后续直接走 MPV。
+  ///
+  /// 只在「同一台服务器 + 同一次连接」内有效，连接 / 切换 / 断开都会重置
+  /// —— 换了服务器或换了网络环境后不该沿用旧结论。
+  bool exoStreamUnavailable = false;
+
+  /// 标记 Exo 在本服务器上取流失败（见 [exoStreamUnavailable]）。
+  void markExoStreamUnavailable() {
+    if (exoStreamUnavailable) return;
+    exoStreamUnavailable = true;
+    notifyListeners();
+  }
+
   /// v2.0.89：绿联资源自检报告（设置页「连接诊断」展示）。
   String get resourceProbeReport => ResourcePolicy.instance.probeReport;
 
@@ -1528,6 +1546,8 @@ class AppState extends ChangeNotifier {
       final items = await server.items();
       if (items.isEmpty) throw EmbyException('未获取到任何媒体条目');
       _server = server;
+      // 新连上的服务器从零开始：Exo 是否可用要重新验证一次
+      exoStreamUnavailable = false;
       _items = items;
       _demoMode = false;
       _offline = false;
@@ -1590,6 +1610,8 @@ class AppState extends ChangeNotifier {
     _activeServerId = null;
     await _saveServers();
     _server = null;
+    // 换服务器 / 断开后，上一台的「Exo 拉不动流」结论不能再沿用
+    exoStreamUnavailable = false;
     // 断开后恢复系统证书校验，别让「信任任意证书」留在进程里
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
     ImageSsl.setIgnoreCertificateErrors(false);
@@ -1612,6 +1634,7 @@ class AppState extends ChangeNotifier {
 
   void useDemo() {
     _server = null;
+    exoStreamUnavailable = false;
     unawaited(NativeSsl.setIgnoreCertificateErrors(false));
     ImageSsl.setIgnoreCertificateErrors(false);
     ResourcePolicy.instance.reset();

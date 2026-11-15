@@ -1179,10 +1179,17 @@ class _DetailPageState extends State<DetailPage> {
                 ? await _fillSeasonEpisodes(server, groups)
                 : groups;
             if (!mounted) return;
+            // v2.0.93：「同一部剧」可能被服务端拆成多条 Series（绿联把每季
+            // 登记成独立条目），这里把同基名的其它季并进同一份季列表，
+            // 用户才算真正「先选季再选集」。
+            final merged = mergeSeasonGroups(
+              filled,
+              siblingSeasonGroups(_item, widget.state.items),
+            );
             setState(() {
-              _seasons = filled;
+              _seasons = merged;
               _episodes = [
-                for (final g in filled) ...g.episodes,
+                for (final g in merged) ...g.episodes,
               ]..sort(compareEpisodes);
             });
           })
@@ -1254,6 +1261,8 @@ class _DetailPageState extends State<DetailPage> {
             posterUrl: g.posterUrl,
             episodeCount: g.episodeCount,
             episodes: list,
+            seriesId: g.seriesId ?? _item.id,
+            seriesName: g.seriesName,
           ),
         );
       } catch (_) {
@@ -2503,6 +2512,15 @@ class _DetailPageState extends State<DetailPage> {
       seasons: groups,
       loading: false,
       initialSeason: initial,
+      // 兄弟季（另一个 Series 条目）的分集，等用户点开那一季才拉
+      onLoadSeason: (g) async {
+        final server = widget.state.server;
+        final sid = g.seriesId;
+        if (server == null || sid == null || sid == _item.id) {
+          return const <MediaItem>[];
+        }
+        return server.seasonEpisodes(sid, seasonIndex: g.index);
+      },
       onPlay: (e) => widget.onPlay(e, _defaultSubtitle(e), resume: true),
       // 「续看 S3E4」：从最后一次观看的位置顺延到下一集
       onPlayNext: () {

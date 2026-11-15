@@ -280,6 +280,15 @@ class StreamCapability {
           '媒体源对当前账号不可见。';
     }
     if (!hasAnyProtocol) {
+      // v2.0.93：协议没声明不等于端点不通 —— 实测有固件不写这个字段，
+      // 但 `/Videos/{id}/stream` 照样回 206 + video/x-matroska。这时问题就
+      // 完全不在「地址」上，而在「内核怎么取流」，结论要说到点子上。
+      if (statusCode == 200 || statusCode == 206) {
+        return '未声明取流协议，但取流端点实测可用（HTTP $statusCode · '
+            '${(contentType ?? '').isEmpty ? '未知类型' : contentType}）—— '
+            '地址和鉴权都没问题，问题在播放内核的取流方式。'
+            '本机已自动改试 MPV，下次开播会直接走它。';
+      }
       return 'MediaSources 里没有 SupportedStreamingProtocols 字段 —— '
           '这台固件未声明取流协议，需要抓一次影视中心自身的播放请求。';
     }

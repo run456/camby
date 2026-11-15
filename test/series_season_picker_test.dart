@@ -251,7 +251,9 @@ void main() {
     test('初始定位到上次观看的那一季', () {
       final s = src('lib/pages/detail_page.dart');
       expect(s.contains('initialSeason: initial'), isTrue);
-      expect(s.contains('_seasons = filled'), isTrue);
+      // v2.0.93：本剧的季与「同剧其它季」合并后才落到 _seasons
+      expect(s.contains('_seasons = merged'), isTrue);
+      expect(s.contains('mergeSeasonGroups('), isTrue);
     });
   });
 
@@ -354,14 +356,14 @@ void main() {
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.92', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.92+292'), isTrue);
-      expect(src('README.md').contains('v2.0.92 (292)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.92 (292)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§106'), isTrue);
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.92'"),
+    test('版本与文档同步到 v2.0.93', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.93+293'), isTrue);
+      expect(src('README.md').contains('v2.0.93 (293)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.93 (293)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§107'), isTrue);
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.93'"),
           isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.92'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.93'),
           isTrue);
     });
   });
