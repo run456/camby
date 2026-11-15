@@ -125,8 +125,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      // v1.7.66：与服务器同步收藏夹（拉回播放列表 + 推送未上云的本地夹）
-                      _SyncButton(state: state),
+                      // v2.0.105：上传/下载分离，各自选「覆盖 / 合并」
+                      _SyncButtons(state: state),
                     ],
                   ),
                 ),
@@ -1039,26 +1039,63 @@ class _StackTile extends StatelessWidget {
 ///
 /// 点击：把未上云的本地收藏夹推到服务端播放列表 + 拉回其他设备的改动，
 /// 完成后 toast 汇报数量；未连接服务器时提示不可用。
-class _SyncButton extends StatefulWidget {
-  const _SyncButton({required this.state});
+/// 收藏夹上传/下载按钮组（v2.0.105）。
+///
+/// 旧的单按钮把「本机有夹」一律当成上行覆盖，导致平板旧数据反复冲掉手机
+/// 新数据。现在方向由用户显式选择：上传 / 下载，各自再选「覆盖 / 合并」。
+class _SyncButtons extends StatefulWidget {
+  const _SyncButtons({required this.state});
 
   final AppState state;
 
   @override
-  State<_SyncButton> createState() => _SyncButtonState();
+  State<_SyncButtons> createState() => _SyncButtonsState();
 }
 
-class _SyncButtonState extends State<_SyncButton> {
-  bool _busy = false;
+class _SyncButtonsState extends State<_SyncButtons> {
+  bool _uploading = false;
+  bool _downloading = false;
+
+  bool get _busy => _uploading || _downloading;
 
   @override
   Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _roundButton(
+          key: const ValueKey('fav-upload'),
+          icon: Icons.cloud_upload_rounded,
+          tooltip: '上传收藏到服务器',
+          busy: _uploading,
+          onTap: _busy ? null : () => _pickMode(upload: true),
+        ),
+        const SizedBox(width: 6),
+        _roundButton(
+          key: const ValueKey('fav-download'),
+          icon: Icons.cloud_download_rounded,
+          tooltip: '从服务器下载收藏',
+          busy: _downloading,
+          onTap: _busy ? null : () => _pickMode(upload: false),
+        ),
+      ],
+    );
+  }
+
+  Widget _roundButton({
+    required Key key,
+    required IconData icon,
+    required String tooltip,
+    required bool busy,
+    required VoidCallback? onTap,
+  }) {
     return LiquidPress(
-      onTap: _busy ? null : _sync,
+      onTap: onTap,
       radius: 999,
       scale: 0.92,
       glow: 0.14,
       child: Container(
+        key: key,
         width: 34,
         height: 34,
         decoration: BoxDecoration(
@@ -1066,7 +1103,7 @@ class _SyncButtonState extends State<_SyncButton> {
           color: AppColors.w.withValues(alpha: 0.06),
           border: Border.all(color: AppColors.w.withValues(alpha: 0.12)),
         ),
-        child: _busy
+        child: busy
             ? const Padding(
                 padding: EdgeInsets.all(8),
                 child: CircularProgressIndicator(
@@ -1074,44 +1111,187 @@ class _SyncButtonState extends State<_SyncButton> {
                   color: Colors.white70,
                 ),
               )
-            : const Icon(Icons.sync_rounded, size: 18, color: Colors.white70),
+            : Tooltip(
+                message: tooltip,
+                child: Icon(icon, size: 18, color: Colors.white70),
+              ),
       ),
     );
   }
 
-  Future<void> _sync() async {
+  /// 弹出「覆盖 / 合并」选择。返回 null = 取消，true = 覆盖，false = 合并。
+  Future<void> _pickMode({required bool upload}) async {
+    final title = upload ? '上传到服务器' : '下载到本机';
+    final desc = upload
+        ? '把本机收藏夹同步到服务器播放列表。'
+        : '把服务器播放列表刷新到本机收藏夹。';
+    final overwrite = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AppColors.palette.glassBase,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.w.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(desc, style: TextStyle(fontSize: 12, color: AppColors.muted)),
+              const SizedBox(height: 14),
+              _modeTile(
+                title: '覆盖',
+                subtitle: upload
+                    ? '服务器以本机为准，删除服务器多余的收藏夹和影片'
+                    : '本机以服务器为准，删除本机多余的收藏夹和影片',
+                color: AppColors.warn,
+                icon: Icons.warning_amber_rounded,
+                onTap: () => Navigator.pop(ctx, true),
+              ),
+              const SizedBox(height: 10),
+              _modeTile(
+                title: '合并',
+                subtitle: '保留两端内容，取并集，不删除任何一方',
+                color: AppColors.accent,
+                icon: Icons.check_circle_outline_rounded,
+                onTap: () => Navigator.pop(ctx, false),
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('取消', style: TextStyle(color: AppColors.muted)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (overwrite == null || !mounted) return;
+    await _run(upload: upload, overwrite: overwrite);
+  }
+
+  Widget _modeTile({
+    required String title,
+    required String subtitle,
+    required Color color,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return LiquidPress(
+      onTap: onTap,
+      radius: 14,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.w.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.w.withValues(alpha: 0.1)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _run({
+    required bool upload,
+    required bool overwrite,
+  }) async {
     if (widget.state.server == null) {
       showToast(context, '未连接服务器，无法同步', icon: Icons.info_outline_rounded);
       return;
     }
-    setState(() => _busy = true);
+    setState(() {
+      if (upload) {
+        _uploading = true;
+      } else {
+        _downloading = true;
+      }
+    });
+    final action = upload ? '上传' : '下载';
+    final mode = overwrite ? '覆盖' : '合并';
     try {
-      final n = await widget.state.syncFoldersFromServer();
+      final n = upload
+          ? await widget.state.uploadFoldersToServer(overwrite: overwrite)
+          : await widget.state.downloadFoldersFromServer(overwrite: overwrite);
       if (!mounted) return;
       final pending = widget.state.pendingSyncCount;
       if (pending > 0) {
-        // 失败诊断：把服务端返回的具体错误带给用户，不再只说"待重试"
         final d = widget.state.folderSyncDiag;
         final detail = d.isEmpty
             ? ''
             : '：${d.length > 42 ? '${d.substring(0, 42)}…' : d}';
         showToast(
           context,
-          '已同步 · $n 个收藏夹（$pending 个待重试）$detail',
+          '$action完成（$mode）· $n 个收藏夹（$pending 个待重试）$detail',
           icon: Icons.warning_amber_rounded,
         );
       } else {
         showToast(
           context,
-          '已同步 · $n 个收藏夹与服务器一致',
+          '$action完成（$mode）· $n 个收藏夹',
           icon: Icons.check_circle_outline_rounded,
         );
       }
     } catch (_) {
       if (!mounted) return;
-      showToast(context, '同步失败，请检查网络后重试', icon: Icons.error_outline_rounded);
+      showToast(context, '$action失败，请检查网络后重试', icon: Icons.error_outline_rounded);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          if (upload) {
+            _uploading = false;
+          } else {
+            _downloading = false;
+          }
+        });
+      }
     }
   }
 }

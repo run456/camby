@@ -3713,3 +3713,36 @@ memWidth」（性能审计要求解码尺寸受控），所以新增 `fullResDis
 
 **真机待确认**：① 同行卡片顶点/底边是否齐、矮卡是否拉伸填满；② 概览两张组卡
 数字是否居中铺开；③ 底部悬浮导航是否不再遮挡；④ 手机端布局无回归。
+
+---
+
+## §115 发布 v2.0.105（收藏同步拆成上传/下载 + 覆盖/合并，根治多设备互相覆盖）
+
+**用户反馈**：手机收藏影片后点同步收藏，换平板点同步却没拉下手机的收藏，
+反把平板本地旧收藏夹推上服务端；下次手机同步又反向覆盖——两端来回冲掉对方数据。
+
+**根因**：`syncFoldersFromServer()` 的「本地有夹即以上行、删服务端多出条目」策略，
+加上 `connect` 时自动跑这套双向同步：任一设备点同步/登录都用它自己的本地状态覆盖服务端。
+Emby 播放列表无可靠修改时间，无法自动判新旧，故按用户选择改为显式方向。
+
+**改动**（用户选「上传/下载双按钮」方案）：
+
+| 项 | 内容 |
+|---|---|
+| UI | 收藏页标题行单个同步按钮 → 上传/下载两个圆按钮（`fav-upload`/`fav-download`），各自先弹「覆盖/合并」确认（说明会删什么、留什么），toast 汇报 N 个夹与待重试 |
+| 数据层 | `AppState` 新增 `uploadFoldersToServer({required bool overwrite})`、`downloadFoldersFromServer({required bool overwrite})` 两个独立入口；下载覆盖新增纯函数 `reconcileFoldersOverwrite` |
+| 语义 | 上传覆盖=服务端以本机为准删多余；上传合并=两端并集、服务端独有拉回；下载覆盖=本机以服务端为准删多余（跨服夹保留）；下载合并=并集、本机未上云夹保留 |
+| 安全入口 | `connect` 与设置页「从服务器恢复收藏夹」改走 `downloadFoldersFromServer(overwrite:false)` 只做下行，**不再**登录即上行覆盖 |
+| 兼容 | 旧 `syncFoldersFromServer()` 保留，但 UI 与登录链路不再调用 |
+
+**验证**：
+
+- `flutter analyze`：**0 error / 0 warning**。
+- `flutter test`：**908/908**（新增 `favorites_sync_direction_test.dart` 8 例锁定四种组合语义 +
+  入口守卫；更新 `playlist_ids_and_sync_button_test.dart` 双按钮守卫；重录收藏页深/浅金色图）。
+- 版本 v2.0.104→v2.0.105（+305）同步 pubspec / kClientVersion / dlnaUserAgent /
+  README / CHANGELOG / 20 个测试版本守卫；本文件新增 §115（§114 保留）。
+- APK `aapt` 校验 versionCode=305 / versionName=2.0.105。
+
+**真机待确认**：① 手机改收藏→点「上传」选覆盖/合并→平点点「下载」能看到最新；
+② 两端各自新增时选「合并」能取并集不丢；③ 覆盖确实按弹窗文案删除多余项；④ 登录不再冲掉服务端收藏。

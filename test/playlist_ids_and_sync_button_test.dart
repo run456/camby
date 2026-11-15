@@ -44,15 +44,21 @@ void main() {
   });
 
   group('收藏页同步入口与布局（v1.7.66）', () {
-    test('标题行必须有 _SyncButton（与服务器同步）', () {
-      expect(pageSrc.contains('class _SyncButton'), isTrue);
-      expect(pageSrc.contains('_SyncButton(state: state)'), isTrue);
+    test('v2.0.105：标题行必须有上传/下载双按钮（取代旧的单向同步按钮）', () {
+      expect(pageSrc.contains('class _SyncButtons'), isTrue);
+      expect(pageSrc.contains('_SyncButtons(state: state)'), isTrue);
+      expect(pageSrc.contains("ValueKey('fav-upload')"), isTrue);
+      expect(pageSrc.contains("ValueKey('fav-download')"), isTrue);
+      expect(pageSrc.contains('class _SyncButton '), isFalse);
     });
 
-    test('同步按钮必须调用 syncFoldersFromServer 并汇报结果', () {
-      final idx = pageSrc.indexOf('class _SyncButton');
+    test('上传/下载各自调用对应入口，且先问覆盖/合并', () {
+      final idx = pageSrc.indexOf('class _SyncButtons');
       final seg = pageSrc.substring(idx);
-      expect(seg.contains('syncFoldersFromServer()'), isTrue);
+      expect(seg.contains('uploadFoldersToServer('), isTrue);
+      expect(seg.contains('downloadFoldersFromServer('), isTrue);
+      expect(seg.contains("'覆盖'"), isTrue);
+      expect(seg.contains("'合并'"), isTrue);
       expect(seg.contains('showToast'), isTrue);
     });
 

@@ -567,7 +567,8 @@ class _ServersSection extends StatelessWidget {
           LiquidPress(
             onTap: () async {
               showToast(context, '正在从服务器恢复收藏夹…');
-              await state.syncFoldersFromServer();
+              // 只做下行合并：恢复/刷新本机，绝不用本机旧数据覆盖服务端
+              await state.downloadFoldersFromServer(overwrite: false);
               if (!context.mounted) return;
               showToast(
                 context,

@@ -1377,6 +1377,42 @@ class AppState extends ChangeNotifier {
     return result;
   }
 
+  /// 下载「覆盖」模式（服务端 → 本地）的纯函数：本机该服务器的收藏夹完全
+  /// 以服务端播放列表为准。
+  ///
+  /// - 服务端非空名播放列表 → 本地收藏夹，名称与片单都取服务端的值；
+  /// - 本地该服务器的其余收藏夹（含未上云的纯本地夹）一律移除——「覆盖」
+  ///   的语义就是让本机变成服务端快照；
+  /// - 其它服务器的收藏夹原样保留（多服隔离）；
+  /// - 服务端空名播放列表是历史脏数据，不建成本地收藏夹。
+  static List<FavoriteFolder> reconcileFoldersOverwrite(
+    List<FavoriteFolder> local,
+    List<ServerPlaylist> remote,
+    String serverId,
+  ) {
+    final result = local.where((f) => f.serverId != serverId).toList();
+    for (final p in remote) {
+      if (p.name.isEmpty) continue;
+      final i = result.indexWhere(
+        (f) => f.serverId == serverId && f.playlistId == p.id,
+      );
+      final folder = FavoriteFolder(
+        id: i >= 0 ? result[i].id : 'pl_${p.id}',
+        name: p.name,
+        itemIds: p.itemIds,
+        createdAt: i >= 0 ? result[i].createdAt : 0,
+        serverId: serverId,
+        playlistId: p.id,
+      );
+      if (i >= 0) {
+        result[i] = folder;
+      } else {
+        result.add(folder);
+      }
+    }
+    return result;
+  }
+
   /// 从服务端拉回播放列表并与本地收藏夹双向同步。
   ///
   /// 连接成功 / 重装后登录 / 设置页手动「从服务器恢复」/ 收藏页刷新按钮时调用。
@@ -1436,6 +1472,222 @@ class AppState extends ChangeNotifier {
     // 本地可能有刚建立的续播位置变化：清掉「继续观看」缓存，页面立刻反映
     _invalidateDerived();
     return _folders.where((f) => f.serverId == sid).length;
+  }
+
+  /// 下载（服务端 → 本地）：把服务端播放列表刷新到本机收藏夹。
+  ///
+  /// [overwrite] = true：本机以服务端为准，移除本机多余的收藏夹/影片；
+  /// [overwrite] = false：两端取并集，保留本机独有的收藏夹/影片。
+  ///
+  /// 与旧的 [syncFoldersFromServer] 不同，这里**绝不**把本机数据写回服务端，
+  /// 是「平板一点就把手机改的刷新下来」的安全入口。
+  Future<int> downloadFoldersFromServer({required bool overwrite}) async {
+    final s = _server;
+    final sid = _activeServerId;
+    if (s == null || sid == null) return 0;
+    if (_folders.any((f) => f.serverId == null)) {
+      _folders = _folders
+          .map((f) => f.serverId == null ? f.copyWith(serverId: sid) : f)
+          .toList();
+    }
+    List<ServerPlaylist> remote;
+    try {
+      remote = await s.listPlaylists();
+    } catch (e) {
+      folderSyncDiag =
+          '拉取服务端播放列表失败：${s.lastPlaylistError.isNotEmpty ? s.lastPlaylistError : e}';
+      notifyListeners();
+      return _folders.where((f) => f.serverId == sid).length;
+    }
+    _folders = overwrite
+        ? reconcileFoldersOverwrite(_folders, remote, sid)
+        : reconcileFolders(_folders, remote, sid);
+    await _deleteJunkPlaylists(s, remote, sid);
+    folderSyncDiag = '';
+    notifyListeners();
+    await _saveFolders();
+    _invalidateDerived();
+    return _folders.where((f) => f.serverId == sid).length;
+  }
+
+  /// 上传（本地 → 服务端）：把本机收藏夹写入服务端播放列表。
+  ///
+  /// [overwrite] = true：服务端以本机为准，删除服务端多余的收藏夹/影片；
+  /// [overwrite] = false：两端取并集，保留服务端独有的收藏夹/影片。
+  Future<int> uploadFoldersToServer({required bool overwrite}) async {
+    final s = _server;
+    final sid = _activeServerId;
+    if (s == null || sid == null) return 0;
+    if (_folders.any((f) => f.serverId == null)) {
+      _folders = _folders
+          .map((f) => f.serverId == null ? f.copyWith(serverId: sid) : f)
+          .toList();
+    }
+    List<ServerPlaylist> remote;
+    try {
+      remote = await s.listPlaylists();
+    } catch (e) {
+      folderSyncDiag =
+          '拉取服务端播放列表失败：${s.lastPlaylistError.isNotEmpty ? s.lastPlaylistError : e}';
+      notifyListeners();
+      return _folders.where((f) => f.serverId == sid).length;
+    }
+    final diag = <String>[];
+    _folders = await _pushLocalFolders(sid, remote, overwrite, diag);
+    await _deleteJunkPlaylists(s, remote, sid);
+    folderSyncDiag = diag.take(2).join('；');
+    notifyListeners();
+    await _saveFolders();
+    _invalidateDerived();
+    return _folders.where((f) => f.serverId == sid).length;
+  }
+
+  /// 上传的核心实现：按覆盖/合并策略把本机收藏夹写入服务端播放列表。
+  Future<List<FavoriteFolder>> _pushLocalFolders(
+    String sid,
+    List<ServerPlaylist> remote,
+    bool overwrite,
+    List<String> diag,
+  ) async {
+    final s = _server!;
+    final remoteById = <String, ServerPlaylist>{};
+    for (final p in remote) {
+      remoteById[p.id] = p;
+    }
+    // 按名收养，避免服务端出现两个同名播放列表
+    final remoteByName = <String, ServerPlaylist>{};
+    for (final p in remote) {
+      if (p.name.isNotEmpty) remoteByName.putIfAbsent(p.name, () => p);
+    }
+    final out = <FavoriteFolder>[];
+    final matched = <String>{};
+
+    Future<FavoriteFolder> upsert(
+      FavoriteFolder f,
+      ServerPlaylist? existing,
+    ) async {
+      var pid = existing?.id;
+      if (pid == null) {
+        final byName = remoteByName[f.name];
+        if (byName != null && !matched.contains(byName.id)) {
+          pid = byName.id;
+          existing = byName;
+        } else {
+          pid = await s.createPlaylist(f.name, f.itemIds);
+          if (pid == null) {
+            diag.add('「${f.name}」创建失败：${s.lastPlaylistError}');
+            return f.copyWith(pendingSync: true);
+          }
+          matched.add(pid);
+          return f.copyWith(playlistId: pid, pendingSync: false);
+        }
+      }
+      matched.add(pid);
+
+      final oldIds = existing?.itemIds ?? const <String>[];
+      final serverSet = Set<String>.from(oldIds);
+      final localSet = Set<String>.from(f.itemIds);
+      // 覆盖：服务端片单以本机为准；合并：保留两端各自的影片
+      final toAdd = f.itemIds.where((e) => !serverSet.contains(e)).toList();
+      final toRemove = overwrite
+          ? oldIds.where((e) => !localSet.contains(e)).toList()
+          : <String>[];
+      final finalIds = overwrite
+          ? f.itemIds
+          : [...f.itemIds, ...oldIds.where((e) => !localSet.contains(e))];
+
+      var ok = true;
+      if (existing != null && existing.name != f.name) {
+        final newPid = await s.renamePlaylist(
+          pid,
+          f.name,
+          itemIds: finalIds,
+        );
+        if (newPid == null) {
+          ok = false;
+          diag.add('「${f.name}」改名失败：${s.lastPlaylistError}');
+        } else if (newPid != pid) {
+          // 重建式改名已按 finalIds 建好新列表，跳过本轮加/移片
+          matched.add(newPid);
+          return f.copyWith(
+            playlistId: newPid,
+            itemIds: finalIds,
+            pendingSync: !ok,
+          );
+        }
+      }
+      if (toAdd.isNotEmpty && !await s.addToPlaylist(pid, toAdd)) {
+        ok = false;
+        diag.add('「${f.name}」加片失败：${s.lastPlaylistError}');
+      }
+      if (toRemove.isNotEmpty && !await s.removeFromPlaylist(pid, toRemove)) {
+        ok = false;
+        diag.add('「${f.name}」移片失败：${s.lastPlaylistError}');
+      }
+      return f.copyWith(itemIds: finalIds, pendingSync: !ok);
+    }
+
+    for (final f in _folders) {
+      if (f.serverId != sid) {
+        out.add(f);
+        continue;
+      }
+      final existing = f.playlistId == null ? null : remoteById[f.playlistId];
+      out.add(await upsert(f, existing));
+    }
+
+    for (final p in remote) {
+      if (matched.contains(p.id)) continue;
+      if (p.name.isEmpty) continue;
+      if (overwrite) {
+        if (!await s.deletePlaylist(p.id)) {
+          diag.add('删除服务端「${p.name}」失败：${s.lastPlaylistError}');
+        }
+      } else {
+        out.add(
+          FavoriteFolder(
+            id: 'pl_${p.id}',
+            name: p.name,
+            itemIds: p.itemIds,
+            serverId: sid,
+            playlistId: p.id,
+          ),
+        );
+      }
+    }
+
+    // 同名去重：历史事故留下的同名夹合并为一个（片单并集）
+    final nameIndex = <String, int>{};
+    final merged = <FavoriteFolder>[];
+    final dupPlaylistIds = <String>{};
+    for (final f in out) {
+      if (f.serverId != sid) {
+        merged.add(f);
+        continue;
+      }
+      final i = nameIndex[f.name];
+      if (i == null) {
+        nameIndex[f.name] = merged.length;
+        merged.add(f);
+        continue;
+      }
+      final kept = merged[i];
+      final seen = Set<String>.from(kept.itemIds);
+      merged[i] = kept.copyWith(
+        itemIds: [
+          ...kept.itemIds,
+          ...f.itemIds.where((e) => !seen.contains(e)),
+        ],
+      );
+      final pid = f.playlistId;
+      if (pid != null && pid != merged[i].playlistId) {
+        dupPlaylistIds.add(pid);
+      }
+    }
+    for (final pid in dupPlaylistIds) {
+      await s.deletePlaylist(pid);
+    }
+    return merged;
   }
 
   /// 上行模式：把本地收藏夹的状态推到服务端（APP 为准）。
@@ -1931,8 +2183,10 @@ class AppState extends ChangeNotifier {
       _loadPlayback();
       // 演员收藏（Person 收藏在服务端，失败静默保留本地）
       loadFavoritePersons();
-      // 收藏夹与服务端播放列表双向同步（多设备同步 + 重装自动恢复）
-      await syncFoldersFromServer();
+      // 收藏夹：连接时只做下行合并（多设备刷新 + 重装自动恢复），绝不用
+      // 本机数据覆盖服务端——否则平板一登录就把旧收藏推上去，把手机刚
+      // 同步的数据冲掉。上传改由收藏页「上传」按钮显式触发。
+      await downloadFoldersFromServer(overwrite: false);
       // 冲刷可能存在的待上报进度
       unawaited(flushPendingProgress());
       return true;
