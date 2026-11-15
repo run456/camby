@@ -157,8 +157,10 @@ class _SearchPageState extends State<SearchPage> {
       });
 
     if (!mounted) return;
+    // v2.0.95：绿联把每季登记成独立 Series，搜索结果里「同一部剧」会拆成多条。
+    // 展示层按基名折叠成一条（保留最早季作代表），不改动 state.items。
     setState(() {
-      _results = matched;
+      _results = mergeSiblingSeriesItems(matched);
       _actors = actors
           .map((e) => _ActorHit(castFirst[e.key]!, e.value))
           .toList();

@@ -64,8 +64,11 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final counts = MediaFilter.seriesCountsOf(state.items);
-    final covers = _covers(state.items);
+    // v2.0.95：绿联把每季登记成独立 Series（seriesName 带「第N季」后缀），
+    // 这里按基名折叠，避免「系列」tab 里「同一部剧」被拆成多行。
+    final rawCounts = MediaFilter.seriesCountsOf(state.items);
+    final counts = _foldSeriesNames(rawCounts);
+    final covers = _foldCovers(_covers(state.items));
     final all = counts.keys.toList();
     final q = _query.trim().toUpperCase();
     final names =
@@ -184,6 +187,29 @@ class _SeriesIndexPageState extends State<SeriesIndexPage> {
       final s = item.seriesName.trim();
       if (s.isEmpty) continue;
       m.putIfAbsent(s, () => item);
+    }
+    return m;
+  }
+
+  /// 把 seriesName 统计按基名折叠：绿联每季独立 Series 的 seriesName 带
+  /// 「第N季」后缀，折叠后「同一部剧」只算一行。
+  Map<String, int> _foldSeriesNames(Map<String, int> counts) {
+    final m = <String, int>{};
+    for (final e in counts.entries) {
+      final base = seriesBaseName(e.key);
+      final k = base.isEmpty ? e.key : base;
+      m[k] = (m[k] ?? 0) + e.value;
+    }
+    return m;
+  }
+
+  /// 封面映射同步按基名折叠，取该基名第一条作封面。
+  Map<String, MediaItem> _foldCovers(Map<String, MediaItem> covers) {
+    final m = <String, MediaItem>{};
+    for (final e in covers.entries) {
+      final base = seriesBaseName(e.key);
+      final k = base.isEmpty ? e.key : base;
+      m.putIfAbsent(k, () => e.value);
     }
     return m;
   }

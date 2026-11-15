@@ -354,7 +354,7 @@ void main() {
           isTrue);
     });
 
-    test('v2.0.94 诊断结论改为「实测地址没传下去」，不再是内核定性', () {
+    test('v2.0.95 诊断结论改为「实测地址没传下去」，不再是内核定性', () {
       final s = src('lib/ugreen_resource.dart');
       expect(s.contains('hasVerifiedUrl'), isTrue);
       expect(s.contains('此前起播误用了另拼的 stream 端点（404）'), isTrue);
@@ -365,14 +365,14 @@ void main() {
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.94', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.94+294'), isTrue);
-      expect(src('README.md').contains('v2.0.94 (294)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.94 (294)'), isTrue);
+    test('版本与文档同步到 v2.0.95', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.95+295'), isTrue);
+      expect(src('README.md').contains('v2.0.95 (295)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.95 (295)'), isTrue);
       expect(src('VERIFICATION.md').contains('§108'), isTrue);
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.94'"),
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.95'"),
           isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.94'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.95'),
           isTrue);
     });
   });

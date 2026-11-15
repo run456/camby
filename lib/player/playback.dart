@@ -109,6 +109,16 @@ abstract class PlaybackController {
   /// 运行时切换外挂字幕（null = 关闭）。返回 true 表示内核已接管显示。
   Future<bool> setSubtitle(String? url);
 
+  /// 选择媒体文件内封的字幕轨（v2.0.95，用于图像字幕 PGS / DVDSUB）。
+  ///
+  /// [language] 与 [streamIndex] 用于从 MKV 内封的多条字幕里挑出目标轨：
+  /// 优先按语言匹配，其次按序号兜底。ExoPlayer 不支持图像字幕，恒返回 false。
+  /// 返回 true 表示内核已按内封轨渲染（不再走 HTTP 字幕端点）。
+  Future<bool> setEmbeddedSubtitle({
+    required String language,
+    int? streamIndex,
+  });
+
   /// 下发字幕样式（1.7.38 / v1.7.22）。
   ///
   /// 只有 MPV 内核真正接管字幕渲染，才需要把样式翻译成 libmpv 原生属性：
@@ -297,6 +307,13 @@ class ExoController implements PlaybackController {
   @override
   Future<bool> setSubtitle(String? url) async => false;
 
+  @override
+  Future<bool> setEmbeddedSubtitle({
+    required String language,
+    int? streamIndex,
+  }) async =>
+      false;
+
   // Exo 内核的字幕是播放页叠加层画的，样式由页面直接作用于 Text，
   // 内核侧没有可调项（这里保持空实现，避免误以为没生效）
   @override
@@ -429,6 +446,54 @@ class MpvController implements PlaybackController {
         }
       }
       return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> setEmbeddedSubtitle({
+    required String language,
+    int? streamIndex,
+  }) async {
+    if (!_opened) return false;
+    try {
+      // 图像字幕（PGS / DVDSUB）只能由 libmpv 直接渲染 MKV 内封轨，
+      // 不能当外链 .srt 下载（绿联/Emby 无法把图像字幕转文本 → 404）。
+      // 优先按语言命中内封轨，其次按序号兜底，最后退回 auto 选默认轨。
+      // open 后内封轨列表稍晚才解析出来，等一小会儿再读，避免空列表。
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      final tracks = _player.state.tracks.subtitle;
+      SubtitleTrack? match;
+      final lang = language.toLowerCase().trim();
+      for (final t in tracks) {
+        final tl = (t.language ?? '').toLowerCase();
+        if (lang.isNotEmpty && tl.isNotEmpty) {
+          if (tl.contains(lang) || lang.contains(tl)) {
+            match = t;
+            break;
+          }
+        }
+      }
+      if (match == null && streamIndex != null && streamIndex > 0) {
+        // Emby 的 MediaStreams.Index 通常从 1 起，与 MPV sid 对齐；
+        // 语言为空时（绿联常见）用序号兜底挑第 N 条内封字幕。
+        if (streamIndex - 1 < tracks.length) match = tracks[streamIndex - 1];
+      }
+      final platform = _player.platform;
+      if (platform is NativePlayer) {
+        final id = match?.id ?? '';
+        if (id.isNotEmpty) {
+          await platform.setProperty('sid', id);
+        } else {
+          await _player.setSubtitleTrack(SubtitleTrack.auto());
+        }
+        try {
+          await platform.setProperty('sub-visibility', 'yes');
+        } catch (_) {}
+        return true;
+      }
+      return false;
     } catch (_) {
       return false;
     }

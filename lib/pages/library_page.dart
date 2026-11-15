@@ -262,6 +262,9 @@ class _LibraryPageState extends State<LibraryPage> {
         '|${_directorFilters.join()}|${_studioFilters.join()}|${_seriesFilters.join()}'
         '|${_viewItems?.length ?? -1}|${state.items.length}';
     final list = _compute(key);
+    // v2.0.95：绿联把每季登记成独立 Series，媒体库里「同一部剧」会多出多个卡片。
+    // 展示层按基名折叠成一条（保留最早季作代表、集数累加），不改动 state.items 原始数据。
+    final shown = mergeSiblingSeriesItems(list);
     final top = MediaQuery.of(context).padding.top;
 
     // 摘要条 chips（灰字标注所属组）
@@ -386,10 +389,10 @@ class _LibraryPageState extends State<LibraryPage> {
                               ),
                               Text(
                                 isVirtual
-                                    ? '${isContinue ? '继续观看' : '最近添加'} · 虚拟媒体库 · ${list.length} 项'
+                                    ? '${isContinue ? '继续观看' : '最近添加'} · 虚拟媒体库 · ${shown.length} 项'
                                     : state.demoMode
                                         ? '演示数据'
-                                        : '${state.sourceLabel} · ${list.length} 项',
+                                        : '${state.sourceLabel} · ${shown.length} 项',
                                 style: const TextStyle(
                                   fontSize: 10.5,
                                   color: AppColors.muted,
@@ -549,7 +552,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   child: LibrarySkeleton(),
                 ),
               )
-            else if (list.isEmpty)
+            else if (shown.isEmpty)
               SliverToBoxAdapter(
                 child: SizedBox(
                   height: 370,
@@ -605,9 +608,9 @@ class _LibraryPageState extends State<LibraryPage> {
                     mainAxisSpacing: 14,
                     childAspectRatio: 0.55,
                   ),
-                  itemCount: list.length,
+                  itemCount: shown.length,
                   itemBuilder: (c, i) {
-                    final e = list[i];
+                    final e = shown[i];
                     return PosterCard(
                       item: e,
                       width: double.infinity,

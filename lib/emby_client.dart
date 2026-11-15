@@ -377,6 +377,47 @@ class EmbyServer {
     return all;
   }
 
+  /// 诊断用：返回**未解析**的原始条目 JSON（[items] 解析前的中间态）。
+  ///
+  /// 与 [items] 走同一套分页与鉴权，但**不调用 [_fromJson]**，保留服务端下发
+  /// 的全部字段（Type / IndexNumber / ImageTags / BackdropImageTags / Path …），
+  /// 供「导出原始条目 JSON」诊断页直接展示/复制，定位绿联兼容层字段差异。
+  /// 默认把 `Season` 类型也拉进来（[items] 只拉 Movie/Series），
+  /// 以便看到被登记成独立 Series 的每一季原始数据。
+  Future<List<Map<String, dynamic>>> rawItemJsons({
+    List<String> types = const ['Movie', 'Series', 'Season'],
+  }) async {
+    if (_token == null || _userId == null) {
+      throw EmbyException('请先登录');
+    }
+    const pageSize = 500;
+    final all = <Map<String, dynamic>>[];
+    var start = 0;
+    var total = 1 << 30;
+    while (start < total && start < 10000) {
+      final json = await _getJson(
+        '$baseUrl/Users/$_userId/Items',
+        query: {
+          'Recursive': 'true',
+          'IncludeItemTypes': types.join(','),
+          'Fields': _kItemFields,
+          'SortBy': 'DateCreated,SortName',
+          'SortOrder': 'Descending',
+          'StartIndex': '$start',
+          'Limit': '$pageSize',
+        },
+      );
+      total = (json['TotalRecordCount'] as int?) ?? all.length;
+      final list = (json['Items'] as List<dynamic>? ?? []);
+      if (list.isEmpty) break;
+      all.addAll(list.cast<Map<String, dynamic>>());
+      start += list.length;
+      if (list.length < pageSize) break;
+    }
+    return all;
+  }
+
+
   /// 播放内核（ExoPlayer / libmpv）取流时必须带上的鉴权头（v2.0.90）。
   ///
   /// 绿联兼容层只认 `X-Emby-Token` **请求头**，query 里的 `api_key` 仅作兜底；
@@ -503,7 +544,7 @@ class EmbyServer {
         break;
       }
       // 全部失败时，留一条「有明确 HTTP 状态」的用于诊断，别只留超时文本
-      if (best!.statusCode == null && r.statusCode != null) best = r;
+      if (best.statusCode == null && r.statusCode != null) best = r;
     }
     final winner = best!;
     final reason = protocols.contains('http')

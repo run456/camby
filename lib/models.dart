@@ -17,7 +17,7 @@ enum MediaType { movie, series, episode, season }
 /// 单独抽出来是因为鉴权字符串在播放内核、图片加载、资源自检三处都要拼，
 /// 以前每处各自硬编码一个版本号，发版时必漏一处（v2.0.89 的图片头里就
 /// 还留着上一版号）。**发版时只改这里和 pubspec 两处。**
-const String kClientVersion = '2.0.94';
+const String kClientVersion = '2.0.95';
 
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
@@ -451,6 +451,20 @@ class SubtitleTrackInfo {
     return codec.isEmpty ? 'SUB' : codec.toUpperCase();
   }
 
+  /// 是否为图像字幕（PGS / DVDSUB / VobSub 等内封位图字幕，v2.0.95）。
+  ///
+  /// ExoPlayer 只支持文本字幕（srt/ass/vtt），图像字幕必须交给 MPV 走
+  /// 内封轨原生渲染。判定以正向外置标记为主：`pgs`（pgssub / hdmv_pgs_subtitle）、
+  /// `dvd_sub`（dvd_subtitle）、`vobsub`；最后兜底 `sub` 但排除 `subrip`
+  /// （SRT 的媒体流名常是 SubRip，会被 `sub` 误命中）与 `subt`（subtitles 字样）。
+  bool get isImage {
+    final c = codec.toLowerCase();
+    if (c.contains('pgs') || c.contains('dvd_sub') || c.contains('vobsub')) {
+      return true;
+    }
+    return c.contains('sub') && !c.contains('subrip') && !c.contains('subt');
+  }
+
   String get languageLabel {
     switch (language.toLowerCase()) {
       case 'chi':
@@ -501,14 +515,19 @@ class SubtitleTrackInfo {
   }
 
   /// 文本叠加渲染用地址：统一请求 SRT（Emby 会按扩展名自动转码，
-  /// ASS/PGS/SUP 也能拿到文本流），供 Exo 内核的字幕叠加层使用
-  String get textUrl => _asSrtUrl(url ?? '');
+  /// ASS/PGS/SUP 也能拿到文本流），供 Exo 内核的字幕叠加层使用。
+  /// 图像字幕（PGS 等）没有文本形态，返回空 —— 它们必须走 MPV 内封轨渲染，
+  /// 不应再拿 `.srt` 端点去撞 404。
+  String get textUrl => isImage ? '' : _asSrtUrl(url ?? '');
 
-  /// 全部候选地址的文本版（与 [candidates] 一一对应，保持优先级）
+  /// 全部候选地址的文本版（与 [candidates] 一一对应，保持优先级）。
+  /// 图像字幕返回空列表，确保叠加层路径被跳过。
   List<String> get textCandidates =>
-      <String>[for (final u in candidates) _asSrtUrl(u)]
-          .where((u) => u.isNotEmpty)
-          .toList();
+      isImage
+          ? const <String>[]
+          : <String>[for (final u in candidates) _asSrtUrl(u)]
+              .where((u) => u.isNotEmpty)
+              .toList();
 
   /// 把地址里的 `Stream.xxx` 换成 `Stream.srt`
   static String _asSrtUrl(String u) {
@@ -1019,6 +1038,7 @@ class MediaItem {
   ];
 
   MediaItem copyWith({
+    String? name,
     bool? userFavorite,
     double? resumeProgress,
     double? resumeSeconds,
@@ -1026,6 +1046,7 @@ class MediaItem {
     int? lastPlayedAt,
     int? userPlayCount,
     List<MediaExtraPart>? extraParts,
+    int? childCount,
     String? seriesName,
     // v2.0.66：媒体源规格，供 [withMediaSource] 覆盖播放页展示信息
     int? videoHeight,
@@ -1042,7 +1063,7 @@ class MediaItem {
   }) {
     return MediaItem(
       id: id,
-      name: name,
+      name: name ?? this.name,
       type: type,
       overview: overview,
       colors: colors,
@@ -1071,7 +1092,7 @@ class MediaItem {
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
       parentId: parentId,
-      childCount: childCount,
+      childCount: childCount ?? this.childCount,
       seriesId: seriesId,
       videoUrl: videoUrl,
       posterUrl: posterUrl,
@@ -2234,7 +2255,8 @@ int? seasonFromSeriesName(String name) {
   if (teen != null) return 10 + cn.indexOf(teen.group(1)!);
   if (raw.contains('十')) return 10;
   final c = RegExp(r'[一二三四五六七八九]').firstMatch(raw);
-  if (c != null) return cn.indexOf(c.group(0)!) ;
+  if (c != null) return cn.indexOf(c.group(0)!);
+  return null;
 }
 
 /// 合并「本剧的季」与「同剧其它季的 Series」，按季号升序去重。
@@ -2301,4 +2323,67 @@ List<SeasonGroup> siblingSeasonGroups(
   }
   out.sort((a, b) => a.index.compareTo(b.index));
   return out;
+}
+
+/// 展示层合并：把同一部剧的多条 [MediaItem] 折叠成一条。
+///
+/// 绿联影视中心把每一季登记成独立的 `Series`，于是媒体库 / 搜索里「同一部剧」
+/// 会出现多个卡片（如「傲骨贤妻」「傲骨贤妻 第2季」…）。这里按基名
+/// （[seriesBaseName]）归组，取**最早一季**（裸名优先、其次季号最小）作代表，
+/// 名字改回基名、集数累加，点开后由详情页 [siblingSeasonGroups] 再补全所有季。
+///
+/// 设计原则：**只动展示列表，不改 [AppState.items] 原始数据**，避免冲击搜索计数、
+/// 收藏、统计等依赖原始条目的逻辑（与既有「不在全局合并」的保守策略一致）。
+/// 非剧集条目、以及基名为空的项都原样返回。
+List<MediaItem> mergeSiblingSeriesItems(List<MediaItem> items) {
+  final groups = <String, List<MediaItem>>{};
+  final solo = <MediaItem>[];
+  final baseOrder = <String>[];
+  for (final it in items) {
+    if (!it.isSeries) {
+      solo.add(it);
+      continue;
+    }
+    final base = seriesBaseName(it.name);
+    if (base.isEmpty) {
+      solo.add(it);
+      continue;
+    }
+    if (!groups.containsKey(base)) baseOrder.add(base);
+    groups.putIfAbsent(base, () => <MediaItem>[]).add(it);
+  }
+  final out = <MediaItem>[...solo];
+  for (final base in baseOrder) {
+    final group = groups[base]!;
+    if (group.length == 1) {
+      out.add(group.single);
+      continue;
+    }
+    // 选代表：先挑没有季后缀的（通常是第 1 季），否则按名字里的季号最小。
+    MediaItem rep = group.first;
+    for (final it in group.skip(1)) {
+      rep = _preferAsSeriesRep(rep, it);
+    }
+    var total = 0;
+    for (final it in group) {
+      total += it.childCount;
+    }
+    out.add(
+      rep.copyWith(name: base, childCount: total),
+    );
+  }
+  return out;
+}
+
+/// 两个同基名 Series 之间选更早的一季作代表。
+///
+/// 规则：两者其一为裸名（无季后缀）则选它；否则取 [seasonFromSeriesName]
+/// 季号更小者；季号都缺失时保留先到的（保持列表稳定）。
+MediaItem _preferAsSeriesRep(MediaItem a, MediaItem b) {
+  final aBare = seasonFromSeriesName(a.name) == null;
+  final bBare = seasonFromSeriesName(b.name) == null;
+  if (aBare != bBare) return aBare ? a : b;
+  final sa = seasonFromSeriesName(a.name) ?? 0;
+  final sb = seasonFromSeriesName(b.name) ?? 0;
+  return sa <= sb ? a : b;
 }

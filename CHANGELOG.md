@@ -1,15 +1,45 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.94 (294)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.95 (295)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
 
-### v2.0.94 (294) 修复绿联播放取流地址丢失 + 添加服务器弹窗高度跳变
+### v2.0.95 (295) PGS 内封字幕走 MPV · 列表/搜索合并同剧多季 · 条目 JSON 诊断导出
 
-真机反馈：①「播放还是失败」；②「添加服务器，选择绿联时，弹窗高度突然高一截，
-请保持原来的高度」。
+真机反馈四点：①「内置的 pgs 字幕加载失败，mpv 内核也不行」；②「每日推荐 / 继续播放
+的图片没出来」；③「媒体页的剧集没合在一起，还是显示多剧集」；④「傲骨贤妻只识别 6 部，
+绿联媒体中心有 7 部，第一季没识别出来」。
+
+**① PGS 内封字幕加载失败**：`MediaStreams` 里 `Codec=pgs` 被 codec→扩展名映射当成
+文本字幕，拼出 `xxx.srt` 去请求，服务端没有这个文件 → 恒 404；同时播放器闸门把
+「有字幕 URL 就走路文本叠加层」，PGS 是**图像字幕**（Exo 根本不支持），于是 Exo/MPV
+两条路都撞在同一处 404 上。
+
+- `SubtitleTrackInfo.isImage`：按 codec 判定图像字幕（pgs / dvd_sub / vobsub，以及
+  非 subrip/subst 的 sub 家族）；图像轨的 `textUrl`/`textCandidates` 一律返回空，
+  从源头掐掉 `.srt` 请求；
+- `PlaybackController` 新增 `setEmbeddedSubtitle({language, streamIndex})`：Exo 恒
+  返回 false（不支持）；MPV 在 `open` 后等内封轨就绪，按语言匹配、序号兜底、最后
+  `SubtitleTrack.auto()`，并显式 `sub-visibility=yes`；
+- `player_page` 选到图像轨时：非 MPV 自动**切到 MPV 内核**（toast「已切 MPV 渲染内封
+  字幕」），已 MPV 则直接挂内封轨；起播时预选的图像轨同样走内封轨，不再进文本叠加层。
+
+**② 列表 / 搜索合并同剧多季**：绿联把每一季登记成独立的 `Series` 条目，详情页早就有
+合并逻辑，但列表页与搜索页渲染的是原始条目，所以看着像多部剧。
+
+- 新增 `mergeSiblingSeriesItems()`：按 `seriesBaseName()` 归组，同组的多个 Series 折叠
+  成一条（名字取基础名、`childCount` 累加、封面取组内首个有图的）；
+- `library_page` 网格、`search_page` 结果、`series_index_page` 的「系列」tab 都改用
+  合并后的列表，条目数文案同步；`MediaItem.copyWith` 补 `name` / `childCount` 参数。
+
+**③ 诊断：条目原始 JSON 导出**：绿联返回的字段名与 Emby 有出入，光看客户端解析结果
+判断不了②③④。设置页新增「诊断 · 导出条目 JSON」入口（`diagnostics_dump_page.dart`），
+可按类型（含 `Season`）拉取接口原始 JSON、单条查看并一键复制到剪贴板，方便贴回定位。
+
+**④ 宿主机历史修复（v2.0.94 回溯）**：本条同时保留了 v2.0.94 的两处修复说明——播放
+取流地址在能力探测后丢失、添加服务器弹窗切换绿联时高度跳变。
 
 **① 播放失败（核心回归）**：v2.0.93 的诊断里出现一个自相矛盾的现象——能力探测
 拿到 **HTTP 206 + video/x-matroska**，但取流预检与内核起播记录全是 404。根因是

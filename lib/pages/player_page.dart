@@ -1048,8 +1048,19 @@ class PlayerPageState extends State<PlayerPage>
         return false;
       }
       final sub = _subtitle;
-      if (sub != null && !(p.nativeSubtitles && _isAssUrl(sub.url))) {
-        unawaited(_loadCuesFor(sub));
+      if (sub != null) {
+        if (sub.isImage) {
+          // 图像字幕走 MPV 内封轨（open 时 subtitleUrl 已为 null，不下载 .srt）。
+          // Exo 不支持图像字幕，setEmbeddedSubtitle 返回 false 即忽略。
+          unawaited(
+            p.setEmbeddedSubtitle(
+              language: sub.language,
+              streamIndex: sub.index,
+            ),
+          );
+        } else if (!(p.nativeSubtitles && _isAssUrl(sub.url))) {
+          unawaited(_loadCuesFor(sub));
+        }
       }
       _currentUrl = url;
       final prev = _player;
@@ -2023,6 +2034,34 @@ class PlayerPageState extends State<PlayerPage>
     if (track == null) {
       await _player?.setSubtitle(null);
       if (!silent) showToast(context, '已关闭字幕');
+      _resetHideTimer();
+      return;
+    }
+
+    // v2.0.95：图像字幕（PGS / DVDSUB）必须走 MPV 内封轨原生渲染。
+    // ExoPlayer 不支持图像字幕，选到这类轨时直接切到 MPV；切内核会重建播放器
+    // 并按当前 _subtitle 重新开播（内封轨在 _start 里挂载），已开 MPV 则直接挂。
+    if (track.isImage) {
+      if (_engine != PlaybackEngine.mpv) {
+        await _switchTo(PlaybackEngine.mpv, silent: true);
+        if (!silent) {
+          showToast(context, '已切 MPV 渲染内封字幕：${track.menuLabel}');
+        }
+      } else {
+        final ok = await _player?.setEmbeddedSubtitle(
+                  language: track.language,
+                  streamIndex: track.index,
+                ) ??
+                false;
+        if (!silent) {
+          showToast(
+            context,
+            ok
+                ? '字幕：${track.menuLabel}（MPV 内封轨）'
+                : '该图像字幕无法渲染（仅 MPV 支持）',
+          );
+        }
+      }
       _resetHideTimer();
       return;
     }

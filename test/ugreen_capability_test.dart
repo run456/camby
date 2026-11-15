@@ -220,12 +220,12 @@ void main() {
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.94', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.94+294'), isTrue);
-      expect(src('README.md').contains('v2.0.94 (294)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.94 (294)'), isTrue);
+    test('版本与文档同步到 v2.0.95', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.95+295'), isTrue);
+      expect(src('README.md').contains('v2.0.95 (295)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.95 (295)'), isTrue);
       expect(src('VERIFICATION.md').contains('§108'), isTrue);
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.94'"),
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.95'"),
           isTrue);
     });
   });

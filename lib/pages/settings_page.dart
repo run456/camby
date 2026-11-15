@@ -8,6 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../app_state.dart';
 import '../lara/lara_client.dart';
 import '../layout.dart';
+import '../routes.dart';
+import '../pages/diagnostics_dump_page.dart';
 import '../widgets/liquid_press.dart';
 import '../widgets/glass_toast.dart';
 import '../widgets/haptics.dart';
@@ -611,6 +613,23 @@ class _ServersSection extends StatelessWidget {
               padding: EdgeInsets.symmetric(vertical: 6),
               child: Text(
                 '连接诊断 · 图片与播放地址',
+                style: TextStyle(fontSize: 11, color: AppColors.accent),
+              ),
+            ),
+          ),
+          // v2.0.95：把服务端原始条目 JSON 摊开，供定位绿联字段差异（问题 2/4）。
+          LiquidPress(
+            onTap: () => Navigator.of(context).push(
+              CambyRoutes.fade(
+                builder: (_) => DiagnosticsDumpPage(state: state),
+              ),
+            ),
+            radius: 8,
+            scale: 0.94,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                '导出原始条目 JSON（绿联诊断）',
                 style: TextStyle(fontSize: 11, color: AppColors.accent),
               ),
             ),
