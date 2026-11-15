@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 import '../app_state.dart';
 import '../layout.dart';
 import '../theme.dart';
+import '../ugreen_resource.dart';
 import '../watch_history.dart';
 import '../widgets/cached_image.dart';
 import '../widgets/empty_state.dart';
@@ -38,9 +39,7 @@ class StatsModeSegment extends StatelessWidget {
         border: Border.all(color: AppColors.w.withValues(alpha: 0.10)),
       ),
       child: Row(
-        children: [
-          for (final m in StatsMode.values) Expanded(child: _item(m)),
-        ],
+        children: [for (final m in StatsMode.values) Expanded(child: _item(m))],
       ),
     );
   }
@@ -68,7 +67,9 @@ class StatsModeSegment extends StatelessWidget {
                 )
               : null,
           border: Border.all(
-            color: on ? AppColors.w.withValues(alpha: 0.26) : Colors.transparent,
+            color: on
+                ? AppColors.w.withValues(alpha: 0.26)
+                : Colors.transparent,
           ),
         ),
         child: Row(
@@ -148,10 +149,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
     final n = await widget.state.backfillWatchHistory();
     if (!mounted) return;
     setState(() => _busy = false);
-    showToast(
-      context,
-      n > 0 ? '已回填 $n 条历史观看（按片长估算）' : '没有可回填的历史观看记录',
-    );
+    showToast(context, n > 0 ? '已回填 $n 条历史观看（按片长估算）' : '没有可回填的历史观看记录');
   }
 
   /// 把「本月海报墙」这张已经挂在屏幕上的卡片直接截成 PNG 分享。
@@ -170,12 +168,11 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
         return;
       }
       final bytes = data.buffer.asUint8List();
-      final name = 'camby-${sum.year}-${sum.month.toString().padLeft(2, '0')}-月报.png';
+      final name =
+          'camby-${sum.year}-${sum.month.toString().padLeft(2, '0')}-月报.png';
       await SharePlus.instance.share(
         ShareParams(
-          files: [
-            XFile.fromData(bytes, name: name, mimeType: 'image/png'),
-          ],
+          files: [XFile.fromData(bytes, name: name, mimeType: 'image/png')],
           subject: '${sum.year} 年 ${sum.month} 月 · 我的观影月报',
         ),
       );
@@ -218,11 +215,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
             const SizedBox(width: 14),
             Expanded(
               child: Column(
-                children: [
-                  dayCard,
-                  const SizedBox(height: 12),
-                  posterCard,
-                ],
+                children: [dayCard, const SizedBox(height: 12), posterCard],
               ),
             ),
           ],
@@ -263,11 +256,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
       children: [
         Row(
           children: [
-            Icon(
-              Icons.calendar_month_outlined,
-              size: 20,
-              color: AppColors.ink,
-            ),
+            Icon(Icons.calendar_month_outlined, size: 20, color: AppColors.ink),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -285,20 +274,14 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: AppColors.muted,
-                    ),
+                    style: TextStyle(fontSize: 10.5, color: AppColors.muted),
                   ),
                   if (!widget.state.demoMode)
                     Text(
                       '仅当前服务器 · 多台服务器的记录互不混算',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        color: AppColors.muted,
-                      ),
+                      style: TextStyle(fontSize: 9.5, color: AppColors.muted),
                     ),
                 ],
               ),
@@ -421,7 +404,9 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                   ),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(13),
-                    border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
+                    border: Border.all(
+                      color: AppColors.w.withValues(alpha: 0.18),
+                    ),
                   ),
                   child: Text(
                     '回到本月',
@@ -465,8 +450,8 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
             color: on
                 ? AppColors.accent
                 : today
-                    ? AppColors.w.withValues(alpha: 0.42)
-                    : AppColors.w.withValues(alpha: 0.07),
+                ? AppColors.w.withValues(alpha: 0.42)
+                : AppColors.w.withValues(alpha: 0.07),
             width: on ? 1.4 : 0.8,
           ),
         ),
@@ -493,7 +478,9 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                       height: 3.5,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: AppColors.accent.withOpacity(0.55 + 0.45 * intensity),
+                        color: AppColors.accent.withOpacity(
+                          0.55 + 0.45 * intensity,
+                        ),
                       ),
                     ),
                   ],
@@ -549,9 +536,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
   Widget _dayCard(WatchCalendar cal) {
     final d = _selected;
     final list = d == null ? const <WatchEvent>[] : cal.eventsOn(d);
-    final title = d == null
-        ? '单日明细'
-        : '${d.month} 月 ${d.day} 日 · 看了什么';
+    final title = d == null ? '单日明细' : '${d.month} 月 ${d.day} 日 · 看了什么';
     return Glass(
       radius: 18,
       blur: 20,
@@ -596,8 +581,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                 icon: Icons.event_busy_outlined,
                 title: '这天没有观影记录',
                 reason: '换一天看看，或者先同步一次服务器上的历史观看记录。',
-                primaryLabel:
-                    widget.state.watchBackfillDone ? null : '同步历史观看',
+                primaryLabel: widget.state.watchBackfillDone ? null : '同步历史观看',
                 onPrimary: widget.state.watchBackfillDone ? null : _backfill,
               ),
             )
@@ -616,6 +600,13 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
     final seen = <String>{};
     final prefix =
         '${sum.year.toString().padLeft(4, '0')}-${sum.month.toString().padLeft(2, '0')}-';
+    // 角标要显示「本月这部片一共看了多久」，不是海报恰好取到的那一条事件
+    // 的时长。先在完整月事件上按 itemId 聚合，再去重取前 6 张海报 —— 否则
+    // 取满 6 张就 break，同一部片后续几次观看会被漏算。
+    final totals = aggregateMonthWatchMinutes(events, prefix);
+    final minutesByItem = totals.minutes;
+    final estimatedByItem = totals.estimated;
+
     for (final e in events) {
       if (!e.date.startsWith(prefix)) continue;
       if (!seen.add(e.itemId)) continue;
@@ -654,7 +645,11 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.ios_share_rounded, size: 12, color: Colors.white),
+                      Icon(
+                        Icons.ios_share_rounded,
+                        size: 12,
+                        color: Colors.white,
+                      ),
                       SizedBox(width: 5),
                       Text(
                         '分享月报',
@@ -679,6 +674,8 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
               month: sum.month,
               summary: sum,
               events: posters,
+              minutesByItem: minutesByItem,
+              estimatedByItem: estimatedByItem,
             ),
           ),
           const SizedBox(height: 8),
@@ -747,10 +744,7 @@ class _Metric extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 3),
-        Text(
-          label,
-          style: TextStyle(fontSize: 9.5, color: AppColors.muted),
-        ),
+        Text(label, style: TextStyle(fontSize: 9.5, color: AppColors.muted)),
       ],
     ),
   );
@@ -853,12 +847,16 @@ class _PosterWallCard extends StatelessWidget {
     required this.month,
     required this.summary,
     required this.events,
+    required this.minutesByItem,
+    required this.estimatedByItem,
   });
 
   final int year;
   final int month;
   final MonthSummary summary;
   final List<WatchEvent> events;
+  final Map<String, double> minutesByItem;
+  final Map<String, bool> estimatedByItem;
 
   @override
   Widget build(BuildContext context) {
@@ -880,7 +878,11 @@ class _PosterWallCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.calendar_month_outlined, size: 14, color: AppColors.accent),
+              Icon(
+                Icons.calendar_month_outlined,
+                size: 14,
+                color: AppColors.accent,
+              ),
               const SizedBox(width: 6),
               Text(
                 '$year 年 $month 月 · 观影月报',
@@ -914,7 +916,7 @@ class _PosterWallCard extends StatelessWidget {
               ),
             )
           else
-          // 最多 6 张，手工排 3 列：不引入 GridView + shrinkWrap 的长列表红线。
+            // 最多 6 张，手工排 3 列：不引入 GridView + shrinkWrap 的长列表红线。
             for (var row = 0; row < (events.length / 3).ceil(); row++) ...[
               if (row > 0) const SizedBox(height: 7),
               Row(
@@ -955,45 +957,78 @@ class _PosterWallCard extends StatelessWidget {
     );
   }
 
-  Widget _posterTile(WatchEvent e) => ClipRRect(
-    borderRadius: BorderRadius.circular(7),
-    child: Stack(
-      fit: StackFit.expand,
-      children: [
-        CachedImage(
-          url: e.posterUrl,
-          memWidth: 120,
-          fallbackLabel: e.name,
-          errorWidget: Container(color: const Color(0xFF243352)),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(5, 12, 5, 5),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.transparent, Color(0xDD06080E)],
+  Widget _posterTile(WatchEvent e) {
+    final durationLabel = formatWatchMinutes(
+      minutesByItem[e.itemId] ?? 0,
+      estimated: estimatedByItem[e.itemId] ?? false,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(7),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 以前 memWidth=120 会把**磁盘缓存**里的图直接压成 120px，海报在
+          // 3 列格子里放大后必然糊。改成向服务端要 800、本地按 480 缓存；
+          // maxWidth 进了 imageCacheKey，大图不会命中列表里那份小图缓存。
+          CachedImage(
+            url: posterUrlAtWidth(e.posterUrl, 800),
+            memWidth: 480,
+            filterQuality: FilterQuality.medium,
+            fallbackLabel: e.name,
+            errorWidget: Container(color: const Color(0xFF243352)),
+          ),
+          if (durationLabel.isNotEmpty)
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xB006080E),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  durationLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 8,
+                    height: 1.1,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
-            child: Text(
-              e.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 8.5,
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(5, 12, 5, 5),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0xDD06080E)],
+                ),
+              ),
+              child: Text(
+                e.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 8.5,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _SyncCard extends StatelessWidget {

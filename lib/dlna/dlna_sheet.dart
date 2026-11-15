@@ -748,7 +748,7 @@ class _CastingSheetState extends State<_CastingSheet> {
               ),
               Text(
                 canTranscode
-                    ? '电视不显示外挂字幕时打开，画质会有损失'
+                    ? '会把字幕编进 HLS 分片；多数电视投屏不支持，会一直缓冲'
                     : '这台服务器不支持实时转码；字幕已改由手机本地代理',
                 style: const TextStyle(
                   fontSize: 10,
@@ -795,7 +795,7 @@ class _CastingSheetState extends State<_CastingSheet> {
                 const SizedBox(height: 2),
                 Text(
                   canTranscode
-                      ? '原片无法播放时打开，画质会有损失'
+                      ? '改投 HLS 分片流；多数电视投屏不支持，可能无法播放'
                       : '这台服务器不支持实时转码；已固定为原片直投',
                   style: const TextStyle(
                     fontSize: 10.5,
@@ -842,6 +842,22 @@ class _CastingSheetState extends State<_CastingSheet> {
               color: Color(0xFF9FB0CC),
             ),
           ),
+          // v2.0.101：以前只在绿联上禁用两个转码开关，标准 Emby 上它们仍
+          // 亮着 —— 但两条路都指向 master.m3u8，DLNA 电视普遍不支持持续
+          // 更新的 HLS 分片，用户会继续遇到「一直缓冲 / 无法播放」。改成
+          // 通用风险提示，开关本身保留（少数 Android TV DMR 能播 HLS）。
+          if (widget.transcodeAvailable) ...[
+            const SizedBox(height: 3),
+            const Text(
+              '提示：「字幕烧录」「兼容模式」都会改投 HLS 分片流，多数电视的 DLNA '
+              '播放器不支持，常见表现是一直缓冲或无法播放；建议保持关闭、用原片直投。',
+              style: TextStyle(
+                fontSize: 10.5,
+                height: 1.5,
+                color: Color(0xFF9FB0CC),
+              ),
+            ),
+          ],
           if (!isLanReachableUrl(url)) ...[
             const SizedBox(height: 6),
             Text(

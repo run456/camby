@@ -158,7 +158,10 @@ List<String> streamUrlCandidates(String rawUrl, {bool enabled = false}) {
       : <String>[clean, '$kEmbyPathPrefix$clean'];
   final out = <String>[];
   for (final p in paths) {
-    for (final query in <String>['api_key=$token', 'Static=true&api_key=$token']) {
+    for (final query in <String>[
+      'api_key=$token',
+      'Static=true&api_key=$token',
+    ]) {
       final u = '$base$p?$query';
       if (!out.contains(u)) out.add(u);
     }
@@ -182,7 +185,7 @@ Map<String, String> embyAuthHeaders(String url, {bool enabled = false}) {
     'X-Emby-Token': token,
     'X-Emby-Authorization':
         'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
-            'Version="$kClientVersion", Token="$token"',
+        'Version="$kClientVersion", Token="$token"',
     'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
   };
 }
@@ -281,7 +284,8 @@ class StreamCapability {
   final String reason;
 
   /// 是否能直接播（Http 或 File 任一可用）。
-  bool get canPlayDirect => statusCode != null && statusCode! >= 200 && statusCode! < 300;
+  bool get canPlayDirect =>
+      statusCode != null && statusCode! >= 200 && statusCode! < 300;
 
   bool get hasAnyProtocol => protocols.isNotEmpty;
 
@@ -361,14 +365,14 @@ class StreamCapability {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'protocols': protocols,
-        'mediaSourceCount': mediaSourceCount,
-        'statusCode': statusCode,
-        'contentType': contentType,
-        'error': error,
-        'reason': reason,
-        if (verifiedUrl != null) 'verifiedUrl': verifiedUrl,
-      };
+    'protocols': protocols,
+    'mediaSourceCount': mediaSourceCount,
+    'statusCode': statusCode,
+    'contentType': contentType,
+    'error': error,
+    'reason': reason,
+    if (verifiedUrl != null) 'verifiedUrl': verifiedUrl,
+  };
 }
 
 /// 从 `MediaSources` 里读出 `SupportedStreamingProtocols`（v2.0.91）。
@@ -426,11 +430,14 @@ List<String> urlsForProtocols({
 
   if (hasHttp) {
     add('$rootUrl/Videos/$itemId/stream$q');
-    add('$rootUrl/Videos/$itemId/stream?Static=true'
-        '${apiKey.isEmpty ? '' : '&api_key=$apiKey'}');
+    add(
+      '$rootUrl/Videos/$itemId/stream?Static=true'
+      '${apiKey.isEmpty ? '' : '&api_key=$apiKey'}',
+    );
   }
   if (hasHls) add('$rootUrl/Videos/$itemId/master.m3u8$q');
-  if (hasFile || (!enabled && out.isEmpty)) add('$rootUrl/Items/$itemId/File$q');
+  if (hasFile || (!enabled && out.isEmpty))
+    add('$rootUrl/Items/$itemId/File$q');
 
   if (out.isEmpty && fallback != null && fallback.isNotEmpty) add(fallback);
   return out;
@@ -470,4 +477,42 @@ List<String> playbackCandidates({
   }
   add(hlsUrl);
   return out;
+}
+
+/// 播放信息里「取流鉴权」一行的文案（v2.0.101）。
+///
+/// 以前只看「服务器有没有配置 streamHeaders」，与本次实际取流地址无关：
+/// 一旦能力探测或回退把第三方直链排到第一位，明明一个头都没带，弹窗仍
+/// 显示「X-Emby-Token 已注入」。真正的注入由 headersFor 按 sameOrigin 决定
+/// —— 只有同源才带令牌，把访问令牌递给外部域既无必要也不安全。
+///
+/// 注意标准 Emby 的 strm 条目第一跳仍是服务器自己的 /Videos/{id}/stream，
+/// 属于同源，注入令牌是**正确且必要**的；服务端再去读 strm 指向的直链，
+/// 那一步由服务端发起，令牌不会外泄。这里按**本次取流地址**如实描述。
+String describeStreamAuth({
+  required bool connected,
+  required bool hasUrl,
+  required bool sameOrigin,
+  required bool hasToken,
+}) {
+  if (!connected) return '未连接服务器';
+  if (!hasUrl) return '尚未取流';
+  if (!sameOrigin) return '外部直链 · 不注入令牌';
+  if (!hasToken) return '未注入（服务器未配置令牌）';
+  return 'X-Emby-Token 已注入';
+}
+
+/// 把海报地址里的 maxWidth 换成指定宽度，其余参数（tag / api_key）原样保留。
+///
+/// imageCacheKey 会保留 maxWidth，所以换成大尺寸后大图会落到**独立的**磁盘
+/// 缓存项，不会被列表里 120px 的小图抢先写入后污染。原本没有 maxWidth 的
+/// 第三方图地址不做改写，避免给它凭空加一个对方不认的参数。
+String? posterUrlAtWidth(String? url, int maxWidth) {
+  if (url == null || url.isEmpty) return url;
+  final uri = Uri.tryParse(url);
+  if (uri == null || !uri.hasScheme) return url;
+  if (!uri.queryParameters.containsKey('maxWidth')) return url;
+  final q = Map<String, String>.from(uri.queryParameters)
+    ..['maxWidth'] = '$maxWidth';
+  return uri.replace(queryParameters: q).toString();
 }

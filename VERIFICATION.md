@@ -3516,3 +3516,44 @@ DIDL-Lite 的 MIME 改成 `application/vnd.apple.mpegurl`，电视按 HLS 解析
 **真机待确认**：① 电视能否解析 DIDL-Lite 外挂字幕字段（这是本方案
 唯一的外部依赖）；② 路由器是否开了 AP 隔离，导致电视访问不到手机 IP。
 若 ① 不成立，改用电视端 Kodi / VLC 直接播放，或离线把字幕固化进副本。
+
+---
+
+## §111 发布 v2.0.101（取流鉴权显示 · 海报墙 · 投屏 HLS 警示）
+
+**用户三连问**：① 标准 Emby + strm 播放，播放信息显示「X-Emby-Token
+已注入」对吗；② 数据页海报墙的照片模糊；③ 影片上面再加观看时长数。
+另要求把上一轮「投屏两个转码开关改成通用警示」一并做掉。
+
+**结论（①）**：显示是对的。标准 Emby 的 `MediaItem.videoUrl` 是
+`$assetUrl/Videos/$id/stream?Static=true&api_key=…`，strm 条目也一样 ——
+第一跳是 Emby 服务器自己，同源，`headersFor` 注入令牌必要且正确；
+服务端内部再解析 strm 指向的第三方直链，令牌不会递到外部域。
+但弹窗原实现只看 `server.streamHeaders.isNotEmpty`，与本次 URL 无关，
+回退到外部直链时会误报。改为 `_streamAuthLabel()` 用 `_currentUrl`
+经 `sameOrigin(url, srv.rootUrl)` 判定，落在 `describeStreamAuth()`。
+
+**结论（②）**：`_posterTile` 的 `CachedImage(memWidth: 120)` 同时约束
+`memCacheWidth` 与 `maxWidthDiskCache`，磁盘缓存里的海报只有 120px 宽。
+改为 `posterUrlAtWidth(url, 800)` 请求大图 + `memWidth: 480` +
+`FilterQuality.medium`。`imageCacheKey` 保留 maxWidth 参数，因此换宽度
+会换 key，大图不会命中列表小图那份缓存。
+
+**结论（③）**：角标显示本月该片累计时长。新增
+`aggregateMonthWatchMinutes(events, monthPrefix)` 在完整月事件上按
+itemId 聚合（海报墙取满 6 张就 break，不能在那里算），
+`formatWatchMinutes()` 生成紧凑文案；0 / 负数 / NaN 返回空串不画角标，
+混入历史估算时加 `~`。
+
+**④ 投屏**：v2.0.100 把禁用绑在 `isUgreenServer` 上太窄。标准 Emby 下
+烧录 / 兼容都指向 `master.m3u8`，DLNA 电视普遍不支持持续更新的 HLS
+分片（Emby 官方论坛 LG/三星案例：同一文件走 DLNA 直投 50+ Mbps 正常，
+打包成 m3u8 分片就持续缓冲）。保留绿联禁用，其余情况在
+`dlna_sheet.dart` 加通用 HLS 风险提示并写明「建议保持关闭」；
+`DlnaController` 两个开关默认 false 且不持久化，行为不变。
+
+**验证**：`test/stream_auth_poster_test.dart` 14 例全过，含「标准 Emby
+同源必须显示已注入」「第三方直链不注入」「换宽度换 cacheKey」「同一部片
+多次观看累加且不被 6 张截断」与 3 条源码守卫；`flutter test` 全量通过，
+`flutter analyze` 0 error / 0 warning，`tools/perf_audit.py` 无红线。
+交付 `camby-2.0.101-release-arm64.apk`（versionCode 301）。

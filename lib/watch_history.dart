@@ -18,6 +18,37 @@ String watchSourceLabel(WatchSource s) => switch (s) {
   WatchSource.imported => '历史估算',
 };
 
+/// 海报墙角标用的紧凑时长文案（v2.0.101）。
+///
+/// 0 / 负数 / 非有限值都表示「有记录但推算不出时长」，返回空串让角标不出现，
+/// 不写「0 分钟」这种假信息。历史回填是按片长估的，加 `~` 前缀和日历脚注
+/// 「时长仅供参考」的口径保持一致。
+String formatWatchMinutes(double minutes, {bool estimated = false}) {
+  if (minutes <= 0 || !minutes.isFinite) return '';
+  final m = minutes.round();
+  final h = m ~/ 60;
+  final mm = m % 60;
+  final label = m < 60 ? '$m 分钟' : (mm == 0 ? '$h 小时' : '$h 小时 $mm 分');
+  return estimated ? '~$label' : label;
+}
+
+/// 按月按片聚合观看时长（v2.0.101，海报墙角标用）。
+///
+/// 必须在**完整月事件**上算：海报墙只取前 6 张，但同一部片这个月可能看了
+/// 好几次，只取海报对应的那一条会把后面的都漏掉。只要有一次是历史估算，
+/// 整部片的时长就标成估算，不把「精确」和「按片长估的」混成一个数。
+({Map<String, double> minutes, Map<String, bool> estimated})
+    aggregateMonthWatchMinutes(List<WatchEvent> events, String monthPrefix) {
+  final minutes = <String, double>{};
+  final estimated = <String, bool>{};
+  for (final e in events) {
+    if (!e.date.startsWith(monthPrefix)) continue;
+    minutes[e.itemId] = (minutes[e.itemId] ?? 0) + e.minutes;
+    estimated[e.itemId] = (estimated[e.itemId] ?? false) || e.isEstimated;
+  }
+  return (minutes: minutes, estimated: estimated);
+}
+
 /// 一次观看 = 一条事件。
 class WatchEvent {
   const WatchEvent({
@@ -140,8 +171,7 @@ String watchDayKey(DateTime d) =>
     '${d.month.toString().padLeft(2, '0')}-'
     '${d.day.toString().padLeft(2, '0')}';
 
-bool isWatchDayKey(String s) =>
-    RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s);
+bool isWatchDayKey(String s) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s);
 
 /// 播放器进度 tick（100ns）与本地会话推算观看分钟数。
 ///
@@ -163,7 +193,8 @@ double resolveWatchMinutes({
 }) {
   if (watchedSeconds != null && watchedSeconds > 0.5) {
     var m = watchedSeconds / 60.0;
-    if (runtimeMinutes > 0 && m > runtimeMinutes) return runtimeMinutes.toDouble();
+    if (runtimeMinutes > 0 && m > runtimeMinutes)
+      return runtimeMinutes.toDouble();
     return m;
   }
   final advanced = (positionTicks - startTicks) / 10000000.0 / 60.0;
@@ -224,8 +255,9 @@ List<WatchEvent> mergeWatchEvents({
   out.sort((a, b) {
     final c = b.date.compareTo(a.date);
     if (c != 0) return c;
-    return (b.startAt?.millisecondsSinceEpoch ?? 0)
-        .compareTo(a.startAt?.millisecondsSinceEpoch ?? 0);
+    return (b.startAt?.millisecondsSinceEpoch ?? 0).compareTo(
+      a.startAt?.millisecondsSinceEpoch ?? 0,
+    );
   });
   return out;
 }
@@ -349,8 +381,9 @@ class WatchCalendar {
     }
     for (final list in _byDay.values) {
       list.sort(
-        (a, b) => (b.startAt?.millisecondsSinceEpoch ?? 0)
-            .compareTo(a.startAt?.millisecondsSinceEpoch ?? 0),
+        (a, b) => (b.startAt?.millisecondsSinceEpoch ?? 0).compareTo(
+          a.startAt?.millisecondsSinceEpoch ?? 0,
+        ),
       );
     }
   }
@@ -360,23 +393,18 @@ class WatchCalendar {
   List<WatchEvent> eventsOn(DateTime day) =>
       List<WatchEvent>.unmodifiable(_byDay[watchDayKey(day)] ?? const []);
 
-  double minutesOn(DateTime day) =>
-      (_byDay[watchDayKey(day)] ?? const []).fold<double>(
-        0,
-        (a, e) => a + e.minutes,
-      );
+  double minutesOn(DateTime day) => (_byDay[watchDayKey(day)] ?? const [])
+      .fold<double>(0, (a, e) => a + e.minutes);
 
   int countOn(DateTime day) => (_byDay[watchDayKey(day)] ?? const []).length;
 
   bool get isEmpty => _byDay.isEmpty;
 
   /// 有记录的最早 / 最晚日期，用于「翻月」按钮的可用范围提示。
-  DateTime? get firstDay => _byDay.keys.isEmpty
-      ? null
-      : (_byDay.keys.toList()..sort()).first.dayOf();
-  DateTime? get lastDay => _byDay.keys.isEmpty
-      ? null
-      : (_byDay.keys.toList()..sort()).last.dayOf();
+  DateTime? get firstDay =>
+      _byDay.keys.isEmpty ? null : (_byDay.keys.toList()..sort()).first.dayOf();
+  DateTime? get lastDay =>
+      _byDay.keys.isEmpty ? null : (_byDay.keys.toList()..sort()).last.dayOf();
 
   MonthSummary month(int year, int month) {
     final prefix =
@@ -434,12 +462,12 @@ class WatchCalendar {
         : best >= 7
         ? MonthBadge.streak
         : topMinutes >= 180
-            ? MonthBadge.marathon
-            : titles.length >= 10
-                ? MonthBadge.explorer
-                : nights >= 3
-                    ? MonthBadge.nightOwl
-                    : MonthBadge.kickoff;
+        ? MonthBadge.marathon
+        : titles.length >= 10
+        ? MonthBadge.explorer
+        : nights >= 3
+        ? MonthBadge.nightOwl
+        : MonthBadge.kickoff;
 
     return MonthSummary(
       year: year,

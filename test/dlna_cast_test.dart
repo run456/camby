@@ -429,9 +429,9 @@ void main() {
     });
 
     test('版本号与协议层 UA 已同步到 87，且三处共用同一常量', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.100+300'), isTrue);
+      expect(src('pubspec.yaml').contains('version: 2.0.101+301'), isTrue);
       final proto = src('lib/dlna/dlna_protocol.dart');
-      expect(proto.contains("dlnaUserAgent = 'Camby/2.0.100"), isTrue);
+      expect(proto.contains("dlnaUserAgent = 'Camby/2.0.101"), isTrue);
       expect(proto.contains(r'USER-AGENT: $dlnaUserAgent'), isTrue);
       for (final f in <String>[
         'lib/dlna/dlna_discovery.dart',

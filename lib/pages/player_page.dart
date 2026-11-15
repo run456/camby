@@ -961,9 +961,7 @@ class PlayerPageState extends State<PlayerPage>
         // 全部被拒：只有拿到的都是**明确的鉴权 / 路径错误**才快速收尾。
         // 超时、416（服务器不接受 Range）这类不算，照旧把所有候选跑一遍，
         // 免得把本可以播的地址误判掉。
-        allRejected = probes.every(
-          (p) => !shouldTryNextStream(p.statusCode),
-        );
+        allRejected = probes.every((p) => !shouldTryNextStream(p.statusCode));
         ordered = allRejected ? urls.take(1).toList() : urls;
       }
     }
@@ -980,7 +978,9 @@ class PlayerPageState extends State<PlayerPage>
       // v2.0.94：只有「已经拿到实测可用地址、Exo 仍拉不动」才算内核问题。
       // v2.0.93 把 404 的地址错误当成 Exo 不行，白白让用户下次直接走
       // MPV（MPV 拿同一条错地址同样 404）—— 判定收紧到地址正确之后。
-      if (srv != null && srv.isUgreen && (_capability?.hasVerifiedUrl ?? false)) {
+      if (srv != null &&
+          srv.isUgreen &&
+          (_capability?.hasVerifiedUrl ?? false)) {
         widget.state.markExoStreamUnavailable();
       }
       if (await _tryAll(PlaybackEngine.mpv, ordered)) return;
@@ -1116,6 +1116,21 @@ class PlayerPageState extends State<PlayerPage>
     }
   }
 
+  /// 播放信息里「取流鉴权」的文案。判定口径必须与 _start 里真正发出的
+  /// 请求头一致：headersFor 只对同源地址注入 X-Emby-Token。标准 Emby 的
+  /// strm 第一跳是服务器自己的 stream 端点（同源，注入是对的）；只有探测
+  /// 或回退到第三方直链时才不带令牌，此时旧版弹窗仍报「已注入」属误报。
+  String _streamAuthLabel() {
+    final srv = widget.state.server;
+    final url = _currentUrl ?? widget.item.videoUrl ?? '';
+    return describeStreamAuth(
+      connected: srv != null,
+      hasUrl: url.isNotEmpty,
+      sameOrigin: srv != null && url.isNotEmpty && sameOrigin(url, srv.rootUrl),
+      hasToken: srv?.streamHeaders.isNotEmpty ?? false,
+    );
+  }
+
   /// 诊断用：只保留路径 + 关键 query，避免把 api_key 整串印到界面上。
   String _shortUrl(String url) {
     final u = Uri.tryParse(url);
@@ -1131,9 +1146,10 @@ class PlayerPageState extends State<PlayerPage>
   String _shortErr(String e) {
     final s = e.replaceAll(RegExp(r'\s+'), ' ').trim();
     // ExoPlayer 的报错里真实状态码埋在长串来源栈中间，单独拎出来更可读
-    final m = RegExp(r'(?:Response code|responseCode|status code)[:=\s]*(\d{3})',
-            caseSensitive: false)
-        .firstMatch(s);
+    final m = RegExp(
+      r'(?:Response code|responseCode|status code)[:=\s]*(\d{3})',
+      caseSensitive: false,
+    ).firstMatch(s);
     if (m != null) return 'HTTP ${m.group(1)}';
     if (s.contains('Handshake') || s.contains('CERTIFICATE')) return 'TLS 证书被拒';
     if (s.contains('403') || s.contains('Forbidden')) return 'HTTP 403';
@@ -2096,17 +2112,16 @@ class PlayerPageState extends State<PlayerPage>
           showToast(context, '已切 MPV 渲染内封字幕：${track.menuLabel}');
         }
       } else {
-        final ok = await _player?.setEmbeddedSubtitle(
-                  language: track.language,
-                  streamIndex: track.index,
-                ) ??
-                false;
+        final ok =
+            await _player?.setEmbeddedSubtitle(
+              language: track.language,
+              streamIndex: track.index,
+            ) ??
+            false;
         if (!silent) {
           showToast(
             context,
-            ok
-                ? '字幕：${track.menuLabel}（MPV 内封轨）'
-                : '该图像字幕无法渲染（仅 MPV 支持）',
+            ok ? '字幕：${track.menuLabel}（MPV 内封轨）' : '该图像字幕无法渲染（仅 MPV 支持）',
           );
         }
       }
@@ -2353,14 +2368,10 @@ class PlayerPageState extends State<PlayerPage>
                     '${_route!.playMethod}'
                     '${_route!.negotiated ? ' · 能力协商' : ''}',
               ),
-            // v2.0.90：让「取流到底带没带鉴权」一眼可见 —— 绿联取流 403
-            // 十有八九就是这里空着。
-            _InfoRow(
-              k: '取流鉴权',
-              v: (widget.state.server?.streamHeaders.isNotEmpty ?? false)
-                  ? 'X-Emby-Token 已注入'
-                  : '未注入（连接服务器后自动带上）',
-            ),
+            // v2.0.90 让「取流到底带没带鉴权」一眼可见；v2.0.101 改为按
+            // **本次实际取流地址**判定。strm 的第三方直链不会注入令牌，
+            // 以前只看服务器有没有配令牌会误报「已注入」。
+            _InfoRow(k: '取流鉴权', v: _streamAuthLabel()),
             if (_attempts.isNotEmpty)
               _InfoRow(k: '起播重试', v: '${_attempts.length} 次（点角标看明细）'),
             _InfoRow(

@@ -1,10 +1,50 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.100 (300)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.101 (301)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.101 (301) 取流鉴权如实显示 · 海报墙清晰度与时长 · 投屏 HLS 风险提示
+
+**用户需求**：「跟这个问题一起改，我现在是 emby strm 播放的，但是取流鉴权
+是 X-Emby-Token 这个对吗？还有数据的海报墙的照片是模糊的，应该在影片上面
+再加上观看时长数」。
+
+**① 取流鉴权（答案：标准 Emby + strm 显示「已注入」是对的）**
+
+strm 在 Emby 里只是一行 URL 的占位文件，但 Camby 取流的**第一跳**仍是
+Emby 服务器自己的 `/Videos/{id}/stream?Static=true&api_key=…`，属于同源，
+`headersFor` 注入 `X-Emby-Token` 既必要也正确；服务端随后才去读 strm 指向
+的第三方直链，那一步由服务端发起，令牌不会外泄。
+
+不过弹窗原来只看「服务器有没有配置 streamHeaders」，与本次实际取流地址
+无关：一旦能力探测或回退把第三方直链排到第一位，明明一个头都没带仍显示
+「X-Emby-Token 已注入」。现改为按 `_currentUrl` 经 `sameOrigin` 判定，
+新增 `describeStreamAuth()`，会如实显示「外部直链 · 不注入令牌」。
+标准 Emby 这个场景的显示不变。
+
+**② 海报墙**
+
+| 问题 | 原因与修法 |
+|---|---|
+| 照片模糊 | `memWidth: 120` 同时传给 `memCacheWidth` 与 `maxWidthDiskCache`，把磁盘缓存里的海报直接压成 120px，在 3 列格子里放大就糊。改为向服务端要 `maxWidth=800`、本地按 480 解码并用 `FilterQuality.medium`。`imageCacheKey` 保留 `maxWidth`，大图落到独立缓存项，不会被列表里的小图抢先写入污染 |
+| 加观看时长 | 海报右上角加半透明角标，显示**本月该片累计观看时长**（不是海报对应那一条事件的时长）。新增 `aggregateMonthWatchMinutes()` 在完整月事件上按 itemId 聚合，避免「取满 6 张就 break」漏算；`formatWatchMinutes()` 处理 0 / NaN / 整点，混入历史估算时加 `~` 前缀 |
+
+**③ 投屏两个开关的通用警示**
+
+v2.0.100 只按 `isUgreenServer` 禁用烧录 / 兼容模式，标准 Emby 上它们仍亮着，
+而两条路都指向 `master.m3u8`：DLNA 电视普遍不支持持续更新的 HLS 分片，
+表现就是「一直缓冲 / 无法播放」。现保留绿联禁用，其余情况在面板写明 HLS
+风险并建议保持关闭；两个开关默认值仍是关（不持久化）。少数 Android TV
+DMR 能播 HLS，所以不一刀切禁用。
+
+**验收**：新增 `test/stream_auth_poster_test.dart` 14 例（鉴权文案 4 种情况、
+时长聚合与格式化、海报 URL 宽度与独立 cacheKey、3 条源码守卫）。
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。交付 `camby-2.0.101-release-arm64.apk`
+（versionCode 301）。
 
 ### v2.0.100 (300) 投屏字幕改走手机本地代理 · 修绿联无效开关
 
