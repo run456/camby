@@ -7,6 +7,8 @@
 /// 组合都列出来，让 App 自己逐个试并记住能用的那一个。
 library;
 
+import 'models.dart';
+
 const String kEmbyPathPrefix = '/emby';
 
 /// 一次资源探测的结果。
@@ -173,7 +175,60 @@ Map<String, String> embyAuthHeaders(String url, {bool enabled = false}) {
     'X-Emby-Token': token,
     'X-Emby-Authorization':
         'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
-            'Version="2.0.89", Token="$token"',
+            'Version="$kClientVersion", Token="$token"',
     'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
   };
+}
+
+/// 目标地址是否落在服务器自身（v2.0.90）。
+///
+/// 决定「要不要给这个请求带 Emby 鉴权头」：strm 片源普遍指向第三方 CDN /
+/// 网盘反代，把访问令牌递过去既无必要也不安全。协议不同也算跨源。
+bool sameOrigin(String url, String rootUrl) {
+  final a = Uri.tryParse(url);
+  final b = Uri.tryParse(rootUrl);
+  if (a == null || b == null) return false;
+  if (a.scheme != b.scheme) return false;
+  if (a.host != b.host) return false;
+  // Uri.port 会把默认端口补齐（https→443），两侧都取解析值即可直接比
+  return a.port == b.port;
+}
+
+/// 绿联取流候选（v2.0.90）。
+///
+/// 与图片同理：不同 UGOS 固件对 stream 端点的前缀、`Static` 参数宽容度
+/// 不一致，与其猜一个，不如按「最可能成功」排好序逐个试：
+///
+///  1. **STRM 原始地址** —— Item 的 `Path` 若本身就是 http(s)（.strm 条目），
+///     直连原始地址最稳（文档 5.5：绿联的 stream 代理有 403 / 性能限制）。
+///  2. 根路径 `/Videos/{id}/stream`（文档 6.3 坑 1 的标准答案）。
+///  3. 根路径 + `Static=true`（部分固件要靠它才给原片而不是转码）。
+///  4. `/emby` 前缀的两种形式（少数固件把兼容层挂在 Emby 原路径下）。
+///  5. 最后兜 HLS `/master.m3u8`（有转码能力的固件才认）。
+///
+/// [enabled] 为 false 时只回原地址，标准 Emby / Jellyfin 行为不变。
+List<String> playbackCandidates({
+  required String streamUrl,
+  String filePath = '',
+  String? hlsUrl,
+  bool enabled = false,
+}) {
+  final out = <String>[];
+  void add(String? u) {
+    if (u == null || u.isEmpty) return;
+    if (!out.contains(u)) out.add(u);
+  }
+
+  if (!enabled) {
+    add(streamUrl);
+    return out;
+  }
+
+  final p = filePath.trim();
+  if (p.startsWith('http://') || p.startsWith('https://')) add(p);
+  for (final u in streamUrlCandidates(streamUrl, enabled: true)) {
+    add(u);
+  }
+  add(hlsUrl);
+  return out;
 }

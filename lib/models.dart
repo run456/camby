@@ -7,6 +7,13 @@ typedef OpenDetail = void Function(MediaItem item, {String? heroTag});
 
 enum MediaType { movie, series, episode }
 
+/// 客户端版本号，写进 Emby `X-Emby-Authorization` 头。
+///
+/// 单独抽出来是因为鉴权字符串在播放内核、图片加载、资源自检三处都要拼，
+/// 以前每处各自硬编码一个版本号，发版时必漏一处（v2.0.89 的图片头里就
+/// 还留着上一版号）。**发版时只改这里和 pubspec 两处。**
+const String kClientVersion = '2.0.90';
+
 /// 服务器类型：决定默认基础路径
 /// - emby：`/emby`（绿联等 Emby 兼容实现也选它）
 /// - jellyfin：根路径

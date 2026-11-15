@@ -57,6 +57,17 @@ abstract class PlaybackController {
   bool get lastSeekOk;
   String get lastSeekError;
 
+  /// 内核自己吐出来的最近一条错误（v2.0.90）。
+  ///
+  /// ExoPlayer 的 `errorDescription` 里通常带 `Response code: 403` 这类
+  /// 真实 HTTP 状态；libmpv 走 `stream.error` 事件。播放页把它显示给用户，
+  /// 否则绿联这类「401/403 取流被拒」的情况只会表现为「一直黑屏 / 回落到
+  /// 模拟播放」，用户和开发者都无从判断。
+  String get lastError;
+
+  /// 最近一次起播时实际发出的请求头（诊断用，值为脱敏后的占位）。
+  Map<String, String> get lastRequestHeaders;
+
   /// 画面比例（自适配 / 满屏），set 后 buildView 即生效
   PlaybackFit get fit;
   set fit(PlaybackFit v);
@@ -67,6 +78,7 @@ abstract class PlaybackController {
     String? subtitleUrl,
     String? audioCodec,
     PlaybackPlan? plan,
+    Map<String, String>? headers,
   });
   Future<void> play();
   Future<void> pause();
@@ -122,6 +134,8 @@ class ExoController implements PlaybackController {
   VideoPlayerController? _c;
   bool _seekOk = true;
   String _seekError = '';
+  String _lastError = '';
+  Map<String, String> _lastHeaders = const <String, String>{};
 
   @override
   PlaybackFit fit = PlaybackFit.fit;
@@ -137,6 +151,16 @@ class ExoController implements PlaybackController {
 
   @override
   String get lastSeekError => _seekError;
+
+  @override
+  String get lastError {
+    final e = _c?.value.errorDescription;
+    if (e != null && e.isNotEmpty) return e;
+    return _lastError;
+  }
+
+  @override
+  Map<String, String> get lastRequestHeaders => _lastHeaders;
 
   @override
   double get positionSeconds =>
@@ -193,12 +217,30 @@ class ExoController implements PlaybackController {
     String? subtitleUrl,
     String? audioCodec,
     PlaybackPlan? plan,
+    Map<String, String>? headers,
   }) async {
     // Exo/video_player 没有暴露色调映射或色彩空间参数，plan 对它无意义。
     // HDR/DV 片源由播放决策层强制切到 MPV（见 resolvePlaybackPlan）。
-    final c = VideoPlayerController.networkUrl(Uri.parse(url));
+    //
+    // v2.0.90：httpHeaders 必须带上。`video_player` 的 Android 侧会把它
+    // 设成 ExoPlayer `DefaultHttpDataSource` 的 defaultRequestProperties；
+    // 之前这里是空手起播，绿联那边只认 `X-Emby-Token` 请求头（query 里的
+    // api_key 只是兜底），于是登录、拉库、海报全通，唯独取流 403 ——
+    // 这正是「图片出来了但视频放不了」的根因。
+    final h = Map<String, String>.from(headers ?? const <String, String>{});
+    _lastHeaders = h;
+    _lastError = '';
+    final c = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: h,
+    );
     _c = c;
-    await c.initialize();
+    try {
+      await c.initialize();
+    } catch (e) {
+      _lastError = '$e';
+      rethrow;
+    }
   }
 
   @override
@@ -275,10 +317,18 @@ class MpvController implements PlaybackController {
     bool hardwareDecode = true,
     int cacheMb = 512,
     bool useGpuNext = false,
+    bool ignoreSsl = false,
   }) : _hwdec = hardwareDecode,
        _cacheMb = cacheMb,
-       _useGpuNext = useGpuNext {
+       _useGpuNext = useGpuNext,
+       _ignoreSsl = ignoreSsl {
     _player = Player();
+    // v2.0.90：libmpv 走自带的 ffmpeg 网络栈，Kotlin 侧给 HttpsURLConnection
+    // 换 trust-all SSLSocketFactory 对它**完全无效**（v2.0.87 只覆盖了 Exo）。
+    // 自签证书（绿联 9443）下 MPV 会直接 TLS 握手失败，表现为「切 MPV 也黑屏」。
+    _errSub = _player.stream.error.listen((e) {
+      if (e.isNotEmpty) _lastError = e;
+    });
     // DV Profile 5 的 IPTPQc2 → BT.2020 转换只有 vo=gpu-next + libplacebo
     // 会读 RPU 做重塑；普通 vo=gpu 会把它当 YCbCr 解，画面发绿发紫。
     // 只对 DV 片源开，避免改变所有片源的渲染路径。
@@ -293,6 +343,14 @@ class MpvController implements PlaybackController {
   final bool _useGpuNext;
 
   bool get gpuNextEnabled => _useGpuNext;
+
+  /// 是否该对 libmpv 关掉 TLS 校验（绿联自签证书 / 用户勾了「忽略 SSL」）。
+  final bool _ignoreSsl;
+
+  /// libmpv 的错误事件订阅（`stream.error`），dispose 时必须取消。
+  StreamSubscription<String>? _errSub;
+  String _lastError = '';
+  Map<String, String> _lastHeaders = const <String, String>{};
 
   /// 最近一次 HDR 处理说明，播放信息面板展示（尽力而为）。
   static String lastHdrDiagnostic = '';
@@ -326,6 +384,12 @@ class MpvController implements PlaybackController {
 
   @override
   String get lastSeekError => _seekError;
+
+  @override
+  String get lastError => _lastError;
+
+  @override
+  Map<String, String> get lastRequestHeaders => _lastHeaders;
 
   @override
   double get positionSeconds => _player.state.position.inMilliseconds / 1000.0;
@@ -559,7 +623,9 @@ class MpvController implements PlaybackController {
     String? subtitleUrl,
     String? audioCodec,
     PlaybackPlan? plan,
+    Map<String, String>? headers,
   }) async {
+    _lastError = '';
     // libmpv 默认 hwdec=no（纯软解）。设置页「硬件解码优先」打开时走
     // MediaCodec 硬解，解码失败 mpv 会自动回退软解（auto-safe 语义）。
     try {
@@ -580,6 +646,14 @@ class MpvController implements PlaybackController {
         // strm 直链常见问题：默认 UA 被 CDN 拒绝 → 一直黑屏无报错。
         // 两处都设（属性 + 请求头）是因为不同 libmpv 版本读的位置不一样。
         await platform.setProperty('user-agent', kPlayerUserAgent);
+        // v2.0.90：自签证书。libmpv 的 TLS 由 ffmpeg 自己做，不走 Android
+        // 的 HttpsURLConnection，原生 trust-all 对它无效。仅在服务器配置
+        // 勾了「忽略 SSL」时关闭校验；普通 HTTP/受信证书服务器不碰这一项。
+        if (_ignoreSsl) {
+          try {
+            await platform.setProperty('tls-verify', 'no');
+          } catch (_) {}
+        }
         // 默认 60s 太久：黑屏要等一分钟才暴露问题。30s 足够慢速源，也能
         // 让「10 秒无首帧自动回退 Exo」先一步生效。
         await platform.setProperty('network-timeout', '30');
@@ -618,10 +692,16 @@ class MpvController implements PlaybackController {
         }
       }
     } catch (_) {}
-    await _player.open(
-      Media(url, httpHeaders: const {'User-Agent': kPlayerUserAgent}),
-      play: true,
-    );
+    // v2.0.90：把 Emby 鉴权头一起交给 libmpv。
+    // media_kit 会把 httpHeaders 转成 `http-header-fields` 的 mpv_node 数组，
+    // 任意 header 名都能透传（已核对 media_kit 1.2.6 源码）。绿联兼容层
+    // 只认 `X-Emby-Token` 请求头，缺了它就是 403。
+    final h = <String, String>{
+      'User-Agent': kPlayerUserAgent,
+      ...?headers,
+    };
+    _lastHeaders = h;
+    await _player.open(Media(url, httpHeaders: h), play: true);
     _opened = true;
     if (subtitleUrl != null && subtitleUrl.isNotEmpty) {
       try {
@@ -694,5 +774,9 @@ class MpvController implements PlaybackController {
   }
 
   @override
-  Future<void> dispose() async => _player.dispose();
+  Future<void> dispose() async {
+    await _errSub?.cancel();
+    _errSub = null;
+    await _player.dispose();
+  }
 }

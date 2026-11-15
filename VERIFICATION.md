@@ -3073,3 +3073,65 @@ HTTP 状态码。若图片候选全部失败：TLS → 确认忽略证书开关�
 `hdrCapabilities` / `createMulticastLock` / `SSLContext` / `X509TrustManager`
 均未破坏；五档启动图标 md5 与 v2.0.88 逐档一致。
 本地提交 + tag `v2.0.89`，未推 GitHub。
+
+## §104 发布 v2.0.90（绿联取流补鉴权头 + 播放内核自动回退）
+
+需求：v2.0.89 之后海报正常，但用户反馈「视频还不行」，并提供了绿联兼容方案
+文档（豆包整理版，含 VidHub 适配规则）。
+
+**文档关键结论与代码对拍**：文档 6.4「网络栈独立 client 大坑」直指
+「列表能刷、简介正常，但图片裂图、播放器打开流 403」。本项目 6.3 的三条坑
+（无 `/emby` 前缀、直链权限、`MediaSources` 阉割）在 v2.0.88/89 已处理，
+唯一没落地的是 6.4：**取流请求一个 Emby 鉴权头都没带**。
+
+| 链路 | 谁在发请求 | v2.0.89 是否带 `X-Emby-Token` |
+|---|---|---|
+| 登录 / 拉库 / 详情 | `EmbyServer` 的 Dart HttpClient | ✅ |
+| 海报 / 背景图 | `CachedNetworkImage` → `ImageSsl.manager` | ✅ v2.0.89 补 |
+| 视频取流 | ExoPlayer / libmpv 独立网络栈 | ❌ 只有 UA |
+
+**实现**：
+
+- `PlaybackController.open()` 增 `headers`；`ExoController` 传
+  `VideoPlayerController.networkUrl(httpHeaders:)`，`MpvController` 传
+  `Media(httpHeaders:)`（media_kit 1.2.6 会转成 libmpv `http-header-fields`，
+  任意头名可透传，已核对包内源码）。
+- `EmbyServer.streamHeaders` / `headersFor(url)`：仅当目标 host + port 与
+  服务器一致才注入，避免把令牌递给 strm 指向的第三方 CDN。
+- `MpvController(ignoreSsl:)` → libmpv `tls-verify=no`。libmpv 的 TLS 由自带
+  ffmpeg 完成，v2.0.87 给 `HttpsURLConnection` 换的 trust-all 对它无效。
+- `ugreen_resource.playbackCandidates()`：STRM 原文 → 根路径 → `Static=true`
+  → `/emby` 前缀两种 → HLS，作为绿联取流顺序。
+- `EmbyServer.probeStream()`：`Range: bytes=0-0` 只读响应头预检（6s 超时，
+  与图片层同一 `_newClient()` 证书策略）；绿联下并行探测、成功者排前；
+  全部 401/403/404 时只试一条即收尾。
+- `player_page._tryOpen()`：Exo 全败自动换 MPV 再跑一轮；`_attempts` /
+  `_probes` 记录每条候选的真实报错；失败角标可点，按 403 / 404 / TLS /
+  超时给出对应处置；播放信息面板增「取流鉴权」「起播重试」。
+- `diagnostics()` 明确「浏览器直接打开通常 403」并给出带
+  `X-Emby-Token` + `Range: bytes=0-0` 的 curl 验证命令。
+- 新增 `kClientVersion` 常量（`models.dart`），鉴权字符串不再各处硬编码版本。
+
+**验证（v2.0.90）**：`flutter test` 全过（新增
+`test/ugreen_stream_test.dart`：候选顺序与去重、`headersFor` 主机过滤、
+`_shortErr` 版式无关的源码守卫、版本/文档同步）；
+`flutter analyze` 0 error / 0 warning；`tools/perf_audit.py` 未命中红线。
+
+**实机待确认**：沙箱无法访问 `192.168.5.29`。装包后若仍失败，点左上角红色
+角标即可看到每条候选的真实 HTTP 状态码：全部 403 → NAS 后台「允许第三方软件
+访问 / 直链播放」未开；全部 404 → 固件 stream 路径不同，按角标里的实际路径
+补候选；TLS → 检查「忽略 SSL」勾选状态。
+
+**交付**：`camby-2.0.90-release-arm64.apk`（39 MB）。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='290' versionName='2.0.90'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.89 逐项一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 命中 `Camby/2.0.90` / `X-Emby-Token` /
+`X-Emby-Authorization` / `tls-verify` / `http-header-fields` / `播放诊断` /
+`取流鉴权` / `起播重试` / `播放失败 · ` / `允许第三方软件访问` /
+`直链播放` / `TLS 证书被拒` / `curl -k` / `Range: bytes=0-0` /
+`master.m3u8` / `Static=true`；`__camby_continue__` / `__camby_recent__` /
+`绿联影视中心` / `观影日历` / `连接诊断` / `重新自检` / `ignore_ssl`
+等前版标记未丢失。`classes.dex` 中 `setIgnoreSsl` / `hdrCapabilities` /
+`createMulticastLock` / `SSLContext` / `X509TrustManager` 均未破坏；
+五档启动图标 md5 与 v2.0.89 逐档一致。
+本地提交 + tag `v2.0.90`，未推 GitHub。

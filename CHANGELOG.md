@@ -1,10 +1,46 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.89 (289)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.90 (290)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.90 (290) 绿联取流补鉴权头 + 播放内核自动回退
+
+v2.0.89 之后海报恢复正常，但点播放仍然起不来。对照绿联兼容方案文档 6.4
+「网络栈独立 client 大坑」，问题是把两套网络栈当成了一套：
+
+| 链路 | 谁在发请求 | v2.0.89 是否带 `X-Emby-Token` |
+|---|---|---|
+| 登录 / 拉库 / 详情 | `EmbyServer` 的 Dart HttpClient | ✅ 一直带 |
+| 海报 / 背景图 | `CachedNetworkImage` → 自定义 `ImageSsl.manager` | ✅ v2.0.89 补上 |
+| **视频取流** | **ExoPlayer / libmpv 各自独立网络栈** | ❌ **完全没带** |
+
+绿联只认 `X-Emby-Token` 请求头（query 的 `api_key` 仅兜底），所以登录、拉库、
+海报全通，唯独取流 403 —— 现象就是「图片出来了，视频还不行」。
+
+- **播放内核注入鉴权头**：`PlaybackController.open()` 新增 `headers` 参数，
+  Exo 走 `VideoPlayerController.networkUrl(httpHeaders:)`，MPV 走
+  `Media(httpHeaders:)`（media_kit 会转成 libmpv 的 `http-header-fields`）。
+  仅当目标地址的主机/端口与服务器一致时才注入 —— strm 指向的第三方 CDN
+  不该拿到访问令牌。
+- **MPV 关掉 TLS 校验**：libmpv 的 TLS 由自带 ffmpeg 完成，v2.0.87 给
+  `HttpsURLConnection` 换的 trust-all 对它完全无效。勾了「忽略 SSL」时
+  额外下发 `tls-verify=no`，否则绿联自签证书下切 MPV 一样黑屏。
+- **绿联取流候选**：STRM 原始地址（`Path` 是 http(s) 时）→ 根路径
+  `/Videos/{id}/stream` → 加 `Static=true` → `/emby` 前缀两种 → HLS 兜底。
+- **起播前预检**：绿联下并行发 `Range: bytes=0-0` 只读响应头，能用的地址
+  排前面；全部 401/403/404 时只试一条就收尾，不再让 Exo、MPV 各自空转到
+  超时。预检用与图片层相同的证书策略，不会假阴性。
+- **Exo 全败自动切 MPV 重试一轮**：两者失败面不同（Android HttpURLConnection
+  vs 自带 ffmpeg），任一侧走通就能播。
+- **失败可见**：左上角角标从「无可用片源 · 模拟播放」变成
+  「播放失败 · HTTP 403」这类可区分的原因，点击展开每条候选的真实报错与
+  对应处置建议（403 → 开直链播放权限，404 → 路径不符）。
+- **诊断面板补请求头说明**：明确写出「浏览器直接打开通常 403」，并给出带
+  `X-Emby-Token` 的 `curl -k -H ... -H "Range: bytes=0-0"` 验证命令。
+- 新增 `kClientVersion` 常量，鉴权字符串不再各处硬编码版本号。
 
 ### v2.0.89 (289) 绿联图片 / 播放资源候选自适应 + 一键自检
 

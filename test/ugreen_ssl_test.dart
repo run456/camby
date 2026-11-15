@@ -431,12 +431,12 @@ void main() {
       expect(c.contains('ImageSsl.manager.getFileFromCache'), isTrue);
     });
 
-    test('版本与文档同步到 v2.0.89', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.89+289'), isTrue);
-      expect(src('README.md').contains('v2.0.89 (289)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.89 (289)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§103'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.89'), isTrue);
+    test('版本与文档同步到 v2.0.90', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.90+290'), isTrue);
+      expect(src('README.md').contains('v2.0.90 (290)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.90 (290)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§104'), isTrue);
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.90'), isTrue);
     });
   });
 }

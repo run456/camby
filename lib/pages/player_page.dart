@@ -22,6 +22,7 @@ import '../player/subtitle_pick.dart';
 import '../subtitles/subtitles.dart';
 import '../subtitles/online_subtitle.dart';
 import '../subtitles/subtitle_cache.dart';
+import '../ugreen_resource.dart';
 import '../routes.dart';
 import '../theme.dart';
 import '../widgets/glass_sheet.dart';
@@ -85,6 +86,19 @@ class PlayerPageState extends State<PlayerPage>
 
   /// 协商结果，播放信息面板展示播放方式与诊断。
   PlaybackRoute? _route;
+
+  /// 本轮起播试过的地址与内核真实报错（v2.0.90）。
+  ///
+  /// 绿联这类兼容实现取流失败时，Exo / libmpv 各自只会抛一句很含糊的异常，
+  /// 页面上就退化成「无可用片源 · 模拟播放」。把每条候选的失败原因留下来，
+  /// 播放信息面板和失败角标都能直接给出 403 / 404 / TLS 的区分。
+  final List<String> _attempts = <String>[];
+
+  /// 起播失败后是否已经自动换过 MPV 再试（每页只试一次，避免来回打转）
+  bool _triedMpvOnFailure = false;
+
+  /// 取流预检结果（v2.0.90），诊断面板与失败角标共用。
+  final List<String> _probes = <String>[];
 
   bool _initializing = true;
   bool _fallback = false;
@@ -852,6 +866,11 @@ class PlayerPageState extends State<PlayerPage>
     }
     _route = route;
 
+    // v2.0.90：取流请求头由 `headersFor` 按目标地址决定 —— 绿联兼容层只认
+    // `X-Emby-Token`，而 Exo / libmpv 各有独立网络栈，之前完全没带，这是
+    // 「图片出得来、视频放不了」的直接原因（兼容方案文档 6.4）。
+    // 注意不能无脑全站注入：strm 指向的第三方 CDN 不该拿到访问令牌。
+
     final primary = route?.url ?? widget.item.videoUrl;
     final direct =
         route?.fallbackUrl ??
@@ -862,27 +881,101 @@ class PlayerPageState extends State<PlayerPage>
         ? srv.streamUrl(widget.item.id, mediaSourceId: sourceId, direct: false)
         : null;
 
-    if (primary != null && await _start(_engine, primary)) return;
-    if (direct != null &&
-        direct != primary &&
-        await _start(
-          _engine,
-          direct,
-          useGpuNextOverride: _plan.useGpuNext ? false : null,
-        )) {
-      return;
+    // 绿联：前缀 / Static / STRM 原文 / HLS 全列出来逐个试。固件之间的
+    // stream 路径宽容度不一致，写死一条就等于把「换个固件就播不了」变成
+    // 用户侧的玄学。
+    final urls = <String>[];
+    if (srv != null && srv.isUgreen) {
+      final base = primary ?? direct;
+      if (base != null) {
+        urls.addAll(
+          playbackCandidates(
+            streamUrl: base,
+            filePath: widget.item.filePath,
+            hlsUrl: hls,
+            enabled: true,
+          ),
+        );
+      }
+    } else {
+      for (final u in <String?>[primary, direct, hls]) {
+        if (u != null && u.isNotEmpty && !urls.contains(u)) urls.add(u);
+      }
     }
-    if (hls != null &&
-        hls != primary &&
-        hls != direct &&
-        await _start(
-          _engine,
-          hls,
-          useGpuNextOverride: _plan.useGpuNext ? false : null,
-        )) {
-      return;
+
+    _attempts.clear();
+    _probes.clear();
+
+    // 绿联：先并行预检（只读响应头），把能用的地址排前面。
+    // 没有这一步，一个 403 的端点会让 Exo 和 MPV 各自空转到超时，
+    // 用户面对的是几十秒到两分钟的黑屏，最后只得到一句「播放失败」。
+    var ordered = urls;
+    var allRejected = false;
+    if (srv != null && srv.isUgreen && urls.length > 1) {
+      final probes = await Future.wait(
+        urls.map(
+          (u) => srv.probeStream(
+            u,
+            label: _shortUrl(u),
+            // 预检只是排序 / 快速失败用，不能拖慢正常起播：
+            // 局域网里 `Range: bytes=0-0` 的响应头一般 <1s，3s 足够。
+            timeout: const Duration(seconds: 3),
+          ),
+        ),
+      );
+      for (final p in probes) {
+        _probes.add(p.summary);
+      }
+      final good = <String>[];
+      final bad = <String>[];
+      for (var i = 0; i < urls.length; i++) {
+        (probes[i].ok ? good : bad).add(urls[i]);
+      }
+      if (good.isNotEmpty) {
+        ordered = <String>[...good, ...bad];
+      } else {
+        // 全部被拒：只有拿到的都是**明确的鉴权 / 路径错误**才快速收尾。
+        // 超时、416（服务器不接受 Range）这类不算，照旧把所有候选跑一遍，
+        // 免得把本可以播的地址误判掉。
+        allRejected = probes.every(
+          (p) =>
+              p.statusCode == 401 ||
+              p.statusCode == 403 ||
+              p.statusCode == 404,
+        );
+        ordered = allRejected ? urls.take(1).toList() : urls;
+      }
     }
+
+    if (await _tryAll(_engine, ordered)) return;
+
+    // 一路试到 Exo 全败：换 MPV 再走一遍。
+    // 理由不是「MPV 更兼容」这么笼统 —— 而是两者的失败面不同：Exo 走
+    // Android HttpURLConnection（受原生 trust-all 影响），libmpv 走自带
+    // ffmpeg（受 `tls-verify=no` 影响，且能解 Exo 不认的容器），任一侧
+    // 走通就能播，比原地报「无可用片源」有用得多。
+    if (_engine == PlaybackEngine.exo && !_triedMpvOnFailure && !allRejected) {
+      _triedMpvOnFailure = true;
+      if (await _tryAll(PlaybackEngine.mpv, ordered)) return;
+    }
+
     _fallback = true;
+  }
+
+  /// 用指定内核依次尝试一组地址；任一成功即返回 true。
+  Future<bool> _tryAll(PlaybackEngine engine, List<String> urls) async {
+    for (var i = 0; i < urls.length; i++) {
+      if (!mounted) return false;
+      // gpu-next 只给首选地址保留：后续候选已经是「首选失败」之后的兜底，
+      // 不该再被同一个起不来的 VideoController 卡住。
+      final ok = await _start(
+        engine,
+        urls[i],
+        useGpuNextOverride: (i > 0 && _plan.useGpuNext) ? false : null,
+      );
+      if (ok) return true;
+    }
+    return false;
   }
 
   /// [useGpuNextOverride] 只用于回退：DV 片优先试 gpu-next，
@@ -893,6 +986,9 @@ class PlayerPageState extends State<PlayerPage>
     String url, {
     bool? useGpuNextOverride,
   }) async {
+    // 鉴权头按目标主机过滤：只有落在服务器本机才注入（见 headersFor）
+    final headers =
+        widget.state.server?.headersFor(url) ?? const <String, String>{};
     PlaybackController? p;
     try {
       if (engine == PlaybackEngine.exo) {
@@ -905,6 +1001,9 @@ class PlayerPageState extends State<PlayerPage>
           hardwareDecode: prefs.getBool('set_hw_decode') ?? true,
           cacheMb: _cacheBytes,
           useGpuNext: useGpuNextOverride ?? _plan.useGpuNext,
+          // v2.0.90：libmpv 的 TLS 是 ffmpeg 自己做的，原生 trust-all
+          // 管不到，必须显式关校验，否则绿联自签证书下切 MPV 也是黑屏。
+          ignoreSsl: widget.state.ignoreSslErrors,
         );
       }
       p.fit = _fit;
@@ -918,6 +1017,7 @@ class PlayerPageState extends State<PlayerPage>
             : null,
         audioCodec: widget.item.audioCodec,
         plan: _plan,
+        headers: headers,
       );
       await p.setSpeed(_playbackSpeed);
       if (!mounted) {
@@ -937,6 +1037,7 @@ class PlayerPageState extends State<PlayerPage>
         _engine = engine;
         _fallback = false;
         _hw = hw;
+        _attempts.clear();
       });
       await prev?.dispose();
       await p.play();
@@ -950,10 +1051,41 @@ class PlayerPageState extends State<PlayerPage>
       unawaited(p.applySubtitleStyle(_subStyle));
       unawaited(p.setAssRendering(_assSubtitle));
       return true;
-    } catch (_) {
+    } catch (e) {
+      final le = p?.lastError ?? '';
+      _attempts.add(
+        '${_shortUrl(url)} → ${le.isEmpty ? _shortErr('$e') : _shortErr(le)}'
+        '${headers.isEmpty ? '（未带鉴权头）' : ''}',
+      );
       await p?.dispose();
       return false;
     }
+  }
+
+  /// 诊断用：只保留路径 + 关键 query，避免把 api_key 整串印到界面上。
+  String _shortUrl(String url) {
+    final u = Uri.tryParse(url);
+    if (u == null) return url;
+    final q = u.queryParameters;
+    final keep = <String>[
+      if (q['Static'] != null) 'Static=${q['Static']}',
+      if (q['MediaSourceId'] != null) 'ms',
+    ];
+    return '${u.path}${keep.isEmpty ? '' : '?${keep.join('&')}'}';
+  }
+
+  String _shortErr(String e) {
+    final s = e.replaceAll(RegExp(r'\s+'), ' ').trim();
+    // ExoPlayer 的报错里真实状态码埋在长串来源栈中间，单独拎出来更可读
+    final m = RegExp(r'(?:Response code|responseCode|status code)[:=\s]*(\d{3})',
+            caseSensitive: false)
+        .firstMatch(s);
+    if (m != null) return 'HTTP ${m.group(1)}';
+    if (s.contains('Handshake') || s.contains('CERTIFICATE')) return 'TLS 证书被拒';
+    if (s.contains('403') || s.contains('Forbidden')) return 'HTTP 403';
+    if (s.contains('404')) return 'HTTP 404';
+    if (s.contains('timed out') || s.contains('Timeout')) return '连接超时';
+    return s.length > 90 ? '${s.substring(0, 90)}…' : s;
   }
 
   /// 顶栏胶囊点击：在 MPV / Exo 之间来回切（v1.7.56 修）
@@ -1961,6 +2093,79 @@ class PlayerPageState extends State<PlayerPage>
     if (cues.isEmpty) showToast(context, _subFailText());
   }
 
+  /// 起播失败明细（v2.0.90）：逐条列出试过的地址与内核真实报错。
+  ///
+  /// 绿联最常见的两种失败在界面上必须能区分开：
+  ///  · 全部 403 → NAS 后台没给媒体库账号开「允许直链播放」；
+  ///  · 全部 404 → 固件把 stream 挂在别的路径下。
+  void _showAttempts() {
+    if (_attempts.isEmpty && _probes.isEmpty) return;
+    final all = <String>[..._probes, ..._attempts];
+    final buf = <String>[];
+    if (_probes.isNotEmpty) {
+      buf.add('取流预检（只读响应头，不下载画面）：');
+      buf.addAll(_probes);
+      buf.add('');
+    }
+    if (_attempts.isNotEmpty) {
+      buf.add('内核起播记录：');
+      for (var i = 0; i < _attempts.length; i++) {
+        buf.add('${i + 1}. ${_attempts[i]}');
+      }
+      buf.add('');
+    }
+    final codes = RegExp('HTTP (\\d{3})')
+        .allMatches(all.join(' '))
+        .map((m) => m.group(1))
+        .toSet();
+    if (codes.isNotEmpty && codes.every((c) => c == '403')) {
+      buf.add('全部 403 —— 去 NAS 后台检查：影视中心 → 设置 → 媒体服务器，');
+      buf.add('给当前账号打开「允许第三方软件访问 / 直链播放」，再重连服务器。');
+    } else if (codes.isNotEmpty && codes.every((c) => c == '404')) {
+      buf.add('全部 404 —— 这台固件的 stream 路径与文档不同，把上面列出的');
+      buf.add('路径发我，我按实际路径补候选。');
+    } else if (all.any((e) => e.contains('TLS'))) {
+      buf.add('出现 TLS 证书错误 —— 回「我的服务器」确认该条目已勾选');
+      buf.add('「忽略 SSL 证书校验」（绿联入口默认已勾）。');
+    } else if (all.any((e) => e.contains('超时') || e.contains('timed out'))) {
+      buf.add('出现连接超时 —— 确认手机与 NAS 在同一局域网、9443 端口可达。');
+    }
+    showAppDialog<void>(
+      context: context,
+      title: '播放诊断',
+      body: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 340),
+        child: SingleChildScrollView(
+          child: SelectableText(
+            buf.join('\n'),
+            style: const TextStyle(
+              // 注意：播放页被 UI 度量守卫禁止出现 10.5（那是缓冲速率字号），
+              // 这里用 11 保持同一视觉档位。
+              fontSize: 11,
+              height: 1.55,
+              color: AppColors.ink,
+            ),
+          ),
+        ),
+      ),
+      actions: const [AppDialogAction(label: '知道了', value: null)],
+    );
+  }
+
+  /// 失败角标上那一小段原因（不展开面板也能看出是 403 还是证书问题）。
+  String get _failBrief {
+    final all = <String>[..._probes, ..._attempts];
+    for (final s in all) {
+      final m = RegExp(r'HTTP \d{3}').firstMatch(s);
+      if (m != null) return m.group(0)!;
+    }
+    if (all.any((e) => e.contains('TLS'))) return 'TLS 证书被拒';
+    if (all.any((e) => e.contains('超时') || e.contains('timed out'))) {
+      return '连接超时';
+    }
+    return all.isEmpty ? '' : '取流失败';
+  }
+
   void _showInfo() {
     final item = widget.item;
     Navigator.of(context).push<void>(
@@ -1997,6 +2202,16 @@ class PlayerPageState extends State<PlayerPage>
                     '${_route!.playMethod}'
                     '${_route!.negotiated ? ' · 能力协商' : ''}',
               ),
+            // v2.0.90：让「取流到底带没带鉴权」一眼可见 —— 绿联取流 403
+            // 十有八九就是这里空着。
+            _InfoRow(
+              k: '取流鉴权',
+              v: (widget.state.server?.streamHeaders.isNotEmpty ?? false)
+                  ? 'X-Emby-Token 已注入'
+                  : '未注入（连接服务器后自动带上）',
+            ),
+            if (_attempts.isNotEmpty)
+              _InfoRow(k: '起播重试', v: '${_attempts.length} 次（点角标看明细）'),
             _InfoRow(
               k: '音频',
               v: '${item.audioCodec} · ${item.audioChannels}ch',
@@ -2084,33 +2299,53 @@ class PlayerPageState extends State<PlayerPage>
                 Positioned(
                   top: 52,
                   left: 16,
-                  child: Glass(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    radius: 999,
-                    blur: 16,
-                    blurEnabled: false,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          size: 14,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          widget.item.videoUrl == null
-                              ? '演示片源 · 模拟播放'
-                              : '无可用片源 · 模拟播放',
-                          style: const TextStyle(
-                            fontSize: 11,
+                  child: GestureDetector(
+                    // v2.0.90：失败角标可点，直接看每一条候选的真实报错。
+                    // 之前只有一句「无可用片源 · 模拟播放」，403（NAS 没开直链
+                    // 播放）和 404（路径不对）在界面上长得一模一样。
+                    onTap: (_attempts.isEmpty && _probes.isEmpty)
+                        ? null
+                        : _showAttempts,
+                    child: Glass(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      radius: 999,
+                      blur: 16,
+                      blurEnabled: false,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            (_attempts.isEmpty && _probes.isEmpty)
+                                ? Icons.info_outline_rounded
+                                : Icons.error_outline_rounded,
+                            size: 14,
                             color: AppColors.accent,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            widget.item.videoUrl == null
+                                ? '演示片源 · 模拟播放'
+                                : ((_attempts.isEmpty && _probes.isEmpty)
+                                      ? '无可用片源 · 模拟播放'
+                                      : '播放失败 · ${_failBrief}'),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.accent,
+                            ),
+                          ),
+                          if (_attempts.isNotEmpty || _probes.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 13,
+                              color: AppColors.accent,
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -156,21 +156,28 @@ class EmbyServer {
       'API 前缀：${_basePath.isEmpty ? '根路径' : _basePath}',
       '证书校验：${ignoreSsl ? '已跳过（仅限局域网）' : '系统默认'}',
       '登录状态：${_token == null ? '未登录' : '已取得令牌'}',
+      '取流请求头：${streamHeaders.isEmpty ? '无（未登录）' : 'X-Emby-Token + X-Emby-Authorization'}',
       if (isUgreen)
         '图片模板：${policy.preferredImageIndex == null ? '尚未自检出可用模板' : '候选 ${policy.preferredImageIndex! + 1}'}',
       '',
-      '① 图片自检（浏览器打开应返回图片）：',
+      '① 图片自检（App 内点「重新自检」最准）：',
       pic,
       if (isUgreen)
-        '   App 请求额外带 X-Emby-Token 头，并会自动尝试 /emby 前缀、'
-            'X-Emby-Token 参数、无 tag 等候选。',
+        '   浏览器直开只有在服务端接受 query api_key 时才出图；App 会额外带'
+            ' X-Emby-Token 头，并自动尝试 /emby 前缀、无 tag 等候选。',
       '',
-      '② 播放自检（浏览器/播放器打开应能拉流）：',
+      '② 播放自检（**必须带请求头**，浏览器直接打开通常 403）：',
       for (var i = 0; i < streams.length; i++)
         '${streams.length > 1 ? '  ${i + 1}. ' : ''}${streams[i]}',
-      if (isUgreen)
+      if (isUgreen) ...[
+        '   请求头：X-Emby-Token: ${_token ?? ''}',
+        '   命令行验证（与手机同局域网的电脑上）：',
+        '     curl -k -H "X-Emby-Token: ${_token ?? ''}" -H "Range: bytes=0-0" '
+            '-o /dev/null -w "%{http_code}\\n" "<上面任一条地址>"',
         '   若全部 403：影视中心 → 设置 → 媒体服务器，确认媒体库账号已开'
             '「允许第三方软件访问 / 直链播放」。',
+        '   若全部 404：把上面的路径发我，我按实际路径补候选。',
+      ],
       '',
       '③ 首条 Item 原始 JSON 片段（看 ImageTags / MediaSources）：',
       _sampleItemJson.isEmpty ? '（尚未拉到条目）' : _sampleItemJson,
@@ -361,6 +368,76 @@ class EmbyServer {
       if (list.length < pageSize) break;
     }
     return all;
+  }
+
+  /// 播放内核（ExoPlayer / libmpv）取流时必须带上的鉴权头（v2.0.90）。
+  ///
+  /// 绿联兼容层只认 `X-Emby-Token` **请求头**，query 里的 `api_key` 仅作兜底；
+  /// 标准 Emby / Jellyfin 同样接受该头，所以统一注入不改变原有行为。
+  ///
+  /// 这一步是「图片能出、视频放不了」的直接解药：海报走的是 App 自己的
+  /// Dart HttpClient（v2.0.89 已补头），而取流走 ExoPlayer / libmpv 各自
+  /// 独立的网络栈，之前只带了 UA，等于空手要片源。
+  Map<String, String> get streamHeaders {
+    final t = _token;
+    if (t == null || t.isEmpty) return const <String, String>{};
+    return <String, String>{
+      'X-Emby-Token': t,
+      'X-Emby-Authorization':
+          'MediaBrowser Client="Camby", Device="Camby", DeviceId="camby01", '
+              'Version="$kClientVersion", Token="$t"',
+    };
+  }
+
+  /// 按目标地址决定要不要带鉴权头（v2.0.90）。
+  ///
+  /// 只有取流地址落在**服务器自己**身上才注入 —— strm 片源普遍指向第三方
+  /// CDN / 网盘反代，把 Emby 访问令牌递给外部域既无必要也不安全。
+  Map<String, String> headersFor(String url) {
+    if (!sameOrigin(url, rootUrl)) return const <String, String>{};
+    return streamHeaders;
+  }
+
+  /// 取流预检（v2.0.90）：只读响应头，不下载画面。
+  ///
+  /// 绿联的 stream 端点如果没开「允许直链播放」，Exo / MPV 都会一路卡到
+  /// 超时才报错，用户看到的是两分钟黑屏然后「播放失败」。这里用一条
+  /// `Range: bytes=0-0` 请求把真实状态码先拿回来：
+  ///  · 能用的地址排到最前面，少走冤枉路；
+  ///  · 全部被拒时立刻给结论（403 = 后台权限，404 = 路径不对）。
+  ///
+  /// 证书策略与图片层一致（都走 [_newClient]），绿联自签证书不会在这里
+  /// 假阴性。
+  Future<ResourceProbeResult> probeStream(
+    String url, {
+    String label = '',
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final tag = label.isEmpty ? url : label;
+    final client = _newClient(connectionTimeout: timeout);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
+      for (final e in headersFor(url).entries) {
+        req.headers.set(e.key, e.value);
+      }
+      final res = await req.close().timeout(timeout);
+      return ResourceProbeResult(
+        label: tag,
+        url: url,
+        statusCode: res.statusCode,
+        contentType: res.headers.contentType?.mimeType,
+      );
+    } catch (e) {
+      final s = '$e'.replaceAll(RegExp(r'\s+'), ' ');
+      return ResourceProbeResult(
+        label: tag,
+        url: url,
+        error: s.length > 80 ? '${s.substring(0, 80)}…' : s,
+      );
+    } finally {
+      client.close(force: true);
+    }
   }
 
   /// 拼接图片地址

@@ -285,7 +285,7 @@ void main() {
         isTrue,
       );
       expect(
-        s.contains('useGpuNextOverride: _plan.useGpuNext ? false : null'),
+        s.contains('useGpuNextOverride: (i > 0 && _plan.useGpuNext) ? false : null'),
         isTrue,
       );
       expect(s.contains('_currentUrl'), isTrue);
