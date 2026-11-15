@@ -3445,3 +3445,35 @@ Exo 失败，则第二次开播会直接走 MPV 跳过黑屏。
 `播放诊断` / `连接诊断` / `重新自检` / `观影日历` 均未丢失（旧版 `地址和鉴权都没问题` /
 `本机已自动改试 MPV` 已按根因修正移除）。`res/` 与 v2.0.93 逐文件 diff 零差异。
 本地提交 + tag `v2.0.94`，未推 GitHub。
+
+---
+
+## §109 发布 v2.0.99（观影日历按服务器隔离）
+
+**需求**：用户反馈「观影日历串台了，应该一个服务器对应一个观影数据，现在
+多个服务器数据在一起了」。截图里 11 月 15 日的列表全标着「本机记录」，
+没有任何服务器归属可见。
+
+**根因（两层）**：
+
+1. `WatchEvent` 没有 `serverId`，A/B 两台服务器的本机播放事件共用
+   `watch_events_json`，落库时无法区分；
+2. `AppState.watchEvents` 把「全量本机事件」与「当前服务器活动日志」合并，
+   切到 B 之后活动日志换了、本机那份没换，A 的记录继续出现在 B 的日历。
+
+**改动**：
+
+- `WatchEvent` / `HistorySeed` 增加 `serverId`（JSON `sid`）；
+- `_recordLocalWatch`、历史回填、活动日志统一写入当前服务器归属；
+- `watchEvents` getter 按 `activeServerId` 过滤本机事件；去重键改成
+  `serverId|date|itemId`，避免 A/B 同片同日互相吞掉；
+- `connect()` 切服务器时清空上一台的 `_activity` / `_activityNames` /
+  `_playedHistory` / `_recentPlayedItems` / `_playback` 与 `_watchSessions`；
+- 老事件用 `assignServerToOrphans()` 归给升级时激活的服务器，不丢弃；
+- 日历页头部标注「仅当前服务器」，脚注写明切换入口在「我的 → 服务器」。
+
+**验证**：`test/watch_calendar_test.dart` 新增 5 例 + 4 条源码守卫，
+覆盖 JSON 往返、老缓存降级、跨服务器去重、迁移边界与端到端 A/B 切换；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。交付
+`camby-2.0.99-release-arm64.apk`（versionCode 299）。

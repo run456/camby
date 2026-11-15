@@ -101,7 +101,16 @@ class AppState extends ChangeNotifier {
   /// 2. 服务器活动日志明细补漏（同一天同一部片本机已记过就跳过）；
   /// 3. 历史回填的估算事件（已并进 [localWatchEvents]）；
   /// 4. 以上全空时，用「已看历史」近 30 天现场生成估算事件（不落盘）。
+  ///
+  /// v2.0.99：**只看当前服务器**。本机事件是全服务器共用一份 JSON 的，
+  /// 必须在这里按 [activeServerId] 过滤；不加这一层，切到 B 服务器后
+  /// A 的观影记录仍会出现在日历里（用户反馈的「串台」）。
   List<WatchEvent> get watchEvents {
+    final sid = _activeServerId;
+    final local = <WatchEvent>[
+      for (final e in _watchEvents)
+        if (e.serverId == sid) e,
+    ];
     final byId = {for (final e in _items) e.id: e};
     final names = <String, String>{
       for (final e in _items) e.id: e.name,
@@ -113,10 +122,11 @@ class AppState extends ChangeNotifier {
           name: e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片'),
           posterUrl: e.posterUrl ?? byId[e.itemId]?.posterUrl,
           isEpisode: byId[e.itemId]?.type == MediaType.episode,
+          serverId: sid,
         ),
     ];
     final merged = mergeWatchEvents(
-      local: _watchEvents,
+      local: local,
       activity: fromLog,
       names: names,
     );
@@ -135,6 +145,7 @@ class AppState extends ChangeNotifier {
         minutes: e.runtimeMin.toDouble(),
         isEpisode: e.type == MediaType.episode,
         posterUrl: e.posterUrl,
+        serverId: _activeServerId,
       );
     }
   }
@@ -169,6 +180,18 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// v2.0.99：升级前所有服务器的事件共用一份 JSON、没有归属字段。
+  /// 这里把无归属的老事件归给当前激活服务器 —— 原始归属已无法追溯，
+  /// 但至少不再让 A 的记录跟着用户跑到 B 的日历里。
+  /// 必须在 [restore] 确定 activeServerId 之后调用。
+  Future<void> _migrateLegacyWatchEvents() async {
+    final sid = _activeServerId;
+    if (sid == null || sid.isEmpty) return;
+    if (!_watchEvents.any((e) => e.serverId == null)) return;
+    _watchEvents = assignServerToOrphans(_watchEvents, sid);
+    await _persistWatchEvents();
+  }
+
   /// 首次同步：把服务器「已看」历史最近一年回填成估算事件。
   /// 逐条按「日期 + 条目 Id」去重，绝不覆盖已有的本机精确记录。
   /// 返回新增条数，供 UI 弹 toast。
@@ -182,6 +205,7 @@ class AppState extends ChangeNotifier {
       return 0;
     }
     final byId = {for (final e in _items) e.id: e};
+    final sid = _activeServerId;
     final seeds = <HistorySeed>[];
     for (final e in history) {
       final t = e.lastPlayedAt;
@@ -194,17 +218,20 @@ class AppState extends ChangeNotifier {
           minutes: e.runtimeMin.toDouble(),
           isEpisode: e.type == MediaType.episode,
           posterUrl: e.posterUrl ?? byId[e.id]?.posterUrl,
+          serverId: sid,
         ),
       );
     }
+    // 回填只跟「同一台服务器」已有的记录比，避免 A 的已看历史
+    // 因为 B 那天也看过同一部片而被跳过。
     final existing = <String>{
-      for (final e in _watchEvents) '${e.date}|${e.itemId}',
+      for (final e in _watchEvents) watchEventKey(e),
       for (final e in _activity?.events ?? const <WatchEvent>[])
-        '${e.date}|${e.itemId}',
+        watchEventKey(e.copyWith(serverId: sid)),
     };
     final added = <WatchEvent>[
       for (final e in eventsFromHistory(seeds))
-        if (!existing.contains('${e.date}|${e.itemId}')) e,
+        if (!existing.contains(watchEventKey(e))) e,
     ];
     if (added.isNotEmpty) {
       _watchEvents = [..._watchEvents, ...added]
@@ -807,6 +834,7 @@ class AppState extends ChangeNotifier {
       source: WatchSource.local,
       isEpisode: item?.type == MediaType.episode,
       posterUrl: item?.posterUrl,
+      serverId: _activeServerId,
     );
     _watchEvents = [..._watchEvents, ev];
     // 只保留最近 2000 条，长期使用的 JSON 不能无限膨胀。
@@ -1514,6 +1542,7 @@ class AppState extends ChangeNotifier {
         orElse: () => _servers.first,
       );
       _activeServerId = active.id;
+      await _migrateLegacyWatchEvents();
       await connectProfile(active, silent: true);
       return;
     }
@@ -1532,7 +1561,9 @@ class AppState extends ChangeNotifier {
     );
     if (legacy.username.isEmpty) return;
     _servers = [legacy];
+    _activeServerId = legacy.id;
     await _saveServers();
+    await _migrateLegacyWatchEvents();
     await connectProfile(legacy, silent: true);
   }
 
@@ -1571,6 +1602,15 @@ class AppState extends ChangeNotifier {
       await server.authenticate();
       final items = await server.items();
       if (items.isEmpty) throw EmbyException('未获取到任何媒体条目');
+      // v2.0.99：换服务器时先清掉上一台的派生数据与未配对会话。
+      // _loadPlayback() 是异步的，不清的话旧活动日志会顶着新 serverId
+      // 混进这一台的日历；未结束的会话退出时也会记到新服务器头上。
+      _activity = null;
+      _activityNames = const {};
+      _playedHistory = const [];
+      _recentPlayedItems = const [];
+      _playback = null;
+      _watchSessions.clear();
       _server = server;
       // 新连上的服务器从零开始：Exo 是否可用要重新验证一次
       exoStreamUnavailable = false;

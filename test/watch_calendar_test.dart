@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:camby/app_state.dart';
+import 'package:camby/emby_client.dart';
 import 'package:camby/models.dart';
 import 'package:camby/watch_history.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +33,28 @@ List<WatchEvent> _days(
       startAt: DateTime(2026, 10, d, hour),
     ),
 ];
+
+/// 只用来给 AppState 注入一个「当前服务器 id」，不发起任何网络请求。
+class _StubServer extends EmbyServer {
+  _StubServer()
+    : super(
+        host: 'h',
+        port: 8096,
+        secure: false,
+        username: 'u',
+        password: 'p',
+        kind: ServerKind.emby,
+      );
+}
+
+MediaItem _movie(String id) => MediaItem(
+  id: id,
+  name: '片 $id',
+  type: MediaType.movie,
+  overview: '',
+  colors: const [Color(0xFF112233)],
+  runtimeMin: 100,
+);
 
 void main() {
   group('虚拟媒体库 · 常量与身份', () {
@@ -99,6 +122,79 @@ void main() {
       });
       expect(e.source, WatchSource.local);
       expect(e.progress, 1.0);
+    });
+
+    test('v2.0.99：JSON 往返保留服务器归属；老缓存无 sid 时为 null', () {
+      const e = WatchEvent(
+        itemId: 'x1',
+        name: '星际穿越',
+        date: '2026-10-03',
+        minutes: 88.5,
+        serverId: 'srv-A',
+      );
+      final back = WatchEvent.fromJson(e.toJson());
+      expect(back.serverId, 'srv-A');
+      expect(e.toJson().containsKey('sid'), isTrue);
+
+      final legacy = WatchEvent.fromJson({
+        'id': 'x',
+        'n': 'n',
+        'd': '2026-10-01',
+      });
+      expect(legacy.serverId, isNull);
+      expect(legacy.toJson().containsKey('sid'), isFalse);
+    });
+
+    test('v2.0.99：合并去重按服务器隔离，A/B 同片同日不会互相吞掉', () {
+      final a = WatchEvent(
+        itemId: 'm1',
+        name: '同片',
+        date: '2026-10-01',
+        minutes: 10,
+        serverId: 'srv-A',
+      );
+      final b = WatchEvent(
+        itemId: 'm1',
+        name: '同片',
+        date: '2026-10-01',
+        minutes: 20,
+        serverId: 'srv-B',
+      );
+      final merged = mergeWatchEvents(local: [a], activity: [b]);
+      expect(merged.length, 2);
+      expect(merged.map((e) => e.serverId), containsAll(['srv-A', 'srv-B']));
+
+      // 同一台服务器内仍要去重（本机精确优先）
+      final aAgain = b.copyWith(serverId: 'srv-A', minutes: 99);
+      expect(
+        mergeWatchEvents(local: [a], activity: [aAgain]).length,
+        1,
+      );
+    });
+
+    test('v2.0.99：老事件迁移只补无归属的，已有归属的不动', () {
+      final orphan = WatchEvent(
+        itemId: 'm1',
+        name: '老记录',
+        date: '2026-10-01',
+        minutes: 10,
+      );
+      final owned = WatchEvent(
+        itemId: 'm2',
+        name: 'B 的记录',
+        date: '2026-10-02',
+        minutes: 10,
+        serverId: 'srv-B',
+      );
+      final migrated = assignServerToOrphans([orphan, owned], 'srv-A');
+      expect(migrated[0].serverId, 'srv-A');
+      expect(migrated[1].serverId, 'srv-B');
+
+      // 没确定服务器时不能瞎归属
+      expect(
+        assignServerToOrphans([orphan], null).single.serverId,
+        isNull,
+      );
     });
 
     test('进度文案：看完 / 看到 N% / 只有时长', () {
@@ -435,6 +531,45 @@ void main() {
       s.dispose();
     });
 
+    test('v2.0.99：本机事件按服务器隔离，切到另一台不会串台', () async {
+      final s = AppState();
+      s.installTestServer(_StubServer(), 'srv-A', const []);
+      s.installTestItems([_movie('m1')]);
+
+      await s.reportServerPlaybackStart('m1', positionTicks: 0);
+      await s.reportServerPlaybackStop(
+        'm1',
+        10 * 60 * 10000000,
+        played: false,
+      );
+      expect(s.watchEvents.length, 1);
+      expect(s.watchEvents.single.serverId, 'srv-A');
+      expect(s.localWatchEvents.single.serverId, 'srv-A');
+
+      // 切到 B：A 的记录必须消失，即使本机 JSON 里还留着
+      s.installTestServer(_StubServer(), 'srv-B', const []);
+      expect(s.watchEvents, isEmpty);
+      expect(s.localWatchEvents.length, 1);
+
+      // B 自己看一部，两台各有一条、互不覆盖
+      await s.reportServerPlaybackStart('m1', positionTicks: 0);
+      await s.reportServerPlaybackStop(
+        'm1',
+        20 * 60 * 10000000,
+        played: false,
+      );
+      expect(s.watchEvents.length, 1);
+      expect(s.watchEvents.single.serverId, 'srv-B');
+      expect(s.watchEvents.single.minutes, closeTo(20, 0.001));
+      expect(s.localWatchEvents.length, 2);
+
+      s.installTestServer(_StubServer(), 'srv-A', const []);
+      expect(s.watchEvents.length, 1);
+      expect(s.watchEvents.single.serverId, 'srv-A');
+      expect(s.watchEvents.single.minutes, closeTo(10, 0.001));
+      s.dispose();
+    });
+
     test('演示条目不污染日历；没有服务器时回填返回 0', () async {
       final s = AppState();
       await s.reportServerPlaybackStart('demo-1', positionTicks: 0);
@@ -521,6 +656,12 @@ void main() {
       expect(s.contains('eventsFromHistory(seeds)'), isTrue);
       expect(s.contains('mergeWatchEvents('), isTrue);
       expect(s.contains('_watchEvents.length > 2000'), isTrue);
+      // v2.0.99：观影日历按服务器隔离的四道锁，少一道就会重新串台
+      expect(s.contains("for (final e in _watchEvents)\n        if (e.serverId == sid) e,"), isTrue);
+      expect(s.contains('serverId: _activeServerId,'), isTrue);
+      expect(s.contains('assignServerToOrphans(_watchEvents, sid)'), isTrue);
+      expect(s.contains('watchEventKey(e)'), isTrue);
+      expect(s.contains('_watchSessions.clear();'), isTrue);
     });
 
     test('stats / calendar：默认日历、双分段、分享成图、同步 CTA', () {
@@ -536,18 +677,20 @@ void main() {
       expect(page.contains('backfillWatchHistory()'), isTrue);
       expect(page.contains('最近一年'), isTrue);
       expect(page.contains('数据口径：本机播放记录'), isTrue);
+      expect(page.contains('仅当前服务器 · 多台服务器的记录互不混算'), isTrue);
       // 明确不做的东西不能偷偷混进来
       expect(page.contains('桌面小组件'), isFalse);
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.98', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.98+298'), isTrue);
-      expect(src('README.md').contains('v2.0.98 (298)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.98 (298)'), isTrue);
+    test('版本与文档同步到 v2.0.99', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.99+299'), isTrue);
+      expect(src('README.md').contains('v2.0.99 (299)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.99 (299)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
+      expect(src('VERIFICATION.md').contains('§109'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.98 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.99 "),
         isTrue,
       );
     });

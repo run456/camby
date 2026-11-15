@@ -30,6 +30,7 @@ class WatchEvent {
     this.source = WatchSource.local,
     this.isEpisode = false,
     this.posterUrl,
+    this.serverId,
   });
 
   final String itemId;
@@ -49,6 +50,12 @@ class WatchEvent {
   final WatchSource source;
   final bool isEpisode;
   final String? posterUrl;
+
+  /// v2.0.99：归属的服务器 profile id（null = 演示模式 / 升级前的老记录）。
+  ///
+  /// 以前没有这个字段，A 服务器的本机记录在切到 B 之后仍会出现在日历里 ——
+  /// 因为所有服务器的事件共用一份 watch_events_json，取数时又不过滤。
+  final String? serverId;
 
   DateTime get day {
     final p = date.split('-');
@@ -76,6 +83,7 @@ class WatchEvent {
     double? progress,
     WatchSource? source,
     bool? isEpisode,
+    String? serverId,
   }) => WatchEvent(
     itemId: itemId,
     name: name ?? this.name,
@@ -86,6 +94,7 @@ class WatchEvent {
     source: source ?? this.source,
     isEpisode: isEpisode ?? this.isEpisode,
     posterUrl: posterUrl ?? this.posterUrl,
+    serverId: serverId ?? this.serverId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -98,6 +107,7 @@ class WatchEvent {
     's': source.index,
     'e': isEpisode,
     'u': posterUrl,
+    if (serverId != null) 'sid': serverId,
   };
 
   factory WatchEvent.fromJson(Map<String, dynamic> j) => WatchEvent(
@@ -112,6 +122,7 @@ class WatchEvent {
     source: _safeSource(j['s']),
     isEpisode: j['e'] == true,
     posterUrl: j['u'] as String?,
+    serverId: j['sid'] as String?,
   );
 }
 
@@ -173,6 +184,25 @@ double resolveWatchProgress(int positionTicks, int runtimeMinutes) {
   return (positionTicks / total).clamp(0.0, 1.0).toDouble();
 }
 
+/// 升级迁移：把没有服务器归属的老事件归给 [serverId]。
+///
+/// v2.0.98 及以前没有 serverId 字段，老事件无法追溯原始归属；
+/// 归给当前服务器虽然不完美，但好过继续让 A 的记录出现在 B 的日历里。
+List<WatchEvent> assignServerToOrphans(
+  Iterable<WatchEvent> events,
+  String? serverId,
+) {
+  if (serverId == null || serverId.isEmpty) return events.toList();
+  return events
+      .map((e) => e.serverId == null ? e.copyWith(serverId: serverId) : e)
+      .toList();
+}
+
+/// 去重口径：同一台服务器、同一天、同一部片只算一次。
+/// v2.0.99 加上服务器前缀 —— 以前 A/B 两台服务器的同片同日记录会互相吞掉。
+String watchEventKey(WatchEvent e) =>
+    '${e.serverId ?? ''}|${e.date}|${e.itemId}';
+
 /// 本地精确事件 + 活动日志明细合并去重。
 ///
 /// 同一天同一部片看多次是合法的（会留下多条），这里只去掉「本机已记过、
@@ -183,9 +213,9 @@ List<WatchEvent> mergeWatchEvents({
   Map<String, String> names = const {},
 }) {
   final out = <WatchEvent>[...local];
-  final seen = <String>{for (final e in local) '${e.date}|${e.itemId}'};
+  final seen = <String>{for (final e in local) watchEventKey(e)};
   for (final e in activity) {
-    final k = '${e.date}|${e.itemId}';
+    final k = watchEventKey(e);
     if (seen.contains(k)) continue;
     seen.add(k);
     final nm = e.name.isNotEmpty ? e.name : (names[e.itemId] ?? '库外影片');
@@ -209,6 +239,7 @@ class HistorySeed {
     required this.minutes,
     this.isEpisode = false,
     this.posterUrl,
+    this.serverId,
   });
 
   final String id;
@@ -217,6 +248,7 @@ class HistorySeed {
   final double minutes;
   final bool isEpisode;
   final String? posterUrl;
+  final String? serverId;
 }
 
 /// 最近 [days] 天的已看历史 → 估算事件。
@@ -247,6 +279,7 @@ List<WatchEvent> eventsFromHistory(
         source: WatchSource.imported,
         isEpisode: s.isEpisode,
         posterUrl: s.posterUrl,
+        serverId: s.serverId,
       ),
     );
   }

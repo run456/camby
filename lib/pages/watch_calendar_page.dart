@@ -290,6 +290,16 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
                       color: AppColors.muted,
                     ),
                   ),
+                  if (!widget.state.demoMode)
+                    Text(
+                      '仅当前服务器 · 多台服务器的记录互不混算',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        color: AppColors.muted,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -686,6 +696,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
       padding: EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '数据口径：本机播放记录（精确）→ 服务器活动日志明细 → 历史观看回填（按片长估算）。'
+        'v2.0.99 起按服务器隔离，切服务器请在「我的 → 服务器」操作。'
         '标「估算」的记录只有最后观看日期，时长仅供参考。',
         style: TextStyle(fontSize: 10, color: AppColors.muted, height: 1.5),
       ),
