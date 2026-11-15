@@ -252,7 +252,19 @@ class StreamCapability {
     this.error,
     this.mediaSourceCount = 0,
     this.reason = '',
+    this.verifiedUrl,
   });
+
+  /// v2.0.94：探测时**实际返回 200/206 的那条地址**。
+  ///
+  /// 这是「诊断里 206、起播却全 404」的关键：v2.0.91~93 把服务端
+  /// `MediaSources` 给的直取地址只拿去探测、没往下游传，`resolveStreamUrls`
+  /// 又按空的 `SupportedStreamingProtocols` 重新拼出 `/Videos/{id}/stream`，
+  /// 于是探测和播放用的是两条不同 URL。留下这条，播放必须原样复用它。
+  final String? verifiedUrl;
+
+  /// 是否已经拿到一条实测能出数据的地址。
+  bool get hasVerifiedUrl => verifiedUrl != null && verifiedUrl!.isNotEmpty;
 
   /// 服务端声明的取流协议，例如 `Http` / `Hls` / `File`。
   final List<String> protocols;
@@ -280,14 +292,23 @@ class StreamCapability {
           '媒体源对当前账号不可见。';
     }
     if (!hasAnyProtocol) {
-      // v2.0.93：协议没声明不等于端点不通 —— 实测有固件不写这个字段，
-      // 但 `/Videos/{id}/stream` 照样回 206 + video/x-matroska。这时问题就
-      // 完全不在「地址」上，而在「内核怎么取流」，结论要说到点子上。
+      // v2.0.94：协议没声明不等于取不了流 —— 服务端把可直取地址放在
+      // MediaSources 的 DirectStreamUrl / Url 里，但不写协议字段。
+      // 真机 v2.0.93 的诊断就是「能力探测 HTTP 206 + video/x-matroska，
+      // 起播却全 404」：探测用了服务端给的地址，播放却自己重新拼了一条
+      // `/Videos/{id}/stream`。结论必须点明这是**地址没传下去**，不能再说
+      // 成「内核取流方式问题」，否则会一直朝错误的方向排查。
+      if (hasVerifiedUrl && (statusCode == 200 || statusCode == 206)) {
+        return '未声明取流协议，但 MediaSources 给出了可直取地址，'
+            '实测可用（HTTP $statusCode · '
+            '${(contentType ?? '').isEmpty ? '未知类型' : contentType}）。'
+            '此前起播误用了另拼的 stream 端点（404），现已改为直接使用'
+            '服务端返回的地址。';
+      }
       if (statusCode == 200 || statusCode == 206) {
         return '未声明取流协议，但取流端点实测可用（HTTP $statusCode · '
             '${(contentType ?? '').isEmpty ? '未知类型' : contentType}）—— '
-            '地址和鉴权都没问题，问题在播放内核的取流方式。'
-            '本机已自动改试 MPV，下次开播会直接走它。';
+            '地址和鉴权都没问题，请把这条诊断连同取流地址发回。';
       }
       return 'MediaSources 里没有 SupportedStreamingProtocols 字段 —— '
           '这台固件未声明取流协议，需要抓一次影视中心自身的播放请求。';
@@ -315,6 +336,21 @@ class StreamCapability {
     }
   }
 
+  /// 给诊断面板看的脱敏地址：只留路径 + 关键 query，不把 api_key 整串
+  /// 印到界面上（诊断文字可被复制/截图外传）。
+  String? get verifiedUrlLabel {
+    final raw = verifiedUrl;
+    if (raw == null || raw.isEmpty) return null;
+    final u = Uri.tryParse(raw);
+    if (u == null) return raw;
+    final q = u.queryParameters;
+    final keep = <String>[
+      if (q['Static'] != null) 'Static=${q['Static']}',
+      if (q['MediaSourceId'] != null) 'ms',
+    ];
+    return '${u.path}${keep.isEmpty ? '' : '?${keep.join('&')}'}';
+  }
+
   String get summary {
     final p = hasAnyProtocol ? protocols.join(' / ') : '（未声明）';
     final s = error != null
@@ -331,6 +367,7 @@ class StreamCapability {
         'contentType': contentType,
         'error': error,
         'reason': reason,
+        if (verifiedUrl != null) 'verifiedUrl': verifiedUrl,
       };
 }
 

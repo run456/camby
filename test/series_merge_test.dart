@@ -262,7 +262,7 @@ void main() {
       // 加载中给可读提示，而不是空白
       expect(find.text('正在读取这一季…'), findsOneWidget);
 
-      loadDone!.complete();
+      loadDone.complete();
       await tester.pump();
       expect(find.text('1'), findsOneWidget);
       expect(find.text('2'), findsOneWidget);
@@ -354,22 +354,25 @@ void main() {
           isTrue);
     });
 
-    test('诊断结论区分「地址不通」与「内核拉不动」', () {
+    test('v2.0.94 诊断结论改为「实测地址没传下去」，不再是内核定性', () {
       final s = src('lib/ugreen_resource.dart');
-      expect(s.contains('地址和鉴权都没问题，问题在播放内核的取流方式'), isTrue);
-      expect(s.contains('本机已自动改试 MPV，下次开播会直接走它'), isTrue);
+      expect(s.contains('hasVerifiedUrl'), isTrue);
+      expect(s.contains('此前起播误用了另拼的 stream 端点（404）'), isTrue);
+      // 旧的错误定性必须清掉：它把 404 地址问题误判成 Exo 拉不动流
+      expect(s.contains('地址和鉴权都没问题，问题在播放内核的取流方式'), isFalse);
+      expect(s.contains('本机已自动改试 MPV，下次开播会直接走它'), isFalse);
     });
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.93', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.93+293'), isTrue);
-      expect(src('README.md').contains('v2.0.93 (293)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.93 (293)'), isTrue);
-      expect(src('VERIFICATION.md').contains('§107'), isTrue);
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.93'"),
+    test('版本与文档同步到 v2.0.94', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.94+294'), isTrue);
+      expect(src('README.md').contains('v2.0.94 (294)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.94 (294)'), isTrue);
+      expect(src('VERIFICATION.md').contains('§108'), isTrue);
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.94'"),
           isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.93'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.94'),
           isTrue);
     });
   });

@@ -961,9 +961,12 @@ class PlayerPageState extends State<PlayerPage>
     // 走通就能播，比原地报「无可用片源」有用得多。
     if (_engine == PlaybackEngine.exo && !_triedMpvOnFailure && !allRejected) {
       _triedMpvOnFailure = true;
-      // 记下来：这台服务器上 Exo 拉不动流。下次开播直接走 MPV，不再让它
-      // 先失败一轮 —— 绿联 + 自签 HTTPS 是稳定复现的，不值得每次都试。
-      if (srv != null && srv.isUgreen) widget.state.markExoStreamUnavailable();
+      // v2.0.94：只有「已经拿到实测可用地址、Exo 仍拉不动」才算内核问题。
+      // v2.0.93 把 404 的地址错误当成 Exo 不行，白白让用户下次直接走
+      // MPV（MPV 拿同一条错地址同样 404）—— 判定收紧到地址正确之后。
+      if (srv != null && srv.isUgreen && (_capability?.hasVerifiedUrl ?? false)) {
+        widget.state.markExoStreamUnavailable();
+      }
       if (await _tryAll(PlaybackEngine.mpv, ordered)) return;
     }
 
@@ -2141,6 +2144,13 @@ class PlayerPageState extends State<PlayerPage>
     if (cap != null) {
       buf.add('服务端取流能力：');
       buf.add('  ${cap.summary}');
+      // v2.0.94：把实测 2xx 的地址也列出来。此前诊断只说「206」，却
+      // 起播用另一条 URL 全 404，用户和开发者都看不出两条地址不同。
+      // 显示脱敏路径后，一眼就能核对起播列表里有没有它。
+      if (cap.hasVerifiedUrl) {
+        buf.add('  实测可用地址：${cap.verifiedUrlLabel}');
+        buf.add('  起播列表首条应为此地址');
+      }
       buf.add('  → ${cap.verdict}');
       buf.add('');
     }

@@ -3397,3 +3397,51 @@ Exo 失败，则第二次开播会直接走 MPV 跳过黑屏。
 `classes.dex` 中 `setIgnoreSsl` / `hdrCapabilities` / `createMulticastLock` /
 `SSLContext` / `X509TrustManager` 未破坏；`res/` 与 v2.0.92 逐文件 diff 零差异
 （目录指纹同为 `1d250ccf…`）。本地提交 + tag `v2.0.93`，未推 GitHub。
+
+## §108 发布 v2.0.94（修复绿联播放取流地址丢失 + 添加服务器弹窗高度跳变）
+
+需求：v2.0.93 装包后两条反馈 + 三张截图：
+
+> 播放还是失败。然后添加服务器，选择绿联时，弹窗高度突然高一截，请保持原来的高度
+
+**问题 1 根因**：v2.0.93 诊断里「能力探测 HTTP 206 + video/x-matroska」与
+「取流预检 / 内核起播全部 404」并存，本质是**两条不同的 URL**——探测用了服务端
+`MediaSources` 给的直取地址，播放却按空的 `SupportedStreamingProtocols` 重新拼了
+`/Videos/{id}/stream`。`probeStreamCapability()` 只把状态码带走、把地址丢了。
+
+**修复**：
+- `StreamCapability` 增 `verifiedUrl` / `hasVerifiedUrl` / `verifiedUrlLabel`（脱敏：
+  屏蔽 `api_key` 整串）。
+- `probeStreamCapability()` 收集服务端给的全部候选 + 按协议拼的端点，逐条实测，把
+  第一条真回 2xx 的地址留住（`verifiedUrl`），不再只探 `urls.first`。
+- `resolveStreamUrls()` 把实测地址**原样排第一、不改写**，后面才跟协议兜底与 Static
+  变体（保持 `if (cap.statusCode == 200 || cap.statusCode == 206)` 才追加 Static，且
+  仅在 `declared` 非空时）。
+- 播放 / 连接诊断新增「实测可用地址」一行；`verdict` 改为直指地址没传下去；
+  Exo 失败记忆只在「已确认地址可用、Exo 仍拉不动」时才写，不再被 404 误触发。
+
+**问题 2 根因**：绿联分支在表单里多叠三段条件文字（证书未开 / 协议不对 /
+「不广播发现包」），加上窄屏折行，比 Emby 多 4~5 行，弹窗被 `SingleChildScrollView`
+撑高。修法：不硬编码高度，可变文案统一 `maxLines: 1` 省略，三段提示合并进底部本就
+有的单行说明槽 `serverSheetNote()`，Emby 高度严格不变。
+
+**验证（v2.0.94）**：`flutter test` 全过（新增 `test/ugreen_verified_url_test.dart`、
+`test/server_sheet_height_test.dart`，含真实 widget 比对 Emby→绿联→Jellyfin 弹窗
+高度恒定）；`flutter analyze` 0 error / 0 warning；`tools/perf_audit.py` 未命中红线。
+
+**真机待确认**：沙箱无法访问 `192.168.5.29`。装包后：
+① 点绿联条目播放，诊断「服务端取流能力」应显示 `HTTP 206 · video/x-matroska` 与
+「实测可用地址」一行；预检与起播记录应与该地址一致，不再整段 404。
+② 设置页点「+ 添加」切到「绿联」，底部弹层高度应与 Emby / Jellyfin 完全一致。
+
+**交付**：`camby-2.0.94-release-arm64.apk`。`aapt dump badging`：
+`package: name='cn.camby.camby' versionCode='294' versionName='2.0.94'`，
+`sdkVersion 28 / targetSdkVersion 36`，权限与 v2.0.93 逐项一致（未新增）。
+解包 `lib/arm64-v8a/libapp.so` 除版本串（已升 2.0.94）外关键字符串全部命中：
+本版改写的 `实测可用地址` / `此前起播误用了另拼的 stream 端点（404）` /
+`MediaSources 给出了可直取地址` / `忽略证书校验，否则 TLS 握手会直接失败` /
+`该源不广播 Emby 发现包`，以及前版的 `Emby / Jellyfin / 绿联影视中心，同一个入口` /
+`SupportedStreamingProtocols` / `服务端取流能力` / `X-Emby-Token` / `tls-verify` /
+`播放诊断` / `连接诊断` / `重新自检` / `观影日历` 均未丢失（旧版 `地址和鉴权都没问题` /
+`本机已自动改试 MPV` 已按根因修正移除）。`res/` 与 v2.0.93 逐文件 diff 零差异。
+本地提交 + tag `v2.0.94`，未推 GitHub。

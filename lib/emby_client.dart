@@ -160,6 +160,8 @@ class EmbyServer {
       if (isUgreen && lastStreamCapability != null) ...[
         '取流协议：${lastStreamCapability!.protocols.isEmpty ? '服务端未声明' : lastStreamCapability!.protocols.join(' / ')}',
         '取流探测：${lastStreamCapability!.error ?? 'HTTP ${lastStreamCapability!.statusCode ?? '未探测'}'}',
+        if (lastStreamCapability!.hasVerifiedUrl)
+          '实测可用地址：${lastStreamCapability!.verifiedUrl}',
         '取流结论：${lastStreamCapability!.verdict}',
       ],
       if (isUgreen)
@@ -403,7 +405,8 @@ class EmbyServer {
     return streamHeaders;
   }
 
-  /// 取流能力探测（v2.0.91）——解决「点播放全部 404」。
+  /// 取流能力探测（v2.0.91 引入，v2.0.94 改为留下实测地址）——解决
+  /// 「点播放全部 404」。
   ///
   /// 绿联这类兼容实现**只在 Item 的 `MediaSources[].SupportedStreamingProtocols`
   /// 里登记了某协议时，才暴露对应的流端点**；没登记就直接 404，而不是 403。
@@ -411,19 +414,24 @@ class EmbyServer {
   ///
   /// 流程：
   ///  1. 单条查 `Users/{uid}/Items/{id}`，拿完整 `MediaSources`；
-  ///  2. 解析 `SupportedStreamingProtocols`（顺带兜底读 `MediaSourceInfo` 里
-  ///     可能出现的 `DirectStreamUrl` / `TranscodingUrl`）；
-  ///  3. 按声明的协议拼端点（http → /Videos/{id}/stream，hls → master.m3u8，
-  ///     只有 file → /Items/{id}/File），发一次 `Range: bytes=0-0` 验证；
-  ///  4. 把「声明了什么 + 实际返回什么」一起交给调用方，用户能看懂、我也能
-  ///     据此继续修。
+  ///  2. 解析 `SupportedStreamingProtocols`，并收集 `DirectStreamUrl` /
+  ///     `TranscodingUrl` / `Url`（绿联常常不写协议字段，只把可直取地址
+  ///     塞在这里）；
+  ///  3. 按声明的协议拼端点，和上面收集到的服务端地址一起逐条发
+  ///     `Range: bytes=0-0` 验证；
+  ///  4. 把「声明了什么 + 实际返回什么 + **哪条地址真的回了 2xx**」一起交给
+  ///     调用方。v2.0.94 之前只把状态码带走、把地址丢了，播放侧又重新拼了
+  ///     一条 `/Videos/{id}/stream`，于是诊断显示 206、起播却全 404。
   Future<StreamCapability> probeStreamCapability(
     String itemId, {
     Duration timeout = const Duration(seconds: 6),
   }) async {
     List<String> protocols = const <String>[];
     var sourceCount = 0;
-    String? serverUrl;
+    // v2.0.94：不再只取第一条（serverUrl ??= ...）。绿联可能在
+    // MediaSources 里同时给出多条候选，第一条恰好是探测不过的那条；
+    // 全部收集、按优先级排好，逐条实测才知道哪条真能出数据。
+    final serverUrls = <String>[];
     try {
       final item = await _getJson(
         '$baseUrl/Users/$_userId/Items/$itemId',
@@ -443,7 +451,8 @@ class EmbyServer {
           ]) {
             final v = ms[k];
             if (v is String && v.isNotEmpty) {
-              serverUrl ??= _ensurePlaybackAuth(v);
+              final abs = _ensurePlaybackAuth(v);
+              if (!serverUrls.contains(abs)) serverUrls.add(abs);
             }
           }
         }
@@ -455,9 +464,9 @@ class EmbyServer {
       );
     }
 
-    // 服务端自己给了地址就用它，省得我们再猜
+    // 服务端自己给了地址就排前面，省得我们再猜；按声明协议拼的兜底在后。
     final urls = <String>[
-      if (serverUrl != null) serverUrl,
+      ...serverUrls,
       ...urlsForProtocols(
         protocols: protocols,
         rootUrl: assetUrl,
@@ -475,8 +484,28 @@ class EmbyServer {
       );
     }
 
-    // 只探测第一条：协议已经决定了端点形态，再试别的只是重复 404
-    final first = await probeStream(urls.first, label: '', timeout: timeout);
+    // v2.0.94：逐条实测，找到第一条真正返回 2xx 的地址并把它留住。
+    // 旧实现只探 urls.first、还把地址丢了 —— 于是「探测 206」和
+    // 「播放 404」可以同时出现在同一份诊断里，因为那根本是两条 URL。
+    // 常见情况第一条就 206，短路后请求数与旧版一致，不拖慢起播。
+    ResourceProbeResult? best;
+    String? verifiedUrl;
+    for (var i = 0; i < urls.length && i < 4; i++) {
+      // 第一条用完整超时，后续候选只是兜底，给短超时避免最坏情况卡住。
+      final t = i == 0 ? timeout : const Duration(seconds: 3);
+      final r = await probeStream(urls[i], label: '', timeout: t);
+      best ??= r;
+      if (r.statusCode != null &&
+          r.statusCode! >= 200 &&
+          r.statusCode! < 300) {
+        best = r;
+        verifiedUrl = urls[i];
+        break;
+      }
+      // 全部失败时，留一条「有明确 HTTP 状态」的用于诊断，别只留超时文本
+      if (best!.statusCode == null && r.statusCode != null) best = r;
+    }
+    final winner = best!;
     final reason = protocols.contains('http')
         ? 'direct'
         : protocols.contains('hls')
@@ -485,10 +514,11 @@ class EmbyServer {
     final cap = StreamCapability(
       protocols: protocols,
       mediaSourceCount: sourceCount,
-      statusCode: first.statusCode,
-      contentType: first.contentType,
-      error: first.error,
+      statusCode: winner.statusCode,
+      contentType: winner.contentType,
+      error: winner.error,
       reason: reason,
+      verifiedUrl: verifiedUrl,
     );
     lastStreamCapability = cap;
     return cap;
@@ -497,11 +527,16 @@ class EmbyServer {
   /// 最近一次 [probeStreamCapability] 的结论（播放诊断 / 设置页展示）。
   StreamCapability? lastStreamCapability;
 
-  /// 按能力探测结论给出该条目的取流地址（v2.0.91）。
+  /// 按能力探测结论给出该条目的取流地址（v2.0.91 引入，v2.0.94 修正）。
   ///
-  /// 绿联：先问服务端声明了哪些协议，再按协议拼端点；只有服务端**没声明
-  /// http** 且条目 Path 是 http(s)（strm 条目）时，才把原文地址放第一位。
+  /// 绿联：先问服务端声明了哪些协议、并**逐条实测**候选地址；把真正返回
+  /// 2xx 的那条原样排第一，后面才放按协议拼出的兜底端点。只有服务端
+  /// **没声明 http** 且条目 Path 是 http(s)（strm 条目）时，原文地址才参与。
   /// 标准 Emby / Jellyfin 不探测，直接回 videoUrl，行为与旧版一致。
+  ///
+  /// v2.0.94 修复：旧实现把探测用的地址丢掉，只留状态码，播放侧于是拿
+  /// 重新拼的 `/Videos/{id}/stream` 去起播 —— 这就是真机诊断里「服务端
+  /// 取流能力 HTTP 206」与「取流预检 / 内核起播记录全部 404」并存的原因。
   Future<List<String>> resolveStreamUrls(MediaItem item) async {
     if (!isUgreen) {
       return <String>[
@@ -519,27 +554,33 @@ class EmbyServer {
     );
     final p = item.filePath.trim();
     final isHttpPath = p.startsWith('http://') || p.startsWith('https://');
-    if (isHttpPath && !cap.protocols.contains('http')) {
-      return <String>[p, ...declared];
+
+    final out = <String>[];
+    void add(String? u) {
+      if (u == null || u.isEmpty || out.contains(u)) return;
+      out.add(u);
     }
-    // v2.0.93：协议未声明、但预检已经拿到 200/206 —— 说明这个端点确实能
-    // 出数据（实测 `video/x-matroska` + 206）。这时候别再只给一条 URL：
-    // 部分固件对 `Static=true` 走的是另一套 handler（不校验 Range），
-    // Exo 在自己的网络栈上用开放区间取流被拒时，换这一条就可能过。
-    if (declared.isNotEmpty) {
-      final first = declared.first;
-      if (cap.statusCode == 200 || cap.statusCode == 206) {
-        // 注意不能用 streamUrl(direct: true)：绿联下它跟不带 Static 的
-        // 完全同一条（见 streamUrl 注释），拼不出差异，这里显式构造。
-        final q = (_token ?? '').isEmpty ? '' : '&api_key=$_token';
-        final alt = '$assetUrl/Videos/${item.id}/stream?Static=true$q';
-        if (!declared.contains(alt)) {
-          return <String>[first, alt, ...declared.skip(1)];
-        }
-      }
-      return declared;
+
+    // ① 实测能出数据的地址永远第一位，且**不做任何改写**：服务端可能带
+    // 内部路径、签名参数或非标准端口，重新拼一次就又变回 404 了。
+    add(cap.verifiedUrl);
+    // ② strm 原文地址：只在服务端没声明 http 协议时才需要它
+    if (isHttpPath && !cap.protocols.contains('http')) add(p);
+    for (final u in declared) {
+      add(u);
     }
-    return <String>[if (isHttpPath) p];
+    // v2.0.93 保留：端点实测 2xx 时补一条 Static 变体。部分固件对
+    // `Static=true` 走另一套 handler（不校验 Range），Exo 用开放区间
+    // 取流被拒时换这一条可能过。注意不能用 streamUrl(direct: true)，
+    // 绿联下它与不带 Static 的完全同一条，拼不出差异。仅在已按协议拼出
+    // 端点时追加，避免重复或凭空多一条 404 候选。
+    if (cap.statusCode == 200 || cap.statusCode == 206) {
+      final q = (_token ?? '').isEmpty ? '' : '&api_key=$_token';
+      final staticAlt = '$assetUrl/Videos/${item.id}/stream?Static=true$q';
+      if (declared.isNotEmpty) add(staticAlt);
+    }
+    if (out.isEmpty && isHttpPath) add(p);
+    return out;
   }
 
   /// 取流预检（v2.0.90）：只读响应头，不下载画面。

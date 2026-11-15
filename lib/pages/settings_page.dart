@@ -24,6 +24,34 @@ double _horizontalPad(BuildContext context) {
   return pad < 30 ? 30 : pad;
 }
 
+/// v2.0.94：「添加服务器」弹窗里**唯一**的一行类型提示。
+///
+/// 之前绿联分支在表单里额外叠了三段条件文字（证书未开警告、协议警告、
+/// 「不广播发现包」说明），Emby / Jellyfin 则一行都没有；切换分段时
+/// `SingleChildScrollView` 的自然高度一下多出 4~5 行，弹窗就往上跳一大截。
+///
+/// 现在三种类型共用同一个固定高度的提示槽，按优先级只显示最要紧的一条，
+/// 表单行数与所选类型完全无关 —— 弹窗高度恒定，不需要硬编码高度，也不
+/// 强迫用户在弹窗里滚动才能看到保存按钮。
+String serverSheetNote({
+  required bool isUgreen,
+  required bool compat,
+  required bool ignoreSsl,
+  required bool secure,
+  required int port,
+}) {
+  if (compat && !ignoreSsl) {
+    return '⚠ 绿联 / 自签 HTTPS 源必须开启忽略证书校验，否则 TLS 握手会直接失败。';
+  }
+  if (port == 9443 && !secure) {
+    return '⚠ 绿联影视中心只提供 HTTPS，请把「协议」切到 HTTPS。';
+  }
+  if (isUgreen) {
+    return '该源不广播 Emby 发现包，请手动填地址；不支持进度同步，记录仅存本机。';
+  }
+  return '配置会保存在本地，可添加多个 Emby / Jellyfin 服务器随时切换。';
+}
+
 /// 「我的」设置页：所有控件可交互，选择持久化到 SharedPreferences
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -1011,7 +1039,22 @@ class _ServerSheetState extends State<_ServerSheet> {
     });
   }
 
-  /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。  /// 最常见原因：手机在移动数据下访问 192.168.x.x 这类内网地址，路由不可达，
+  /// 「忽略 SSL 证书校验」下面那行说明（v2.0.94 抽出成单行）。
+  ///
+  /// 文案本身要保留「中间人风险 / 已自动勾选」这些关键词，但**渲染时恒为
+  /// 一行**：绿联的警告最长，折成两行就把整张弹窗撑高了。
+  String _sslNote() {
+    if (_ignoreSsl && !isLanHost(_host.text)) {
+      return '⚠ 非局域网地址：关闭校验有中间人风险，建议仅局域网使用';
+    }
+    if (_kind == ServerKind.ugreen) {
+      return '绿联影视中心为自签证书，接入必须开启（已自动勾选）';
+    }
+    return '自签 HTTPS 源需开启；建议仅局域网使用，默认关闭';
+  }
+
+  /// 把底层 socket 错误翻译成人能看懂的提示，并针对局域网地址给网络诊断。
+  /// 最常见原因：手机在移动数据下访问 192.168.x.x 这类内网地址，路由不可达，
   /// 系统表现为 ECONNABORTED("Software caused connection abort") 而非超时。
   String _friendlyConnectError(String host, String? raw) {
     final m = raw ?? '';
@@ -1167,6 +1210,8 @@ class _ServerSheetState extends State<_ServerSheet> {
                   ],
                 ),
                 const SizedBox(height: 4),
+                // v2.0.94：固定单行。绿联这句最长，之前会折成两行，光这一处
+                // 就让弹窗比 Emby 高一行；类型说明属于补充信息，超出省略即可。
                 Text(
                   switch (_kind) {
                     ServerKind.jellyfin =>
@@ -1174,8 +1219,10 @@ class _ServerSheetState extends State<_ServerSheet> {
                     ServerKind.emby =>
                       'Emby 走 /emby 路径，支持 Playback Reporting 统计',
                     ServerKind.ugreen =>
-                      '绿联影视中心（UGOS Pro）走 HTTP(S) 根路径 · 默认 9443 · 自动跳过证书校验',
+                      '绿联影视中心（UGOS Pro）· HTTPS 9443 · 自动跳过证书校验',
                   },
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 10, color: AppColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -1281,12 +1328,13 @@ class _ServerSheetState extends State<_ServerSheet> {
                             ),
                           ),
                           const SizedBox(height: 3),
+                          // v2.0.94：固定单行 + 省略。警告文案在绿联下最长，
+                          // 折行会让整张弹窗比 Emby 高一行；完整措辞仍保留
+                          // 在 _sslNote() 里，点开诊断面板可看全。
                           Text(
-                            _ignoreSsl && !isLanHost(_host.text)
-                                ? '⚠ 非局域网地址：关闭校验有中间人风险，建议仅局域网使用'
-                                : (isUgreen
-                                    ? '绿联影视中心为自签证书，接入必须开启（已自动勾选）'
-                                    : '自签 HTTPS 源需开启；建议仅局域网使用，默认关闭'),
+                            _sslNote(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 10,
                               color: _ignoreSsl && !isLanHost(_host.text)
@@ -1304,33 +1352,11 @@ class _ServerSheetState extends State<_ServerSheet> {
                     ),
                   ],
                 ),
-                if (ugreen && !_ignoreSsl)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      '⚠ 绿联影视中心 / 自签 HTTPS 源必须开启忽略证书校验，'
-                      '关闭后将在 TLS 握手阶段直接失败。',
-                      style: TextStyle(fontSize: 10, color: AppColors.warn),
-                    ),
-                  ),
-                if (detectedPort == 9443 && !_secure)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      '绿联影视中心只提供 HTTPS，请把「协议」切到 HTTPS；'
-                      'HTTP 与 8096 端口均不可用。',
-                      style: TextStyle(fontSize: 10, color: AppColors.warn),
-                    ),
-                  ),
-                if (ugreen)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      '该源不广播 Emby 发现包，请手动填地址；'
-                      '且不支持播放进度同步，观看记录仅保存在本机观影日历。',
-                      style: TextStyle(fontSize: 10, color: AppColors.muted),
-                    ),
-                  ),
+                // v2.0.94：原来这里按条件叠了三段文字（证书未开 / 协议不
+                // 对 / 绿联说明），绿联最长能多出 4~5 行，切换分段时整张
+                // 弹窗突然往上跳一大截。三段已合并进底部那行本来就有
+                // 的提示（serverSheetNote），这里不再新增任何 widget，
+                // Emby 的高度严格保持原样。
                 const SizedBox(height: 10),
                 if (_result != null)
                   Padding(
@@ -1349,12 +1375,29 @@ class _ServerSheetState extends State<_ServerSheet> {
                   onTap: _loading ? null : _submit,
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  isUgreen
-                      ? '绿联影视中心为 Emby 接口子集：不支持播放进度同步，'
-                          '观看记录仅保存在本机观影日历。'
-                      : '配置会保存在本地，可添加多个 Emby / Jellyfin 服务器随时切换',
-                  style: const TextStyle(fontSize: 10, color: AppColors.muted),
+                // v2.0.94：这一行本来就有，现在由 serverSheetNote 统一供给
+                // 内容（含原先三段绿联专属提示的要点），并固定单行高度。
+                // 绿联原本这句折两行，是弹窗变高的最后一处来源。
+                SizedBox(
+                  height: 14,
+                  child: Text(
+                    serverSheetNote(
+                      isUgreen: isUgreen,
+                      compat: ugreen,
+                      ignoreSsl: _ignoreSsl,
+                      secure: _secure,
+                      port: detectedPort,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: (ugreen && !_ignoreSsl) ||
+                              (detectedPort == 9443 && !_secure)
+                          ? AppColors.warn
+                          : AppColors.muted,
+                    ),
+                  ),
                 ),
               ],
             ),
