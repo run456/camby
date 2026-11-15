@@ -16,9 +16,11 @@ import 'liquid_press.dart';
 ///  · 真实库区：2 列铺开，左侧库名 + 数量，右侧 3 张海报倾斜拼贴；
 ///  · 库数 > 12 时顶部出现搜索框，按名称实时过滤。
 ///
-/// **零新增请求**：海报取自 `state.items` 里该库的前 3 张（已缓存的
-/// posterUrl）；取不到就用「按库名哈希出的双色渐变 + 库名首字」兜底，
-/// 不会退化成灰方块。同一个库永远同一个主色。
+/// **零新增请求**：v2.0.103 起优先用调用方传入的 [posters]（来自
+/// `AppState.viewPosterUrls()`，复用首页按库预览缓存里「最近入库」的影片），
+/// 没有再退回本地按 `parentId` 匹配；取不到才用「库名首字 + 双色渐变」兜底。
+/// 这样做是因为标准 Emby 的条目 ParentId 常指向库内文件夹而非 UserView，
+/// 旧版因此全部退化成「本 / 在」这样的首字卡片。同一个库永远同一个主色。
 Future<LibraryPick?> showLibraryPickerSheet(
   BuildContext context, {
   required List<LibraryView> views,
@@ -26,6 +28,8 @@ Future<LibraryPick?> showLibraryPickerSheet(
   required String? selectedId,
   required int recentCount,
   required int continueCount,
+  Map<String, List<String>> posters = const {},
+  Map<String, int> counts = const {},
 }) {
   return showModalBottomSheet<LibraryPick>(
     context: context,
@@ -38,6 +42,8 @@ Future<LibraryPick?> showLibraryPickerSheet(
       selectedId: selectedId,
       recentCount: recentCount,
       continueCount: continueCount,
+      posters: posters,
+      counts: counts,
     ),
   );
 }
@@ -104,6 +110,8 @@ class _LibraryPickerSheet extends StatefulWidget {
     required this.selectedId,
     required this.recentCount,
     required this.continueCount,
+    required this.posters,
+    required this.counts,
   });
 
   final List<LibraryView> views;
@@ -111,6 +119,12 @@ class _LibraryPickerSheet extends StatefulWidget {
   final String? selectedId;
   final int recentCount;
   final int continueCount;
+
+  /// viewId → 该库最近影片的海报 URL（父级预热后传入）。
+  final Map<String, List<String>> posters;
+
+  /// viewId → 该库条目数（只报真实数，0 时卡片显示「—」）。
+  final Map<String, int> counts;
 
   @override
   State<_LibraryPickerSheet> createState() => _LibraryPickerSheetState();
@@ -129,9 +143,7 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
   List<LibraryView> get _filtered {
     if (_q.trim().isEmpty) return widget.views;
     final q = _q.trim().toLowerCase();
-    return widget.views
-        .where((v) => v.name.toLowerCase().contains(q))
-        .toList();
+    return widget.views.where((v) => v.name.toLowerCase().contains(q)).toList();
   }
 
   void _pick(String? id) => Navigator.pop(context, LibraryPick(id));
@@ -299,8 +311,12 @@ class _LibraryPickerSheetState extends State<_LibraryPickerSheet> {
                                 width: cardW,
                                 child: _ViewCard(
                                   name: v.name,
-                                  count: viewItemCount(widget.items, v.id),
-                                  previews: posterPreviews(widget.items, v.id),
+                                  count:
+                                      widget.counts[v.id] ??
+                                      viewItemCount(widget.items, v.id),
+                                  previews:
+                                      widget.posters[v.id] ??
+                                      posterPreviews(widget.items, v.id),
                                   accent: viewAccent(v.name),
                                   selected: widget.selectedId == v.id,
                                   onTap: () => _pick(v.id),
@@ -497,10 +513,7 @@ class _ViewCard extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color.lerp(colors[0], Colors.white, 0.06)!,
-              colors[1],
-            ],
+            colors: [Color.lerp(colors[0], Colors.white, 0.06)!, colors[1]],
           ),
           border: Border.all(
             color: selected
@@ -560,7 +573,11 @@ class _ViewCard extends StatelessWidget {
   }
 }
 
-/// 3 张海报倾斜叠放；没有海报就整块渐变 + 库名首字。
+/// v2.0.103：右侧「图标」换成该库最近影片的一张完整海报。
+///
+/// 旧实现是 3 张 34×60 小图倾斜叠放 —— 互相遮挡、上下裁切，而且只要
+/// parentId 匹配不上就直接退化成「本 / 在」这类库名首字。现在按 2:3
+/// 原生比例铺一张，不旋转不裁切；contain 留出的边用该库主色填充。
 class _Collage extends StatelessWidget {
   const _Collage({
     required this.previews,
@@ -586,32 +603,27 @@ class _Collage extends StatelessWidget {
         ),
       );
     }
-    final shown = previews.take(3).toList();
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        for (var i = shown.length - 1; i >= 0; i--)
-          Positioned(
-            right: i * 11.0,
-            top: i * 3.0,
-            child: Transform.rotate(
-              angle: (i - 1) * 0.075,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(7),
-                child: SizedBox(
-                  width: 34,
-                  height: 60,
-                  child: CachedImage(
-                    url: shown[i],
-                    fit: BoxFit.cover,
-                    memWidth: 120,
-                    filterQuality: FilterQuality.low,
-                  ),
-                ),
-              ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: 48,
+        height: 72,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [colors[0], colors[1]],
             ),
           ),
-      ],
+          child: CachedImage(
+            url: previews.first,
+            fit: BoxFit.contain,
+            memWidth: 240,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+      ),
     );
   }
 }

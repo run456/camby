@@ -17,6 +17,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 所有白字压白底，都会在图上直接暴露成一坨看不见的东西。
 ///
 /// 只跑 golden、不断言具体像素 —— 每次重生成后人工看一眼。
+///
+/// 注：首页的背景渐变与筛选 chip 数量取自「每日推荐」，推荐片按日期分桶；
+/// 跨天再跑时 light_home.png 可能失配（是基线过期，不是 UI 回归），
+/// 用 `flutter test --update-goldens test/light_theme_golden_test.dart` 重录即可。
 void main() {
   setUp(() {
     // 设置页 / ThemeController 都会读 SharedPreferences，测试环境必须给个假实现。

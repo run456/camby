@@ -395,14 +395,14 @@ void main() {
       expect(s.contains('onChanged: canTranscode ? _onCompatibleChanged : null'), isTrue);
     });
 
-    test('版本与文档同步到 v2.0.102', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.102+302'), isTrue);
-      expect(src('README.md').contains('v2.0.102 (302)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.102 (302)'), isTrue);
+    test('版本与文档同步到 v2.0.103', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.103+303'), isTrue);
+      expect(src('README.md').contains('v2.0.103 (303)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.103 (303)'), isTrue);
       expect(src('VERIFICATION.md').contains('§99'), isTrue);
       expect(src('VERIFICATION.md').contains('§110'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.102 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.103 "),
         isTrue,
       );
     });

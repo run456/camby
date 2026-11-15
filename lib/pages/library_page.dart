@@ -140,34 +140,58 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _chipPad(Widget child) =>
       Padding(padding: const EdgeInsets.only(right: 8), child: child);
 
-  /// 当前选中的真实库 → 一个 chip（没有选中真实库时退化为第一个库）。
+  /// 一屏最多铺几个真实库 chip（其余仍在「全部媒体库」弹窗里）。
+  static const int _kMaxRealChips = 6;
+
+  /// v2.0.103：把真实库平铺成可横滑的 6 个选项。
   ///
-  /// 设计稿要「常用 3 个 + 更多」，所以真实库不再全部平铺：只留当前这一个，
-  /// 保证用户随时看得见自己选的是哪个库，剩下的都在弹窗里。
-  List<Widget>? _currentRealChip(AppState state) {
-    if (state.views.isEmpty) return null;
+  /// 以前只放「当前选中的那一个」真实库，想换库每次都得开弹窗；现在库名
+  /// 直接可点。选中项一定留在这一批里（库数 > 6 时替换末位），不会像旧版
+  /// 横滑带那样被滑出视野找不着。
+  List<Widget> _realChips(AppState state) {
+    final all = state.views;
+    if (all.isEmpty) return const <Widget>[];
     final sel = state.selectedViewId;
-    final v = state.views.firstWhere(
-      (e) => e.id == sel,
-      orElse: () => state.views.first,
-    );
+    final picked = all.take(_kMaxRealChips).toList();
+    LibraryView? selected;
+    for (final v in all) {
+      if (v.id == sel) {
+        selected = v;
+        break;
+      }
+    }
+    if (selected != null) {
+      final sid = selected.id;
+      if (!picked.any((v) => v.id == sid)) picked[picked.length - 1] = selected;
+    }
     return [
-      _chipPad(
-        _Chip(
-          label: v.name,
-          selected: sel == v.id,
-          icon: v.collectionType == 'tvshows'
-              ? Icons.tv_outlined
-              : Icons.movie_outlined,
-          onTap: () => _selectView(v.id),
+      for (final v in picked)
+        _chipPad(
+          _Chip(
+            label: v.name,
+            selected: sel == v.id,
+            icon: v.collectionType == 'tvshows'
+                ? Icons.tv_outlined
+                : Icons.movie_outlined,
+            onTap: () => _selectView(v.id),
+          ),
         ),
-      ),
     ];
   }
 
-  /// 打开「全部媒体库」2 列分类弹窗（v2.0.97）。
+  /// 打开「全部媒体库」2 列分类弹窗（v2.0.97 / v2.0.103 补封面）。
   Future<void> _openLibraryPicker() async {
     final state = widget.state;
+    // 先把各库「最近几部」的预览缓存补齐（复用首页那套，带 3s 超时），
+    // 弹窗卡片才拿得到真实影片封面；已缓存的库不会重复发请求。
+    await state.prewarmViewPreviews();
+    if (!mounted) return;
+    final posters = <String, List<String>>{
+      for (final v in state.views) v.id: state.viewPosterUrls(v.id),
+    };
+    final counts = <String, int>{
+      for (final v in state.views) v.id: state.viewCountFor(v.id),
+    };
     final pick = await showLibraryPickerSheet(
       context,
       views: state.views,
@@ -175,6 +199,8 @@ class _LibraryPageState extends State<LibraryPage> {
       selectedId: state.selectedViewId,
       recentCount: state.recentlyAdded.length,
       continueCount: state.continueWatching.length,
+      posters: posters,
+      counts: counts,
     );
     if (pick == null || !mounted) return;
     _selectView(pick.viewId);
@@ -437,8 +463,8 @@ class _LibraryPageState extends State<LibraryPage> {
                                 isVirtual
                                     ? '${isContinue ? '继续观看' : '最近添加'} · 虚拟媒体库 · ${shown.length} 项'
                                     : state.demoMode
-                                        ? '演示数据'
-                                        : '${state.sourceLabel} · ${shown.length} 项',
+                                    ? '演示数据'
+                                    : '${state.sourceLabel} · ${shown.length} 项',
                                 style: TextStyle(
                                   fontSize: 10.5,
                                   color: AppColors.muted,
@@ -474,10 +500,9 @@ class _LibraryPageState extends State<LibraryPage> {
                       onChanged: _setIndexTab,
                     ),
                     const SizedBox(height: 12),
-                    // 媒体库分组（v2.0.97 · 设计稿 P0）：
-                    //   「全部 + 常用 + ⊞ 全部媒体库」
-                    // 以前把所有 UserView 平铺成一条横滑带，库一多就找不到、
-                    // 也看不到总数；现在只留高频几项，其余收进 2 列弹窗。
+                    // 媒体库分组（v2.0.103）：
+                    //   「全部 + 2 虚拟 + 最多 6 个真实库（可横滑） + ⊞ 全部媒体库」
+                    // 常用库直接可点换库，末尾按钮看总数 / 搜索 / 分类。
                     if (state.views.isNotEmpty || isVirtual)
                       SizedBox(
                         height: 34,
@@ -509,10 +534,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                 onTap: () => _selectView(kContinueViewId),
                               ),
                             ),
-                            // 当前选中的真实库：始终留在视野里（这就是旧 chip 行
-                            // 最烦人的问题 —— 选中的会被滑出去）。
-                            ...?_currentRealChip(state),
-                            // 更多：打开 2 列分类弹窗
+                            // 真实库：最多 6 个可横滑，选中项一定在这一批里
+                            ..._realChips(state),
+                            // 更多：打开 2 列分类弹窗（看总数 / 搜索 / 分组）
                             _chipPad(
                               _Chip(
                                 label: '全部媒体库',
@@ -581,10 +605,7 @@ class _LibraryPageState extends State<LibraryPage> {
             // 居中小转圈 + 大片空白。骨架高度固定，不参与滚动路径上的动画。
             if (state.loading || _viewLoading)
               const SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 470,
-                  child: LibrarySkeleton(),
-                ),
+                child: SizedBox(height: 470, child: LibrarySkeleton()),
               )
             else if (shown.isEmpty)
               SliverToBoxAdapter(
@@ -595,21 +616,21 @@ class _LibraryPageState extends State<LibraryPage> {
                     title: '该筛选条件下没有条目',
                     reason: _asFilter.activeCount > 0
                         ? '当前 ${_asFilter.activeCount} 个筛选条件组合后没有匹配影片。'
-                            '清掉条件就能看到完整媒体库。'
+                              '清掉条件就能看到完整媒体库。'
                         : isRecent
-                            ? '「最近添加」是 Camby 按入库时间生成的虚拟媒体库，'
-                                '同步到影片后这里就会列出全部条目。'
-                            : isContinue
-                                ? '「继续观看」列出所有没看完的影片与剧集，'
-                                    '播放任意一部后这里就会出现。'
-                                : (state.server == null
-                                    ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
-                                    : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
+                        ? '「最近添加」是 Camby 按入库时间生成的虚拟媒体库，'
+                              '同步到影片后这里就会列出全部条目。'
+                        : isContinue
+                        ? '「继续观看」列出所有没看完的影片与剧集，'
+                              '播放任意一部后这里就会出现。'
+                        : (state.server == null
+                              ? '还没有连接服务器。到「我的 → 我的服务器」添加后即可同步媒体库。'
+                              : '服务器暂时没有返回影片，可以下拉刷新重试一次。'),
                     primaryLabel: _asFilter.activeCount > 0
                         ? '清除筛选'
                         : isVirtual
-                            ? '刷新媒体库'
-                            : (state.server == null ? '去连接服务器' : '刷新媒体库'),
+                        ? '刷新媒体库'
+                        : (state.server == null ? '去连接服务器' : '刷新媒体库'),
                     onPrimary: () {
                       if (_asFilter.activeCount > 0) {
                         setState(() {
@@ -854,13 +875,13 @@ class _Chip extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         gradient: selected
-            ? LinearGradient(
-                colors: [AppColors.primary, AppColors.secondary],
-              )
+            ? LinearGradient(colors: [AppColors.primary, AppColors.secondary])
             : null,
         color: selected ? null : AppColors.w.withValues(alpha: 0.07),
         border: Border.all(
-          color: selected ? Colors.transparent : AppColors.w.withValues(alpha: 0.12),
+          color: selected
+              ? Colors.transparent
+              : AppColors.w.withValues(alpha: 0.12),
         ),
       ),
       child: Row(

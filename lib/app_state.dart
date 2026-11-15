@@ -388,6 +388,68 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// v2.0.103：媒体库选择弹窗的封面 / 数量来源。
+  ///
+  /// 弹窗以前只按 `MediaItem.parentId == view.id` 找海报；标准 Emby 里条目的
+  /// ParentId 常常指向库内文件夹而不是 UserView，于是一律匹配不上、卡片全
+  /// 退化成「库名首字」。这里复用首页已有的 [previewForView] 缓存（按
+  /// DateCreated 倒序 = 最近入库的影片），不新增接口、不拉全库。
+  Future<void> prewarmViewPreviews({int limit = 6}) async {
+    if (_server == null || _views.isEmpty) return;
+    final pending = <Future<void>>[];
+    for (final v in _views) {
+      final cached = _previewCache[v.id];
+      if (cached != null && cached.isNotEmpty) continue;
+      pending.add(
+        previewForView(v, limit: limit)
+            .timeout(const Duration(seconds: 3))
+            .then<void>((_) {})
+            .catchError((Object _) {}),
+      );
+    }
+    if (pending.isEmpty) return;
+    await Future.wait(pending);
+  }
+
+  /// 某库最近影片的海报（已缓存优先，按入库时间新→旧，去重，最多 limit 张）。
+  List<String> viewPosterUrls(String viewId, {int limit = 3}) {
+    final pool = <MediaItem>[];
+    final preview = _previewCache[viewId];
+    if (preview != null && preview.isNotEmpty) pool.addAll(preview);
+    final full = _viewCache[viewId];
+    if (full != null && full.isNotEmpty) pool.addAll(full);
+    for (final e in _items) {
+      if (e.parentId == viewId || _itemLibraryIndex[e.id] == viewId) {
+        pool.add(e);
+      }
+    }
+    final seen = <String>{};
+    final sorted = <MediaItem>[];
+    for (final e in pool) {
+      if (seen.add(e.id)) sorted.add(e);
+    }
+    sorted.sort((a, b) => a.addedDaysAgo.compareTo(b.addedDaysAgo));
+    final out = <String>[];
+    for (final e in sorted) {
+      final u = e.posterUrl;
+      if (u == null || u.isEmpty) continue;
+      if (!out.contains(u)) out.add(u);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /// 某库条目数：只有拉过全量或 ParentId 能命中时才报数，不拿预览条数假报。
+  int viewCountFor(String viewId) {
+    final full = _viewCache[viewId];
+    if (full != null && full.isNotEmpty) return full.length;
+    var n = 0;
+    for (final e in _items) {
+      if (e.parentId == viewId || _itemLibraryIndex[e.id] == viewId) n++;
+    }
+    return n;
+  }
+
   // 派生列表缓存：上千部影片时避免每次 build 重新排序
   List<MediaItem>? _recentCache;
   LibraryStats? _statsCache;

@@ -589,14 +589,18 @@ void main() {
       expect(s.contains('if (isVirtualViewId(vid))'), isTrue);
       expect(s.contains('return widget.state.recentlyAdded;'), isTrue);
       expect(s.contains('return widget.state.continueWatching;'), isTrue);
-      // v2.0.98：chip 行改成「全部 + 常用 + ⊞ 全部媒体库」，其余收进弹窗
+      // v2.0.103：chip 行 = 全部 + 2 虚拟 + 最多 6 个真实库 + ⊞ 全部媒体库
       expect(s.contains("'全部媒体库'"), isTrue);
       expect(s.contains('showLibraryPickerSheet('), isTrue);
       expect(s.contains('_selectView(kRecentViewId)'), isTrue);
       expect(s.contains('_selectView(kContinueViewId)'), isTrue);
-      // 旧实现用 itemBuilder 的 i==1/i==2/views[i-3] 平铺所有库；
-      // v2.0.98 起只留「当前库」一个 chip，其余进弹窗
-      expect(s.contains('_currentRealChip'), isTrue);
+      // 真实库不再只留「当前选中的那一个」，而是平铺成可横滑的 6 个
+      expect(s.contains('_realChips(state)'), isTrue);
+      expect(s.contains('_kMaxRealChips = 6'), isTrue);
+      expect(s.contains('_currentRealChip'), isFalse);
+      // 弹窗封面复用首页按库预览缓存（最近入库的影片），不拉全库
+      expect(s.contains('prewarmViewPreviews()'), isTrue);
+      expect(s.contains('viewPosterUrls(v.id)'), isTrue);
       expect(s.contains('_DashedOvalPainter'), isTrue);
       expect(s.contains('· 虚拟媒体库 · '), isTrue);
       expect(s.contains('_sort = 0;'), isTrue);
@@ -680,14 +684,14 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.102', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.102+302'), isTrue);
-      expect(src('README.md').contains('v2.0.102 (302)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.102 (302)'), isTrue);
+    test('版本与文档同步到 v2.0.103', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.103+303'), isTrue);
+      expect(src('README.md').contains('v2.0.103 (303)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.103 (303)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(src('VERIFICATION.md').contains('§109'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.102 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.103 "),
         isTrue,
       );
     });

@@ -56,22 +56,24 @@ void main() {
       expect(seg.contains('showToast'), isTrue);
     });
 
-    test('封面堆叠必须贴底对齐（_layer 返回 Align bottomCenter）', () {
-      final layerIdx = pageSrc.indexOf('Widget _layer(int depth');
-      expect(layerIdx, greaterThanOrEqualTo(0));
-      final endIdx = pageSrc.indexOf('Widget get _placeholder', layerIdx);
-      final seg = pageSrc.substring(layerIdx, endIdx);
+    test('v2.0.103：封面改单张完整海报（原 _layer 堆叠已移除）', () {
+      expect(
+        pageSrc.contains('Widget _layer(int depth'),
+        isFalse,
+        reason: '扇形叠放会互相遮挡并二次裁切封面',
+      );
+      final idx = pageSrc.indexOf('class _StackTile');
+      expect(idx, greaterThanOrEqualTo(0));
+      final end = pageSrc.indexOf('Widget get _placeholder', idx);
+      final seg = pageSrc.substring(idx, end);
+      expect(seg.contains('BoxFit.contain'), isTrue);
       expect(
         seg.contains('Alignment.bottomCenter'),
-        isTrue,
-        reason: '海报堆叠应贴底，避免标题与封面间距过宽',
-      );
-      // v1.7.66 的教训：外层贴底但内部 Center 会再次居中——禁止 _layer 内用 Center
-      expect(
-        seg.contains('Center('),
         isFalse,
-        reason: '_layer 内不得再用 Center 把海报居中',
+        reason: '海报按 2:3 铺满卡片，不再贴底缩放堆叠',
       );
+      // v1.7.66 的教训：内部 Center 会把海报再次居中，仍禁止
+      expect(seg.contains('Center('), isFalse);
     });
 
     test('新建收藏夹卡图标还原为 40（外框由 FractionallySizedBox 缩小）', () {

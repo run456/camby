@@ -1,10 +1,37 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.102 (302)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.103 (303)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.103 (303) 收藏夹改成网格 + 媒体库 chip 横滑 6 个 + 弹窗换真实影片封面
+
+**用户反馈**（三张截图）：① 收藏影片封面显示不完整，收藏夹一多横滑体验差，
+「管理」弹窗希望能直接点进对应收藏夹；② 媒体库页应该给可横滑的 6 个选项，
+再放「全部媒体库」按钮；③ 媒体库弹窗里那些「本 / 在」大字图标应该用最近的
+影片封面展示。
+
+| 问题 | 根因 | 本次改动 |
+|---|---|---|
+| 收藏封面显示不完整 | `_StackTile` 三张海报扇形叠放 + 0.85 缩放 + `BoxFit.cover`，后层互相压盖且被二次裁切 | 移除 `_layer` 扇形叠放，改**单张完整海报**：按 2:3 原生比例铺满卡片宽、`BoxFit.contain`、`memWidth: 600` |
+| 收藏夹多要来回甩 | 「我的收藏夹」是一条无上限的横滑 `ListView` | 改成 **2 列（平板 3 列）`Wrap` 网格**，最多 6 个 tile，超出给「查看全部收藏夹」入口 |
+| 「管理」弹窗进不去夹子 | 弹窗整行 `onTap` 只触发 `_manageFolder()`（重命名 / 删除） | 整行改为**进入该收藏夹**，右侧「…」独立 `IconButton` 才进管理；弹窗可滚动，另加「全部收藏」「新建」 |
+| chip 行只显示 1 个真实库 | `_currentRealChip()` 刻意只留当前选中库，换库每次都要开弹窗 | 改 `_realChips()`：平铺最多 **6 个真实库**可横滑切换，选中项保证在这批里；末尾保留「全部媒体库」 |
+| 弹窗卡片是「本 / 在」首字 | `posterPreviews()` 只认 `parentId == viewId`；标准 Emby 的条目 `ParentId` 常指向库内文件夹而非 UserView，一律匹配不上，退化成库名首字 | 复用首页已有的 `previewForView()` 缓存（`SortBy=DateCreated` 倒序 = **最近入库的影片**）：新增 `prewarmViewPreviews()` / `viewPosterUrls()` / `viewCountFor()`，打开弹窗前并发预热（带 3s 超时），海报以 `posters` 传入；`_Collage` 换成**一张完整 2:3 海报**（`BoxFit.contain`），兜底才用首字 |
+
+**零新增接口**：封面走的是首页按库预览那套 `libraryPreview(viewId, limit)` 单页请求，
+不拉全库、不新增服务端端点；已缓存的库不会重复请求。
+
+**验证**：新增 `test/library_folder_ui_test.dart`，重写 `test/favorites_fan_test.dart`
+为新行为守卫，更新 `favorites_wall_test.dart` 与浅色收藏 golden；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。
+
+**真机待确认**：① 收藏页封面是否整张可见、2 列网格是否顺手；② 顶部 chip 行
+能否横滑切换 6 个库；③ 媒体库弹窗里每个库是否都显示最近影片封面（首次打开
+会并发预热，网络慢时最多等 3 秒）。
 
 ### v2.0.102 (302) 观影数据按媒体库隔离 · 海报墙彻底去掉降采样
 

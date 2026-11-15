@@ -15,7 +15,7 @@ const int ssdpPort = 1900;
 
 /// 发版号只在这里维护：SSDP M-SEARCH、描述 XML GET、SOAP POST 三处共用，
 /// 以前散在三个文件里，升版本时漏改就会出现「同一会话两种 UA」的怪现象。
-const String dlnaUserAgent = 'Camby/2.0.102 UPnP/1.1 DLNADOC/1.50';
+const String dlnaUserAgent = 'Camby/2.0.103 UPnP/1.1 DLNADOC/1.50';
 
 /// 同时搜三类目标：只发 MediaRenderer 会漏掉部分国产电视 / 盒子（它们只回
 /// `ssdp:all` 或 AVTransport 服务类型）。多播三个包代价可忽略。

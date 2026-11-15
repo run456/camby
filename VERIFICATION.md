@@ -3609,3 +3609,67 @@ memWidth」（性能审计要求解码尺寸受控），所以新增 `fullResDis
 **真机待确认**：① 页顶「观影数据」chip 是否显示当前库名，切库后日历
 与概览数字是否同步变；② 月报海报是否变清晰（首次加载会重新拉 1200px
 大图，可能闪一下骨架）；③ 右上角时长角标是否出现。
+
+---
+
+## §113 发布 v2.0.103（收藏夹网格 · 媒体库 chip 横滑 6 个 · 弹窗换最近影片封面）
+
+**用户反馈**：三条一起提 —— ①「收藏影片封面显示不完整，而且如果收藏夹多的话，
+滑动太多效果也不好，点「管理」也是弹窗可点进相应的收藏夹」；②「媒体库应该给
+滑动 6 个选项，再显示全部媒体库按钮」；③「媒体库弹出来的图标应该用最近的影片
+封面来做展示」。随附三张真机截图：收藏页、媒体库页顶部、媒体库选择弹窗。
+
+**根因定位**：
+
+1. `favorites_page.dart` 的 `_StackTile` 用 `_layer(depth 0/1/2)` 把三张真实
+   海报像扑克牌一样旋转叠放，统一 0.85 缩放并 `BoxFit.cover`。后层压住前层、
+   非 2:3 比例还会被裁 —— 这就是「封面显示不完整」。「我的收藏夹」是一条
+   `ListView(scrollDirection: horizontal)`，夹子越多越要来回甩。`_folderMenu()`
+   整行 `onTap` 只调 `_manageFolder(f)`，只能重命名 / 删除，进不去夹子。
+2. `library_page.dart` 的 `_currentRealChip()` 按 v2.0.97 设计稿刻意只保留
+   「当前选中」的那一个真实库，其余全收进弹窗 —— 用户想要的是能直接横滑切库。
+3. `library_picker_sheet.dart` 的 `posterPreviews()` 只按 `e.parentId == v.id`
+   找海报。标准 Emby 里条目的 `ParentId` 常指向库内文件夹而不是 UserView，
+   截图中 4 个服务器库全部匹配失败，卡片退化成库名首字「本 / 在」，数量也
+   全是「—」。
+
+**改动**：
+
+- `lib/pages/favorites_page.dart`：删掉 `_layer()` 扇形叠放，`_StackTile` 改
+  单张完整海报（`w * 1.5` 的 2:3 区域、`BoxFit.contain`、`contain` 留边由
+  `_placeholder` 承接）；新增 `_folderGrid()` 用 `Wrap` 铺 2 列（平板 3 列）、
+  `_kMaxFolderTiles = 6` 上限、超出的 `_allFoldersCard()` 入口；
+  `_folderMenu()` 改 `isScrollControlled` + `ConstrainedBox` + `ListView`，
+  整行进夹、`IconButton(…)` 进管理，另加「全部收藏」「新建」与行内小封面。
+- `lib/pages/library_page.dart`：`_currentRealChip()` → `_realChips()`，
+  `_kMaxRealChips = 6`，选中项若不在前 6 则替换末位；chip 行末尾仍保留
+  「全部媒体库」；`_openLibraryPicker()` 打开前 `await prewarmViewPreviews()`，
+  并把 `posters` / `counts` 传给弹窗。
+- `lib/app_state.dart`：新增 `prewarmViewPreviews()`（复用 `previewForView`，
+  并发、单请求带 3s 超时、已缓存跳过）、`viewPosterUrls()`（预览缓存 → 全量
+  库缓存 → parentId / 归属索引，按 `addedDaysAgo` 新→旧去重取 3 张）、
+  `viewCountFor()`（只报真实数，不拿预览条数假报）。
+- `lib/widgets/library_picker_sheet.dart`：`showLibraryPickerSheet` 增加
+  `posters` / `counts` 可选参数，`_ViewCard` 优先用传入值；`_Collage` 从
+  3 张 34×60 倾斜小图改成**一张 48×72 完整海报**（`BoxFit.contain`，
+  留边填该库主色渐变），取不到海报才退回首字。
+
+**为什么不算「新增请求」**：`libraryPreview()` 是首页按库分组行已有的一页
+接口（`SortBy=DateCreated&SortOrder=Descending`），恰好就是「最近的影片」；
+`previewForView()` 已有缓存与「空结果不写缓存」的防呆。弹窗复用它，不拉全库、
+不加端点，已缓存的库打开弹窗零请求。
+
+**验证**：新增 `test/library_folder_ui_test.dart`（数据层 + 弹窗渲染 + 源码守卫
++ 版本守卫）；`test/favorites_fan_test.dart` 从「扇形幅度」守卫整体改写为
+「单张完整海报 / 网格 / 管理弹窗导航」守卫；`test/favorites_wall_test.dart`、
+`test/playlist_ids_and_sync_button_test.dart`、`test/watch_calendar_test.dart`
+的旧断言同步；`goldens/favorites_wall.png`、`goldens/light_favorites.png`
+用 `--update-goldens` 重录（人工看过新图：2 列网格、单张竖版封面、无叠放、
+无裁切、无溢出）。`flutter test` 全量通过，`flutter analyze`
+0 error / 0 warning，`tools/perf_audit.py` 无红线。交付
+`camby-2.0.103-release-arm64.apk`（versionCode 303）。
+
+**真机待确认**：① 收藏页封面是否整张可见、2 列网格是否顺手，「管理」点整行
+是否直接进夹；② 顶部 chip 行能否横滑切换 6 个库；③ 媒体库弹窗里每个库是否
+都显示最近影片封面（首次打开并发预热，慢网最多等 3 秒；若某库仍显示首字，
+说明该库预览接口返回空，需把诊断 JSON 贴回）。

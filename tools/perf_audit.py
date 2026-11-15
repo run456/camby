@@ -32,6 +32,7 @@ ALLOW = {
     ("lib/theme.dart", "blur"): "Glass 组件本体（调用方按需自包 RepaintBoundary）",
     ("lib/widgets/media_filter_sheet.dart", "blur"): "底部筛选弹窗：静态浮层，条目数有限",
     ("lib/widgets/media_filter_sheet.dart", "shrinkWrap"): "弹窗内短列表（筛选项 < 20），一次性构建可接受",
+    ("lib/pages/favorites_page.dart", "shrinkWrap"): "收藏夹管理弹窗内短列表（夹子数有限、外层 ConstrainedBox 已限高 68% 屏高），一次性构建可接受",
     ("lib/widgets/strm_boot_overlay.dart", "blur"): "启动遮罩：一次性合成",
 }
 

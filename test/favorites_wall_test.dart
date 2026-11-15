@@ -9,14 +9,21 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('v2.0.59：演员收藏网格加密 + 头像尺寸上限', () {
     final src = File('lib/pages/favorites_page.dart').readAsStringSync();
-    expect(src.contains('crossAxisCount: context.actorGridColumns'), isTrue,
-        reason: '演员收藏不再复用 mediaGridColumns（手机 3 列时头像约 118dp 过大）');
-    expect(src.contains('final cap = context.isPhone ? 78.0 : 104.0;'), isTrue,
-        reason: '头像必须有尺寸上限，不能撑满整格');
+    expect(
+      src.contains('crossAxisCount: context.actorGridColumns'),
+      isTrue,
+      reason: '演员收藏不再复用 mediaGridColumns（手机 3 列时头像约 118dp 过大）',
+    );
+    expect(
+      src.contains('final cap = context.isPhone ? 78.0 : 104.0;'),
+      isTrue,
+      reason: '头像必须有尺寸上限，不能撑满整格',
+    );
     final layout = File('lib/layout.dart').readAsStringSync();
     expect(
       layout.contains(
-          'actorGridColumns => isExpanded ? 8 : (isTablet ? 6 : 4)'),
+        'actorGridColumns => isExpanded ? 8 : (isTablet ? 6 : 4)',
+      ),
       isTrue,
       reason: '手机应一行 4 个演员',
     );
@@ -46,17 +53,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('收藏'), findsOneWidget);
-    // v2.0.98：收藏页改成「统计条 + 收藏夹横滑大卡 + 最近收藏」
+    // v2.0.103：收藏页「统计条 + 收藏夹 2 列网格 + 最近收藏」
     expect(find.text('我的收藏夹'), findsOneWidget);
     expect(find.text('收藏影片'), findsOneWidget);
     expect(find.text('全部'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    // 收藏夹从网格改成横滑大卡（扇形堆叠沿用 _StackTile）
-    final rail = tester.widget<ListView>(
-      find.byKey(const ValueKey('folder-rail')),
-    );
-    expect(rail.scrollDirection, Axis.horizontal);
+    // 收藏夹从无限横滑条改回 2 列网格，封面为单张完整海报
+    expect(find.byKey(const ValueKey('folder-grid')), findsOneWidget);
+    expect(find.byKey(const ValueKey('folder-rail')), findsNothing);
+    final grid = tester.widget<Wrap>(find.byKey(const ValueKey('folder-grid')));
+    expect(grid.spacing, 12);
+    expect(grid.direction, Axis.horizontal);
 
     await expectLater(
       find.byType(FavoritesPage),

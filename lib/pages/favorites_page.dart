@@ -252,33 +252,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
           ],
         ),
         const SizedBox(height: 10),
-        SizedBox(
-          height: context.isTablet ? 230 : 196,
-          child: ListView(
-            key: const ValueKey('folder-rail'),
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            children: [
-              _folderCard(
-                key: const ValueKey('folder-all'),
-                name: '全部',
-                count: all.length,
-                covers: all.take(4).toList(),
-                onTap: () => _openFolder(null, '全部收藏'),
-              ),
-              for (final f in folders)
-                _folderCard(
-                  key: ValueKey('folder-${f.id}'),
-                  name: f.name,
-                  count: f.itemIds.length,
-                  covers: state.coverCandidates(f, 4),
-                  onTap: () => _openFolder(f.id, f.name),
-                  onLongPress: () => _manageFolder(f),
-                ),
-              _newFolderCard(),
-            ],
-          ),
-        ),
+        _folderGrid(folders, all),
         if (all.isNotEmpty) ...[
           const SizedBox(height: 20),
           Row(
@@ -344,44 +318,171 @@ class _FavoritesPageState extends State<FavoritesPage> {
     );
   }
 
-  /// 收藏夹横滑大卡：宽度固定，扇形堆叠沿用 [_StackTile]。
+  /// 一屏最多铺几个收藏夹 tile（含「全部」与末尾入口）。
+  ///
+  /// v2.0.103：以前是一条无止境的横滑条，夹子一多要来回甩才能找到目标，
+  /// 而且扇形堆叠把封面互相遮住。改成 2 列（平板 3 列）网格，超出的收进
+  /// 「管理」弹窗 —— 弹窗里可以直接点进对应收藏夹。
+  static const int _kMaxFolderTiles = 6;
+
+  Widget _folderGrid(List<FavoriteFolder> folders, List<MediaItem> all) {
+    return LayoutBuilder(
+      builder: (context, cons) {
+        final cols = context.isTablet ? 3 : 2;
+        const gap = 12.0;
+        final cardW = (cons.maxWidth - gap * (cols - 1)) / cols;
+        // 与 [_StackTile] 的 2:3 完整海报 + 两行标题保持一致
+        final cardH = math.min(cardW * 1.5, 320.0) + 36;
+        final shown = folders.take(_kMaxFolderTiles - 2).toList();
+        final overflow = folders.length > shown.length;
+        return Wrap(
+          key: const ValueKey('folder-grid'),
+          spacing: gap,
+          runSpacing: 14,
+          children: [
+            _folderCard(
+              key: const ValueKey('folder-all'),
+              width: cardW,
+              name: '全部',
+              count: all.length,
+              covers: all.take(4).toList(),
+              onTap: () => _openFolder(null, '全部收藏'),
+            ),
+            for (final f in shown)
+              _folderCard(
+                key: ValueKey('folder-${f.id}'),
+                width: cardW,
+                name: f.name,
+                count: f.itemIds.length,
+                covers: widget.state.coverCandidates(f, 4),
+                onTap: () => _openFolder(f.id, f.name),
+                onLongPress: () => _manageFolder(f),
+              ),
+            if (overflow)
+              _allFoldersCard(cardW, cardH, folders)
+            else
+              _newFolderCard(cardW, cardH),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _folderCard({
     Key? key,
+    required double width,
     required String name,
     required int count,
     required List<MediaItem> covers,
     VoidCallback? onTap,
     VoidCallback? onLongPress,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: SizedBox(
-        width: 148,
-        child: _StackTile(
-          key: key,
-          name: name,
-          count: count,
-          covers: covers,
-          onTap: onTap,
-          onLongPress: onLongPress,
+    return SizedBox(
+      width: width,
+      child: _StackTile(
+        key: key,
+        name: name,
+        count: count,
+        covers: covers,
+        onTap: onTap,
+        onLongPress: onLongPress,
+      ),
+    );
+  }
+
+  /// 新建收藏夹虚线卡（网格末格）。
+  Widget _newFolderCard(double width, double height) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: _NewFolderTile(onTap: _createFolder),
+    );
+  }
+
+  /// 收藏夹超出网格上限时的「查看全部」入口，点开就是可点进的管理弹窗。
+  Widget _allFoldersCard(
+    double width,
+    double height,
+    List<FavoriteFolder> folders,
+  ) {
+    return SizedBox(
+      width: width,
+      height: height,
+      child: LiquidPress(
+        radius: 14,
+        scale: 0.97,
+        onTap: () => _folderMenu(folders),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: math.min(width * 1.5, 320.0),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(13),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.primary.withValues(alpha: 0.16),
+                    AppColors.w.withValues(alpha: 0.04),
+                  ],
+                ),
+                border: Border.all(color: AppColors.w.withValues(alpha: 0.14)),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.grid_view_rounded,
+                      size: 30,
+                      color: AppColors.accent.withValues(alpha: 0.9),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '查看全部收藏夹',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '共 ${folders.length} 个',
+                      style: TextStyle(fontSize: 10, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              '全部收藏夹',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// 新建收藏夹虚线卡（横滑条尾部）。
-  Widget _newFolderCard() {
-    return SizedBox(
-      width: 120,
-      child: _NewFolderTile(onTap: _createFolder),
-    );
-  }
-
-  /// 「管理」：列出现有收藏夹，点右侧「…」进重命名 / 删除。
+  /// 「管理」弹窗：既是导航也是管理。
+  ///
+  /// v2.0.103 以前点整行只弹「重命名 / 删除」，想看夹子里有什么还得回到
+  /// 横滑条去找 —— 夹子一多基本找不到。现在整行 = 进入该收藏夹，右侧「…」
+  /// 才进重命名 / 删除；列表可滚动，顶上还有「全部收藏」和「新建」。
   void _folderMenu(List<FavoriteFolder> folders) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (ctx) => Glass(
         radius: 24,
         blur: 24,
@@ -399,44 +500,152 @@ class _FavoritesPageState extends State<FavoritesPage> {
               ),
             ),
             const SizedBox(height: 14),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '管理收藏夹',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-              ),
+            Row(
+              children: [
+                Text(
+                  '我的收藏夹',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '共 ${folders.length} 个 · 点开即进入',
+                  style: TextStyle(fontSize: 10.5, color: AppColors.muted),
+                ),
+                const Spacer(),
+                LiquidPress(
+                  radius: 999,
+                  scale: 0.95,
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _createFolder();
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.add_rounded,
+                          size: 14,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          '新建',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
-            for (final f in folders)
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  f.name,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                subtitle: Text(
-                  '${f.itemIds.length} 部',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppColors.muted,
-                  ),
-                ),
-                trailing: Icon(
-                  Icons.more_horiz_rounded,
-                  size: 18,
-                  color: AppColors.muted,
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _manageFolder(f);
-                },
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.68,
               ),
+              child: ListView(
+                shrinkWrap: true,
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: _folderLeading(null),
+                    title: Text(
+                      '全部收藏',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${widget.state.favorites.length} 部',
+                      style: TextStyle(fontSize: 11, color: AppColors.muted),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openFolder(null, '全部收藏');
+                    },
+                  ),
+                  for (final f in folders)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: _folderLeading(f),
+                      title: Text(
+                        f.name,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${f.itemIds.length} 部',
+                        style: TextStyle(fontSize: 11, color: AppColors.muted),
+                      ),
+                      trailing: IconButton(
+                        icon: Icon(
+                          Icons.more_horiz_rounded,
+                          size: 18,
+                          color: AppColors.muted,
+                        ),
+                        tooltip: '重命名 / 删除',
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _manageFolder(f);
+                        },
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _openFolder(f.id, f.name);
+                      },
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 弹窗行左侧的小封面：有片就用该夹最近一部的海报，空夹给文件夹图标。
+  Widget _folderLeading(FavoriteFolder? f) {
+    final candidates = f == null
+        ? widget.state.favorites.take(1).toList()
+        : widget.state.coverCandidates(f, 1);
+    final MediaItem? cover = candidates.isEmpty ? null : candidates.first;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(
+        width: 30,
+        height: 44,
+        child: cover == null
+            ? Icon(Icons.folder_outlined, size: 20, color: AppColors.muted)
+            : CachedImage(
+                url: cover.posterUrlFor(300),
+                memWidth: 200,
+                errorWidget: Icon(
+                  Icons.folder_outlined,
+                  size: 20,
+                  color: AppColors.muted,
+                ),
+              ),
       ),
     );
   }
@@ -716,206 +925,97 @@ class _StackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // v2.0.103：取消扇形叠放。三张海报互相压盖 + 0.85 缩放 + cover，
+    // 让「封面显示不完整」—— 用户只能看到最上层海报被裁过的一条。
+    // 现在一张海报按 2:3 原生比例铺满卡片宽度，不旋转、不缩放、不裁切；
+    // 万一服务器给的是非标准比例，contain 也保证整张都在。
+    final MediaItem? cover = covers.isEmpty ? null : covers.first;
     return LiquidPress(
       onTap: onTap,
       onLongPress: onLongPress,
       radius: 14,
       scale: 0.97,
       glow: 0.18,
-      // 堆叠墙的后层卡靠 Transform 探出瓦片矩形，这里不能裁剪 ——
-      // 之前后层就是被这层 ClipRRect 裁掉的，只剩一条「被裁的边」
       clip: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (c, cons) {
-                final w = cons.maxWidth;
-                final h = cons.maxHeight;
-                // 层数跟随夹内影片数：空夹只画 1 张占位，1 部不堆叠
-                final maxDepth = covers.isEmpty
-                    ? 0
-                    : math.min(2, covers.length - 1);
-                // v2.0.10：角标贴到**封面**右上角 —— 此前固定在瓦片 top:8，
-                // 平板上封面按原生比例贴底后上边留白很大，角标悬在半空
-                const scale = 0.85;
-                final cw2 = w * scale;
-                final ch2 =
-                    MediaQuery.of(context).size.width >= kTabletBreakpoint
-                    ? math.min(h * scale, cw2 * 1.45)
-                    : h * scale;
-                return Stack(
-                  clipBehavior: Clip.none,
-                  // v1.7.66：卡片贴底对齐 —— 之前 Center 让 0.85 缩放的
-                  // 海报上下各空 7.5%，标题和封面之间显得很宽
-                  alignment: Alignment.bottomCenter,
-                  children: [
-                    for (var depth = maxDepth; depth >= 0; depth--)
-                      _layer(
-                        depth,
-                        w,
-                        h,
-                        tablet:
-                            MediaQuery.of(context).size.width >=
-                            kTabletBreakpoint,
-                      ),
-                    if (count > 0)
-                      Positioned(
-                        top: math.max(8.0, h - ch2 + 8),
-                        right: (w - cw2) / 2 + 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(9),
-                            color: Colors.black.withOpacity(0.42),
-                            border: Border.all(
-                              color: AppColors.w.withValues(alpha: 0.16),
+      child: LayoutBuilder(
+        builder: (c, cons) {
+          final w = cons.maxWidth;
+          final posterH = math.min(w * 1.5, 320.0);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(13),
+                    child: SizedBox(
+                      width: w,
+                      height: posterH,
+                      child: cover == null
+                          ? _placeholder
+                          : CachedImage(
+                              url: cover.posterUrlFor(600),
+                              memWidth: 600,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                              errorWidget: _placeholder,
                             ),
+                    ),
+                  ),
+                  if (count > 0)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(9),
+                          color: Colors.black.withValues(alpha: 0.42),
+                          border: Border.all(
+                            color: AppColors.w.withValues(alpha: 0.16),
                           ),
-                          child: Text(
-                            '$count',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
                           ),
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
-          ),
-          // v1.7.67：海报贴底后 3dp 即可（此前居中导致约 20dp 空隙）
-          const SizedBox(height: 3),
-          Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            '$count 部影片',
-            style: TextStyle(fontSize: 10, color: AppColors.muted),
-          ),
-        ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                '$count 部影片',
+                style: TextStyle(fontSize: 10, color: AppColors.muted),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  /// depth: 0 = 最上层（夹内最新海报）；1 = 左后卡；2 = 右后卡。
-  /// 按设计稿：三张**真实海报**像扑克牌一样向两侧扇开，后面两张从主海报
-  /// 左右探出、顶部略高。卡片统一缩到 0.85 居中 —— 主海报不再撑满整格，
-  /// 给后层留出探出的空间（探出量控制在格内，不压相邻卡片）。
-  ///
-  /// v1.7.63：幅度改用「方案 B · 更克制」—— 后卡只约 ±2.5°、探出 2%，
-  /// 扇形整体收在格内（约 6dp 余量），相邻收藏夹不再互相压盖。
-  Widget _layer(int depth, double w, double h, {bool tablet = false}) {
-    // 角度 / 位移（相对卡片尺寸）：前卡微倾，后卡 ±2.5° 向两侧、向上探出
-    final (angle, dxr, dyr) = switch (depth) {
-      2 => (0.040, 0.020, -0.024),
-      1 => (-0.046, -0.020, -0.024),
-      _ => (-0.020, -0.008, 0.008),
-    };
-    const scale = 0.85;
-    final cw = w * scale;
-    // 平板（≥840）：5 列瓦片高远大于海报自然高，改按海报原生比例
-    // （与 PosterCard 一致取 宽×1.45）约束卡高，避免 cover 上下裁切封面
-    final ch = tablet ? math.min(h * scale, cw * 1.45) : h * scale;
-
-    // 后层也用真实海报（依次取夹内第 2、3 张）；空夹才退到占位渐变
-    MediaItem? item;
-    if (covers.isNotEmpty) {
-      item = depth == 0 ? covers.first : covers[depth % covers.length];
-    }
-
-    Widget inner;
-    if (item != null) {
-      inner = CachedImage(
-        url: item.posterUrlFor(600),
-        memWidth: 600,
-        errorWidget: _placeholder,
-      );
-      // 后层压暗，把视觉重心让给前卡
-      if (depth > 0) {
-        inner = DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withOpacity(0.30),
-                Colors.black.withOpacity(0.55),
-              ],
-            ),
-          ),
-          child: inner,
-        );
-      }
-    } else {
-      inner = DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: depth == 0
-                ? const [Color(0xFF3F3560), Color(0xFF181D33)]
-                : const [Color(0xFF2C415C), Color(0xFF111A28)],
-          ),
-        ),
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: EdgeInsets.only(bottom: ch * 0.10),
-            child: Icon(
-              Icons.movie_creation_outlined,
-              size: depth == 0 ? 24 : 19,
-              color: AppColors.w.withValues(alpha: depth == 0 ? 0.30 : 0.15),
-            ),
-          ),
-        ),
-      );
-    }
-
-    Widget card = Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          width: depth == 0 ? 1.4 : 1.0,
-          color: AppColors.w.withValues(alpha: depth == 0 ? 0.26 : 0.20),
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x66000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: ClipRRect(borderRadius: BorderRadius.circular(13), child: inner),
-    );
-
-    card = Transform.rotate(
-      angle: angle,
-      alignment: Alignment.bottomCenter,
-      child: Transform.translate(
-        offset: Offset(cw * dxr, ch * dyr),
-        child: card,
-      ),
-    );
-    // v1.7.67：Align 贴底 + 卡片尺寸收在自身 —— 之前外层 Stack 改了
-    // bottomCenter 但这里的 Center 又把海报居中了一次，标题间距没变小
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: SizedBox(width: cw, height: ch, child: card),
-    );
-  }
+  // v2.0.103：扇形叠放（原 _layer）已移除 —— 它把封面互相压盖并二次裁切，
+  // 现在 [_StackTile.build] 直接铺一张完整海报。
 
   Widget get _placeholder => DecoratedBox(
     decoration: const BoxDecoration(
@@ -1197,7 +1297,9 @@ class _ActorTile extends StatelessWidget {
                     height: size,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.w.withValues(alpha: 0.18)),
+                      border: Border.all(
+                        color: AppColors.w.withValues(alpha: 0.18),
+                      ),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x55000000),
@@ -1230,10 +1332,7 @@ class _ActorTile extends StatelessWidget {
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 2),
-          Text(
-            '♥ 已收藏',
-            style: TextStyle(fontSize: 9, color: AppColors.danger),
-          ),
+          Text('♥ 已收藏', style: TextStyle(fontSize: 9, color: AppColors.danger)),
         ],
       ),
     );
@@ -1255,7 +1354,6 @@ class _ActorTile extends StatelessWidget {
     ),
   );
 }
-
 
 /// 三格统计条（v2.0.97 · 设计稿 P0）。
 ///
@@ -1352,10 +1450,18 @@ class _StatsBar extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _mini('影片', 0, Icons.local_movies_outlined,
-              const ValueKey('subtab-movies')),
-          _mini('演员', 1, Icons.person_outline_rounded,
-              const ValueKey('subtab-actors')),
+          _mini(
+            '影片',
+            0,
+            Icons.local_movies_outlined,
+            const ValueKey('subtab-movies'),
+          ),
+          _mini(
+            '演员',
+            1,
+            Icons.person_outline_rounded,
+            const ValueKey('subtab-actors'),
+          ),
         ],
       ),
     );
@@ -1475,11 +1581,7 @@ class _FavoritesEmpty extends StatelessWidget {
               ? '在影片详情页点心形即可加入收藏，\n也可以先建个收藏夹把想看的片归归类。'
               : '还没有连接服务器。先在「我的 → 我的服务器」连接，\n再回来收藏影片。',
           textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 11.5,
-            height: 1.6,
-            color: AppColors.muted,
-          ),
+          style: TextStyle(fontSize: 11.5, height: 1.6, color: AppColors.muted),
         ),
         const SizedBox(height: 22),
         Row(
