@@ -280,6 +280,47 @@ void main() {
       expect(burn.subtitleUrl, isNull);
       expect(burn.subtitleLabel, isNull);
     });
+
+    test('v2.0.100：绿联（无转码）两个开关失活，MIME 保持在原片直投', () {
+      // 用户把两个开关都打开也不行 —— 服务器没有 HLS 转码能力
+      final t = resolveCastTranscode(
+        available: false,
+        compatibleMode: true,
+        burnSubtitle: true,
+        hasSubtitle: true,
+      );
+      expect(t.compatible, isFalse);
+      expect(t.burn, isFalse);
+      expect(
+        castMimeType(compatible: t.compatible, burn: t.burn),
+        'video/mp4',
+      );
+
+      // 标准 Emby：开关照常生效，走 HLS
+      final std = resolveCastTranscode(
+        available: true,
+        compatibleMode: true,
+        burnSubtitle: true,
+        hasSubtitle: true,
+      );
+      expect(std.compatible, isTrue);
+      expect(std.burn, isTrue);
+      expect(
+        castMimeType(compatible: std.compatible, burn: std.burn),
+        'application/vnd.apple.mpegurl',
+      );
+
+      // 没有选中字幕时，烧录不该被打开
+      expect(
+        resolveCastTranscode(
+          available: true,
+          compatibleMode: false,
+          burnSubtitle: true,
+          hasSubtitle: false,
+        ).burn,
+        isFalse,
+      );
+    });
   });
 
   group('源码守卫', () {
@@ -308,17 +349,26 @@ void main() {
       expect(s.contains("'SubtitleStreamIndex'"), isTrue);
       expect(s.contains('String burnSubtitleUrl('), isTrue);
       expect(s.contains('buildBurnSubtitleUrl('), isTrue);
+      expect(s.contains('Future<Uint8List?> fetchSubtitleBytes('), isTrue);
+      expect(s.contains('sameOrigin(url, rootUrl)'), isTrue);
     });
 
     test('详情页拼装候选并用默认轨兜底', () {
       final s = src('lib/pages/detail_page.dart');
-      expect(s.contains('List<CastSubtitle> _castSubtitles()'), isTrue);
+      expect(
+        s.contains('Future<List<CastSubtitle>> _castSubtitles()'),
+        isTrue,
+      );
       expect(s.contains('s.textCandidates'), isTrue);
       expect(s.contains('isTextFriendly: !graphic'), isTrue);
       expect(s.contains('srv.burnSubtitleUrl('), isTrue);
       expect(s.contains('_defaultSubtitle(_item)?.index'), isTrue);
       expect(s.contains('subtitles: subtitles'), isTrue);
       expect(s.contains('preferredSubtitleIndex: preferred'), isTrue);
+      // v2.0.100：字幕走本机代理，绿联禁用两个必然失败的转码开关
+      expect(s.contains('srv.fetchSubtitleBytes('), isTrue);
+      expect(s.contains('CastSubtitleProxy.instance.publish(bytes)'), isTrue);
+      expect(s.contains('transcodeAvailable: !widget.state.isUgreenServer'), isTrue);
     });
 
     test('面板：烧录时不外挂、改动自动重投、字幕区与 scope 注入', () {
@@ -329,21 +379,30 @@ void main() {
       expect(s.contains("'不带字幕'"), isTrue);
       expect(s.contains('字幕烧录（服务端转码）'), isTrue);
       expect(s.contains('isTextFriendly'), isTrue);
+      expect(s.contains('hasSubtitle: sub != null'), isTrue);
+      expect(s.contains('widget.buildUrl(c.compatibleMode)'), isFalse);
+      // MIME 常量已抽到控制器，由纯函数按实际生效维度决定
       expect(
-        s.contains("'application/vnd.apple.mpegurl'"),
+        src('lib/dlna/dlna_controller.dart')
+            .contains("'application/vnd.apple.mpegurl'"),
         isTrue,
       );
-      expect(s.contains('c.burnSubtitle && sub != null'), isTrue);
-      expect(s.contains('widget.buildUrl(c.compatibleMode)'), isFalse);
+      // v2.0.100：服务器不支持转码时两个开关失活，且不再把 HLS MIME
+      // 套在直连原片上
+      expect(s.contains('final canTranscode = widget.transcodeAvailable;'), isTrue);
+      expect(s.contains('resolveCastTranscode('), isTrue);
+      expect(s.contains('castMimeType(compatible: compatible, burn: burn)'), isTrue);
+      expect(s.contains('onChanged: canTranscode ? _onCompatibleChanged : null'), isTrue);
     });
 
-    test('版本与文档同步到 v2.0.99', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.99+299'), isTrue);
-      expect(src('README.md').contains('v2.0.99 (299)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.99 (299)'), isTrue);
+    test('版本与文档同步到 v2.0.100', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.100+300'), isTrue);
+      expect(src('README.md').contains('v2.0.100 (300)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.100 (300)'), isTrue);
       expect(src('VERIFICATION.md').contains('§99'), isTrue);
+      expect(src('VERIFICATION.md').contains('§110'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.99 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.100 "),
         isTrue,
       );
     });

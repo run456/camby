@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -676,6 +677,51 @@ class EmbyServer {
     int maxWidth = 400,
   }) =>
       '$assetUrl/Items/$itemId/Images/$type?maxWidth=$maxWidth&api_key=${_token ?? ''}';
+
+  /// v2.0.100：本机字幕代理的取数口。
+  ///
+  /// 电视发 GET 拉字幕时不会带 `X-Emby-Token` 请求头，绿联兼容层会直接
+  /// 401；且带 `?api_key=…` 的地址不以 `.srt` 结尾，部分电视按扩展名认
+  /// 字幕、直接忽略。所以由手机用**完整鉴权 + 与 API 一致的证书策略**
+  /// 把 SRT 拉成字节，再由本机 HTTP 服务匿名转发给电视（见
+  /// `CastSubtitleProxy`）。
+  ///
+  /// 只对同源地址注入令牌 —— strm 片源的字幕可能指向第三方 CDN，
+  /// 把访问令牌递过去既无必要也不安全。失败一律返回 null，由调用方
+  /// 回退到原始 URL，绝不让原本能投的片变得不能投。
+  Future<Uint8List?> fetchSubtitleBytes(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return null;
+    final client = _newClient(
+      connectionTimeout: const Duration(seconds: 8),
+    );
+    try {
+      final req = await client
+          .getUrl(uri)
+          .timeout(const Duration(seconds: 12));
+      if (sameOrigin(url, rootUrl)) {
+        for (final e in streamHeaders.entries) {
+          req.headers.set(e.key, e.value);
+        }
+      }
+      req.headers.set(HttpHeaders.acceptHeader, '*/*');
+      final res = await req.close().timeout(const Duration(seconds: 12));
+      if (res.statusCode != HttpStatus.ok) {
+        await res.drain<void>();
+        return null;
+      }
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in res) {
+        builder.add(chunk);
+      }
+      final bytes = builder.takeBytes();
+      return bytes.isEmpty ? null : bytes;
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   /// 播放地址
   /// direct=true  → 直连原片（省服务端资源，适合客户端能解码的容器）

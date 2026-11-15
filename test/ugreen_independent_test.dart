@@ -289,12 +289,12 @@ void main() {
   });
 
   group('版本与文档同步', () {
-    test('版本、UA、文档均为 v2.0.99', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.99+299'), isTrue);
-      expect(src('README.md').contains('v2.0.99 (299)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.99 (299)'), isTrue);
+    test('版本、UA、文档均为 v2.0.100', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.100+300'), isTrue);
+      expect(src('README.md').contains('v2.0.100 (300)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.100 (300)'), isTrue);
       expect(src('VERIFICATION.md').contains('§108'), isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.99'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.100'),
           isTrue);
     });
   });

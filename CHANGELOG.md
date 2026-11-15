@@ -1,10 +1,54 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.99 (299)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.100 (300)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.100 (300) 投屏字幕改走手机本地代理 · 修绿联无效开关
+
+用户反馈：「使用投屏功能时，如果选择字幕烧录，那么电视一直在缓冲，
+选择兼容模式，则无法播放，还有什么办法可以让投屏显示字幕？」
+
+**先诊断，别再试服务端转码**
+
+投屏是 DMR 模式 —— 电视自己拉流，手机只作遥控。三个开关都建立在
+「服务器有可靠实时转码」这个前提上，而绿联影视中心的兼容层没有：
+
+| 开关 | 为什么必然失败 |
+|---|---|
+| 字幕烧录 | 走 `master.m3u8?SubtitleMethod=Encode`，要服务器实时把字幕编进 HLS 分片。绿联 `MediaSources` 被阉割、只给了 `api_key` 直链模板，NAS 也扛不住实时转码 → 电视等不到分片，一直缓冲 |
+| 兼容模式 | **App 的 bug**：`streamUrl` 在绿联分支直接忽略 `direct` 参数，两个模式给的是同一个原片直连地址；面板却把 DIDL-Lite 的 MIME 改成 `application/vnd.apple.mpegurl`。电视按 HLS 解析一个直连流 → 播不了 |
+| 外挂 SRT | 绿联只认 `X-Emby-Token` 请求头，电视发 GET 不会带，字幕请求 401；且 `Stream.srt?api_key=…` 不以 `.srt` 结尾，部分电视按扩展名认字幕、直接忽略 |
+
+**第三条路：手机本地字幕代理**
+
+不碰 DIDL-Lite 的字段结构（三星 `sec:CaptionInfoEx` / LG 松下
+`pv:subtitleFileUri` 已经全塞了），只把**字幕 URL**换掉：
+
+- 新增 `dlna/cast_subtitle_proxy.dart`：手机上起一个极轻量 HTTP 服务，
+  对外暴露 `http://<局域网IP>:<端口>/sub/<id>.srt` —— 无鉴权、无 query、
+  以 `.srt` 结尾、纯 UTF-8（自动剥 BOM）；支持 GET / HEAD / Range；
+- 手机用**完整鉴权**（`X-Emby-Token` + 与 API 一致的证书策略，绿联自签
+  HTTPS 也能取）把 SRT 拉成字节再发布，电视只要肯读字幕地址就一定拿得到；
+- 只转发几十 KB 文本，视频仍由电视直连服务器，不转码、不缓冲、手机不当中转；
+- 任何一步失败（拿不到局域网 IP、字幕请求失败）都回退原 URL，不让原本
+  能投的片退化。
+
+**顺手修掉的坑**：投屏面板新增 `transcodeAvailable`，绿联传 false，
+「字幕烧录」与「兼容模式」两个开关灰掉并写明原因；折算逻辑抽成纯函数
+`resolveCastTranscode` / `castMimeType`，锁死「无转码能力时 MIME 必须是
+`video/mp4`」。标准 Emby / Jellyfin 行为完全不变。
+
+**局限（写在面板里）**：这仍依赖电视肯解析 DIDL-Lite 的外挂字幕字段。
+如果雷鸟这一端压根不认，最稳的办法是在电视上装 Kodi / VLC / 播放器
+直接播（字幕由电视端加载），或离线把字幕固化进一份副本。另外路由器
+开了「AP 隔离」时电视访问不到手机 IP，需要关掉。
+
+**验收**：新增 `test/cast_subtitle_proxy_test.dart` 8 例（URL 格式、BOM、
+HEAD、Range、404、多轨独立、重启复用、代理地址进 DIDL-Lite）与
+`resolveCastTranscode` 折算单测；源码守卫锁住代理接入与绿联开关失活。
 
 ### v2.0.99 (299) 观影日历按服务器隔离
 

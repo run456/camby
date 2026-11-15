@@ -3477,3 +3477,42 @@ Exo 失败，则第二次开播会直接走 MPV 跳过黑屏。
 `flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
 `tools/perf_audit.py` 无红线。交付
 `camby-2.0.99-release-arm64.apk`（versionCode 299）。
+
+---
+
+## §110 发布 v2.0.100（投屏字幕本地代理 + 绿联无效开关修复）
+
+**需求**：用户投屏到雷鸟 85S585C Pro，「字幕烧录」电视一直缓冲、
+「兼容模式」无法播放，问还有什么办法能让投屏显示字幕。
+
+**诊断**：投屏是 DMR 模式，电视自己拉流。绿联影视中心没有可靠的实时
+HLS 转码能力 —— 烧录的 `master.m3u8?SubtitleMethod=Encode` 拿不到分片；
+兼容模式更是一个 App bug：`streamUrl` 的绿联分支忽略 `direct`，却把
+DIDL-Lite 的 MIME 改成 `application/vnd.apple.mpegurl`，电视按 HLS 解析
+直连原片必然失败。外挂 SRT 则有双重问题：绿联只认 `X-Emby-Token`
+请求头（电视 GET 不带 → 401），且带 `?api_key=…` 的地址不以 `.srt`
+结尾，部分电视按扩展名认字幕直接忽略。
+
+**改动**：
+
+- `dlna/cast_subtitle_proxy.dart`：`HttpServer` 暴露 `http://<IP>:<port>/sub/<id>.srt`，
+  无鉴权 / 无 query / `.srt` 结尾 / 纯 UTF-8（剥 BOM），支持 GET、HEAD、
+  Range（206 / 416）、404；自动选 WLAN IPv4，排除环回与 169.254；
+- `EmbyServer.fetchSubtitleBytes()`：手机带完整鉴权头与同一套证书策略
+  拉取字幕，仅同源注入令牌（strm 第三方 CDN 不递令牌）；失败返回 null；
+- `detail_page._castSubtitles()` 改为异步并行预取，发布代理 URL，
+  失败回退原地址；`showCastingSheet` 新增 `transcodeAvailable`，
+  绿联传 `!state.isUgreenServer`；
+- `resolveCastTranscode` / `castMimeType` 纯函数：无转码能力时强制
+  `compatible=false, burn=false, mimeType=video/mp4`；两个开关灰掉并写明原因；
+- DIDL-Lite 字段结构**未改**，避免给已能投屏的电视换 metadata。
+
+**验证**：`test/cast_subtitle_proxy_test.dart` 8 例全过；
+`test/dlna_subtitle_test.dart` 新增折算单测与 4 条源码守卫；
+`flutter test` 全量通过，`flutter analyze` 0 error / 0 warning，
+`tools/perf_audit.py` 无红线。交付 `camby-2.0.100-release-arm64.apk`
+（versionCode 300）。
+
+**真机待确认**：① 电视能否解析 DIDL-Lite 外挂字幕字段（这是本方案
+唯一的外部依赖）；② 路由器是否开了 AP 隔离，导致电视访问不到手机 IP。
+若 ① 不成立，改用电视端 Kodi / VLC 直接播放，或离线把字幕固化进副本。

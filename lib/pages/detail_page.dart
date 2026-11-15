@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
+import '../dlna/cast_subtitle_proxy.dart';
 import '../emby_client.dart';
 import '../models.dart';
 import '../routes.dart';
@@ -172,9 +174,15 @@ class _DetailPageState extends State<DetailPage> {
   /// 每条都统一取 `textCandidates` 里的 SRT 地址：DLNA 电视基本只认 SubRip，
   /// Emby 会按 `Stream.srt` 扩展名把 ASS / VTT / SMI 转成文本流。图形字幕
   /// （PGS / SUP / DVBSub）拿不到文本，标记 `isTextFriendly=false` 让面板
-  /// 提示改烧录，但不硬禁止 —— 少数电视能自己处理，交由用户实机试。
-  List<CastSubtitle> _castSubtitles() {
-    final out = <CastSubtitle>[];
+  /// 提示，但不硬禁止 —— 少数电视能自己处理，交由用户实机试。
+  ///
+  /// v2.0.100：地址优先换成**手机本地代理**的干净 `.srt`（无鉴权、无
+  /// query）。绿联只认 `X-Emby-Token` 请求头，电视自己发的 GET 取不到
+  /// 字幕；手机代拉一次再匿名转发即可。任何一步失败都回退原地址，
+  /// 不让原本能投的片退化。
+  Future<List<CastSubtitle>> _castSubtitles() async {
+    final srv = widget.state.server;
+    final candidates = <(SubtitleTrackInfo, String)>[];
     for (final s in _item.subtitles) {
       String? chosen;
       for (final u in s.textCandidates) {
@@ -183,19 +191,42 @@ class _DetailPageState extends State<DetailPage> {
           break;
         }
       }
-      if (chosen == null) continue;
-      final c = s.codec.toLowerCase();
+      if (chosen != null) candidates.add((s, chosen));
+    }
+
+    // 并行预取，避免多条字幕各等一轮超时。
+    final payloads = await Future.wait<Uint8List?>([
+      for (final pair in candidates)
+        if (srv != null)
+          srv.fetchSubtitleBytes(pair.$2)
+        else
+          Future<Uint8List?>.value(null),
+    ]);
+
+    final out = <CastSubtitle>[];
+    for (var i = 0; i < candidates.length; i++) {
+      final (track, original) = candidates[i];
+      final c = track.codec.toLowerCase();
       final graphic =
           c.contains('pgs') ||
           c.contains('sup') ||
           c.contains('dvbsub') ||
           c.contains('dvdsub') ||
           c.contains('xsub');
+      var url = original;
+      final bytes = payloads[i];
+      if (bytes != null && bytes.isNotEmpty) {
+        try {
+          url = (await CastSubtitleProxy.instance.publish(bytes)).toString();
+        } catch (_) {
+          // 拿不到局域网地址（例如只有蜂窝数据）就用原 URL。
+        }
+      }
       out.add(
         CastSubtitle(
-          label: s.menuLabel,
-          url: chosen,
-          streamIndex: s.index,
+          label: track.menuLabel,
+          url: url,
+          streamIndex: track.index,
           isTextFriendly: !graphic,
         ),
       );
@@ -213,7 +244,7 @@ class _DetailPageState extends State<DetailPage> {
       _toast('未连接服务器，无法投屏');
       return;
     }
-    final subtitles = _castSubtitles();
+    final subtitles = await _castSubtitles();
     // 详情页手选的轨优先；没手选时取默认轨（通常中文字幕）——用户明确
     // 要求「有字幕的也把字幕投屏」，所以默认带上而不是留空。
     final preferred =
@@ -225,6 +256,10 @@ class _DetailPageState extends State<DetailPage> {
       itemId: _item.id,
       subtitles: subtitles,
       preferredSubtitleIndex: preferred,
+      // 绿联影视中心没有可靠的实时转码：master.m3u8 拿不到分片（一直缓冲），
+      // 「兼容模式」又会把 HLS 的 MIME 套在直连原片上（直接播不了）。
+      // 两个开关在这类服务器上只会误导，直接禁用并强制走无损直投。
+      transcodeAvailable: !widget.state.isUgreenServer,
       buildUrl: ({
         required bool compatible,
         required bool burn,

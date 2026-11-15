@@ -41,6 +41,27 @@ class CastSubtitle {
   final bool isTextFriendly;
 }
 
+/// v2.0.100：把「服务器是否支持实时转码」与「用户的两个开关」折算成
+/// 实际生效的维度。
+///
+/// 绿联影视中心没有可靠的 HLS 转码：烧录拿不到分片（一直缓冲），兼容
+/// 模式又把 `application/vnd.apple.mpegurl` 套在直连原片上（播不了）。
+/// `available=false` 时两个开关一律失活，固定走无损直投。抽成纯函数
+/// 是为了能在测试里锁死这条折算，避免后来有人把开关直接接回 URL。
+({bool compatible, bool burn}) resolveCastTranscode({
+  required bool available,
+  required bool compatibleMode,
+  required bool burnSubtitle,
+  required bool hasSubtitle,
+}) => (
+  compatible: available && compatibleMode,
+  burn: available && burnSubtitle && hasSubtitle,
+);
+
+/// 只有真的走 HLS 才声明 HLS MIME，否则按原片直投声明。
+String castMimeType({required bool compatible, required bool burn}) =>
+    (compatible || burn) ? 'application/vnd.apple.mpegurl' : 'video/mp4';
+
 /// 一次投屏的内容描述。URL 由详情页按当前选中版本 / 兼容模式**现算**，
 /// 控制器不依赖 Emby 客户端，也不缓存 URL（鉴权 token 可能会变）。
 class CastRequest {

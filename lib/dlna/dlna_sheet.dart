@@ -31,6 +31,7 @@ Future<void> showCastingSheet({
   int? preferredSubtitleIndex,
   Duration startAt = Duration.zero,
   Duration? duration,
+  bool transcodeAvailable = true,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -45,6 +46,7 @@ Future<void> showCastingSheet({
       preferredSubtitleIndex: preferredSubtitleIndex,
       startAt: startAt,
       duration: duration,
+      transcodeAvailable: transcodeAvailable,
     ),
   );
 }
@@ -59,8 +61,12 @@ class _CastingSheet extends StatefulWidget {
     required this.duration,
     this.subtitles = const <CastSubtitle>[],
     this.preferredSubtitleIndex,
+    this.transcodeAvailable = true,
   });
 
+  /// 服务器是否具备可靠的实时转码能力。绿联影视中心为 false：
+  /// 烧录拿不到 HLS 分片、兼容模式把 HLS MIME 套在直连原片上，两条路都死。
+  final bool transcodeAvailable;
   final DlnaController controller;
   final String title;
   final String itemId;
@@ -98,10 +104,20 @@ class _CastingSheetState extends State<_CastingSheet> {
   /// 否则电视会同时显示画面里的和外挂的两份字幕。
   CastRequest _request(DlnaController c, {Duration? startAt}) {
     final sub = c.effectiveSubtitle;
-    final burn = c.burnSubtitle && sub != null;
+    // 服务器不支持实时转码时两个开关一律失活：既要避免拼出注定失败的
+    // master.m3u8，也要避免把 DIDL-Lite 的 MIME 改成 HLS 套在直连原片上。
+    final canTranscode = widget.transcodeAvailable;
+    final t = resolveCastTranscode(
+      available: canTranscode,
+      compatibleMode: c.compatibleMode,
+      burnSubtitle: c.burnSubtitle,
+      hasSubtitle: sub != null,
+    );
+    final burn = t.burn;
+    final compatible = t.compatible;
     return CastRequest(
       url: widget.buildUrl(
-        compatible: c.compatibleMode,
+        compatible: compatible,
         burn: burn,
         subtitleIndex: sub?.streamIndex,
       ),
@@ -109,9 +125,7 @@ class _CastingSheetState extends State<_CastingSheet> {
       id: widget.itemId,
       startAt: startAt ?? widget.startAt,
       duration: widget.duration,
-      mimeType: (c.compatibleMode || burn)
-          ? 'application/vnd.apple.mpegurl'
-          : 'video/mp4',
+      mimeType: castMimeType(compatible: compatible, burn: burn),
       subtitleUrl: burn ? null : sub?.url,
       subtitleLabel: sub == null
           ? ''
@@ -655,7 +669,9 @@ class _CastingSheetState extends State<_CastingSheet> {
           if (sub != null && !sub.isTextFriendly) ...<Widget>[
             const SizedBox(height: 6),
             Text(
-              '这是图形字幕，电视多半不认；建议打开下面的「字幕烧录」。',
+              widget.transcodeAvailable
+                  ? '这是图形字幕，电视多半不认；建议打开下面的「字幕烧录」。'
+                  : '这是图形字幕，电视多半不认；此服务器无法烧录，建议改用电视端播放器。',
               style: TextStyle(
                 fontSize: 10.5,
                 height: 1.4,
@@ -713,7 +729,8 @@ class _CastingSheetState extends State<_CastingSheet> {
   }
 
   Widget _burnRow(DlnaController c, CastSubtitle? sub) {
-    final enabled = sub != null;
+    final canTranscode = widget.transcodeAvailable;
+    final enabled = sub != null && canTranscode;
     return Row(
       children: [
         Expanded(
@@ -729,9 +746,14 @@ class _CastingSheetState extends State<_CastingSheet> {
                   color: enabled ? Colors.white : const Color(0xFF9FB0CC),
                 ),
               ),
-              const Text(
-                '电视不显示外挂字幕时打开，画质会有损失',
-                style: TextStyle(fontSize: 10, color: Color(0xFF9FB0CC)),
+              Text(
+                canTranscode
+                    ? '电视不显示外挂字幕时打开，画质会有损失'
+                    : '这台服务器不支持实时转码；字幕已改由手机本地代理',
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF9FB0CC),
+                ),
               ),
             ],
           ),
@@ -750,11 +772,12 @@ class _CastingSheetState extends State<_CastingSheet> {
   }
 
   Widget _compatibleRow(DlnaController c) {
+    final canTranscode = widget.transcodeAvailable;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 10, 0),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
@@ -764,18 +787,28 @@ class _CastingSheetState extends State<_CastingSheet> {
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: canTranscode
+                        ? Colors.white
+                        : const Color(0xFF9FB0CC),
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  '原片无法播放时打开，画质会有损失',
-                  style: TextStyle(fontSize: 10.5, color: Color(0xFF9FB0CC)),
+                  canTranscode
+                      ? '原片无法播放时打开，画质会有损失'
+                      : '这台服务器不支持实时转码；已固定为原片直投',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: Color(0xFF9FB0CC),
+                  ),
                 ),
               ],
             ),
           ),
-          Switch(value: c.compatibleMode, onChanged: _onCompatibleChanged),
+          Switch(
+            value: canTranscode && c.compatibleMode,
+            onChanged: canTranscode ? _onCompatibleChanged : null,
+          ),
         ],
       ),
     );
@@ -797,9 +830,13 @@ class _CastingSheetState extends State<_CastingSheet> {
             ),
           ),
           const SizedBox(height: 3),
-          const Text(
-            '字幕以 DIDL-Lite 外挂字段发送，各厂商电视支持不一；不显示时请打开「字幕烧录」。',
-            style: TextStyle(
+          Text(
+            widget.transcodeAvailable
+                ? '字幕优先经手机本地代理以无鉴权 SRT 地址发送，不经服务器转码；'
+                    '电视要能访问手机，请关闭路由器「AP 隔离」。'
+                : '字幕优先经手机本地代理以无鉴权 SRT 地址发送，不经服务器转码；'
+                    '请关闭路由器「AP 隔离」；若电视仍不显示，建议改用电视端播放器。',
+            style: const TextStyle(
               fontSize: 10.5,
               height: 1.5,
               color: Color(0xFF9FB0CC),
