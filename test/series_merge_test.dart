@@ -365,14 +365,14 @@ void main() {
   });
 
   group('版本与文档', () {
-    test('版本与文档同步到 v2.0.106', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.106+306'), isTrue);
-      expect(src('README.md').contains('v2.0.106 (306)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.106 (306)'), isTrue);
+    test('版本与文档同步到 v2.0.107', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.107+307'), isTrue);
+      expect(src('README.md').contains('v2.0.107 (307)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.107 (307)'), isTrue);
       expect(src('VERIFICATION.md').contains('§108'), isTrue);
-      expect(src('lib/models.dart').contains("kClientVersion = '2.0.106'"),
+      expect(src('lib/models.dart').contains("kClientVersion = '2.0.107'"),
           isTrue);
-      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.106'),
+      expect(src('lib/dlna/dlna_protocol.dart').contains('Camby/2.0.107'),
           isTrue);
     });
   });

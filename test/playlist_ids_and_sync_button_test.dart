@@ -44,7 +44,7 @@ void main() {
   });
 
   group('收藏页同步入口与布局（v1.7.66）', () {
-    test('v2.0.106：标题行必须有上传/下载双按钮（取代旧的单向同步按钮）', () {
+    test('v2.0.107：标题行必须有上传/下载双按钮（取代旧的单向同步按钮）', () {
       expect(pageSrc.contains('class _SyncButtons'), isTrue);
       expect(pageSrc.contains('_SyncButtons(state: state)'), isTrue);
       expect(pageSrc.contains("ValueKey('fav-upload')"), isTrue);

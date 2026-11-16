@@ -547,6 +547,84 @@ void main() {
       expect(s.watchBackfillDone, isFalse);
       s.dispose();
     });
+
+    test('v2.0.107：服务器活动日志为准，本机事件不再混进全局', () async {
+      final s = AppState();
+      s.installTestServer(_StubServer(), 'srv-X', const []);
+      s.installTestItems([_movie('m1'), _movie('m2')]);
+
+      // 本机看了 m1（手机独有），服务器活动日志里两部都有（跨端同一份）
+      await s.reportServerPlaybackStart('m1', positionTicks: 0);
+      await s.reportServerPlaybackStop('m1', 60 * 60 * 10000000, played: false);
+      s.installTestActivity(
+        ActivitySummary(
+          itemPlays: const {'m1': 1, 'm2': 1},
+          hourHist: List.filled(24, 0),
+          total: 2,
+          events: [
+            WatchEvent(
+              itemId: 'm1',
+              name: '片 m1',
+              date: '2026-11-16',
+              minutes: 30,
+              startAt: DateTime(2026, 11, 16, 20),
+              source: WatchSource.activity,
+            ),
+            WatchEvent(
+              itemId: 'm2',
+              name: '片 m2',
+              date: '2026-11-16',
+              minutes: 45,
+              startAt: DateTime(2026, 11, 16, 21),
+              source: WatchSource.activity,
+            ),
+          ],
+        ),
+      );
+
+      // 两端都读服务器 → 都看到 m1+m2 两条，而不是各自本机的那一条
+      final ids = s.watchEvents.map((e) => e.itemId).toSet();
+      expect(ids, {'m1', 'm2'});
+      expect(s.watchEvents.every((e) => e.source == WatchSource.activity), isTrue);
+      s.dispose();
+    });
+
+    test('v2.0.107：活动日志不可用时以服务器已看历史兜底，两端一致', () async {
+      final a = AppState();
+      final b = AppState();
+      for (final s in [a, b]) {
+        s.installTestServer(_StubServer(), 'srv-Y', const []);
+        s.installTestItems([_movie('p1')]);
+        // 模拟"平板 / 手机各自本机看过不同片"，但服务器已看历史只有 p1
+        s.installTestActivity(null);
+        s.installTestPlayedHistory([
+          _movie('p1').copyWith(
+            lastPlayedAt: DateTime(2026, 11, 15, 22).millisecondsSinceEpoch,
+            userPlayed: true,
+          ),
+        ]);
+      }
+      // A 本机额外看一部、B 本机看另一部——都不应影响日历
+      await a.reportServerPlaybackStart('ghost-a', positionTicks: 0);
+      await a.reportServerPlaybackStop('ghost-a', 1000);
+      expect(a.watchEvents.map((e) => e.itemId).toSet(), {'p1'});
+      expect(b.watchEvents.map((e) => e.itemId).toSet(), {'p1'});
+      a.dispose();
+      b.dispose();
+    });
+
+    test('v2.0.107：服务器全空才退回本机，避免日历空窗', () async {
+      final s = AppState();
+      s.installTestServer(_StubServer(), 'srv-Z', const []);
+      s.installTestItems([_movie('m1')]);
+      s.installTestActivity(null);
+      s.installTestPlayedHistory(const []);
+      await s.reportServerPlaybackStart('m1', positionTicks: 0);
+      await s.reportServerPlaybackStop('m1', 15 * 60 * 10000000, played: false);
+      expect(s.watchEvents.length, 1);
+      expect(s.watchEvents.single.source, WatchSource.local);
+      s.dispose();
+    });
   });
 
   group('源码守卫（真机/服务端难以稳定复现的结构性错误）', () {
@@ -633,7 +711,11 @@ void main() {
       expect(s.contains('Future<int> backfillWatchHistory()'), isTrue);
       expect(s.contains('s.playedHistory(limit: 400)'), isTrue);
       expect(s.contains('eventsFromHistory(seeds)'), isTrue);
-      expect(s.contains('mergeWatchEvents('), isTrue);
+      // v2.0.107：服务器为准 —— 活动日志优先、已看历史兜底、本机仅末位兜底，
+      // 本机事件不再通过 mergeWatchEvents 混进全局（否则两端各算各的对不上）。
+      expect(s.contains('if (fromLog.isNotEmpty) return fromLog;'), isTrue);
+      expect(s.contains('if (fromHistory.isNotEmpty) return fromHistory;'), isTrue);
+      expect(s.contains('服务器完全无数据才用本机事件兜底'), isTrue);
       expect(s.contains('_watchEvents.length > 2000'), isTrue);
       // v2.0.99：观影日历按服务器隔离的四道锁，少一道就会重新串台
       expect(s.contains('e.serverId == sid'), isTrue);
@@ -687,14 +769,14 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.106', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.106+306'), isTrue);
-      expect(src('README.md').contains('v2.0.106 (306)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.106 (306)'), isTrue);
+    test('版本与文档同步到 v2.0.107', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.107+307'), isTrue);
+      expect(src('README.md').contains('v2.0.107 (307)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.107 (307)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(src('VERIFICATION.md').contains('§109'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.106 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.107 "),
         isTrue,
       );
     });

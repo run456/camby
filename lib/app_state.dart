@@ -108,37 +108,32 @@ class AppState extends ChangeNotifier {
   /// 是否已经做过「首次同步历史观看」；UI 用它决定要不要显示同步 CTA。
   bool get watchBackfillDone => _watchBackfillDone;
 
-  /// 日历页唯一的取数入口，四级口径：
-  /// 1. 本机精确事件（起播/退出配对，带进度）；
-  /// 2. 服务器活动日志明细补漏（同一天同一部片本机已记过就跳过）；
-  /// 3. 历史回填的估算事件（已并进 [localWatchEvents]）；
-  /// 4. 以上全空时，用「已看历史」近 30 天现场生成估算事件（不落盘）。
+  /// 日历页唯一的取数入口。v2.0.107 起改为**服务器为准 · 自动统一**：
   ///
-  /// v2.0.99：**只看当前服务器**。本机事件是全服务器共用一份 JSON 的，
-  /// 必须在这里按 [activeServerId] 过滤；不加这一层，切到 B 服务器后
-  /// A 的观影记录仍会出现在日历里（用户反馈的「串台」）。
+  /// 用户实测手机看一部、平板看一部，两端「本月观看 / 看了什么」对不上。
+  /// 根因是旧口径以本机精确事件为主（[localWatchEvents]，各设备一份 JSON、
+  /// 从不共享），服务器数据只做补漏——于是每台设备都拿自己的本机记录算账。
+  /// 新口径把真相源换成服务器，两端连同一服务器/账号即读到同一份：
+  /// 1. 服务器活动日志逐条明细（PlaybackStart/Stop 配对，精确时长 + 片名）；
+  /// 2. 服务器「已看历史」近 30 天按片长估算（活动日志不可用时兜底）；
+  /// 3. 仅当服务器两项皆空，才退回本机事件——避免空窗，且来源仍标 local，
+  ///    UI 会显示「本机记录」让用户知道这是这台设备独有的、不会跨端。
   ///
-  /// v2.0.102：**再按当前媒体库过滤**。一台服务器下挂多个媒体库时，
-  /// 活动日志（ActivityLog）与「已看历史」（PlayedItems）都是服务器级接口，
-  /// 会把所有库的播放记录一起返回；只按服务器隔离根本挡不住库与库串台。
-  /// 老事件没有 libraryId，用 [libraryIdFor] 现场反查，不会因为升级就消失。
+  /// 隔离：v2.0.99 只看当前服务器（本机 JSON 全服共用一份，必须按
+  /// [activeServerId] 过滤，否则切服串台）；v2.0.102 再按当前媒体库过滤
+  /// （活动日志 / 已看历史都是服务器级，会把所有库的播放一起返回）。
+  /// 老事件没有 libraryId，用 [libraryIdFor] 现场反查，升级不丢数据。
   List<WatchEvent> get watchEvents {
     final sid = _activeServerId;
     final scope = effectiveWatchScopeId;
     String? resolve(String id) => libraryIdFor(id);
-    final local = filterWatchEventsForScope(
-      <WatchEvent>[
-        for (final e in _watchEvents)
-          if (e.serverId == sid) e,
-      ],
-      scope,
-      resolve: resolve,
-    );
     final byId = {for (final e in _items) e.id: e};
     final names = <String, String>{
       for (final e in _items) e.id: e.name,
       ..._activityNames,
     };
+
+    // ① 服务器活动日志明细：跨端同一份，优先。
     final fromLog = filterWatchEventsForScope(
       <WatchEvent>[
         for (final e in _activity?.events ?? const <WatchEvent>[])
@@ -153,14 +148,24 @@ class AppState extends ChangeNotifier {
       scope,
       resolve: resolve,
     );
-    final merged = mergeWatchEvents(
-      local: local,
-      activity: fromLog,
-      names: names,
-    );
-    if (merged.isNotEmpty) return merged;
-    return filterWatchEventsForScope(
+    if (fromLog.isNotEmpty) return fromLog;
+
+    // ② 服务器已看历史估算：活动日志不可读（普通用户权限 / 超 800 条）时兜底，
+    //    同样是服务器级，两端一致；时长按片长估算，来源标 imported。
+    final fromHistory = filterWatchEventsForScope(
       eventsFromHistory(_historySeeds(), days: 30),
+      scope,
+      resolve: resolve,
+    );
+    if (fromHistory.isNotEmpty) return fromHistory;
+
+    // ③ 服务器完全无数据才用本机事件兜底，避免日历一片空白。
+    //    这部分是本机独有的，UI 会以「本机记录」标出，不冒充跨端数据。
+    return filterWatchEventsForScope(
+      <WatchEvent>[
+        for (final e in _watchEvents)
+          if (e.serverId == sid) e,
+      ],
       scope,
       resolve: resolve,
     );
@@ -468,6 +473,24 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void installTestItems(List<MediaItem> items) {
     _items = List<MediaItem>.of(items);
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// 测试专用：注入服务器活动日志聚合，驱动「服务器为准」的观影日历。
+  /// 生产代码里由 `_loadPlayback()` 从 `/System/ActivityLog/Entries` 拉取。
+  @visibleForTesting
+  void installTestActivity(ActivitySummary? activity) {
+    _activity = activity;
+    _invalidateDerived();
+    notifyListeners();
+  }
+
+  /// 测试专用：注入服务器「已看历史」，驱动活动日志不可用时的一致兜底。
+  /// 生产代码里由 `_loadPlayback()` 从 `/Users/{id}/PlayedItems` 拉取。
+  @visibleForTesting
+  void installTestPlayedHistory(List<MediaItem> items) {
+    _playedHistory = List<MediaItem>.of(items);
     _invalidateDerived();
     notifyListeners();
   }
