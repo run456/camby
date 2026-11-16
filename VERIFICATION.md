@@ -3746,3 +3746,32 @@ Emby 播放列表无可靠修改时间，无法自动判新旧，故按用户选
 
 **真机待确认**：① 手机改收藏→点「上传」选覆盖/合并→平点点「下载」能看到最新；
 ② 两端各自新增时选「合并」能取并集不丢；③ 覆盖确实按弹窗文案删除多余项；④ 登录不再冲掉服务端收藏。
+
+---
+
+## §116 发布 v2.0.106（平板观影日历页双分段改满宽，与数据洞察页一致）
+
+**用户反馈**：平板侧 tab 切换样式不一致——「数据洞察」页的分段控件通栏满宽，
+「观影日历」页却是左侧一条 320px 窄条，切换时样式跳变。用户要求以数据总结页为准。
+
+**根因**：`watch_calendar_page.dart` 的 `_header()` 把 `StatsModeSegment` 包在
+`SizedBox(width: wide ? 320 : double.infinity)`，平板被限死 320px；父 `Column` 为
+`crossAxisAlignment.start`，固定宽度就成了左对齐窄条。数据洞察页的同款控件则铺满整行。
+
+**改动**：
+
+| 项 | 内容 |
+|---|---|
+| UI | 观影日历页分段控件 `width` 由 `wide ? 320 : double.infinity` 统一改 `double.infinity`，平板/手机都满宽通栏，与数据洞察页同款同宽 |
+| 代码 | 移除 `_header` 不再使用的 `wide` 形参，`build` 里调用改为 `_header()` |
+| 守卫 | `watch_calendar_test.dart` 新增断言：含 `width: double.infinity,` 且不含 `wide ? 320 : double.infinity` |
+
+**验证**：
+
+- `flutter analyze`：**0 error / 0 warning**。
+- `flutter test`：全量通过（守卫随源码更新）。
+- 版本 v2.0.105→v2.0.106（+306）同步 pubspec / kClientVersion / dlnaUserAgent /
+  README / CHANGELOG / 测试版本守卫；历史 v2.0.105 条目标题与 §115 已校正保留。
+- APK `aapt` 校验 versionCode=306 / versionName=2.0.106。
+
+**真机待确认**：① 平板两子页 tab 切来切去宽度一致、不再跳变；② 手机端无回归。

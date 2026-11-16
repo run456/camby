@@ -193,7 +193,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
     final cal = WatchCalendar(events);
     final sum = cal.month(_month.year, _month.month);
 
-    final header = _header(wide);
+    final header = _header();
     final calendarCard = _calendarCard(cal);
     final summaryCard = _summaryCard(sum);
     final dayCard = _dayCard(cal);
@@ -236,7 +236,7 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
     );
   }
 
-  Widget _header(bool wide) {
+  Widget _header() {
     final label = widget.state.demoMode
         ? '演示数据 · 连接 Emby 后显示真实观影记录'
         : widget.state.sourceLabel;
@@ -278,8 +278,10 @@ class _WatchCalendarViewState extends State<WatchCalendarView> {
           ],
         ),
         const SizedBox(height: 10),
+        // v2.0.106：双分段与数据洞察页统一为满宽通栏，平板不再限死 320px
+        // 左对齐窄条——两页同款控件必须同宽，否则切来切去样式跳变。
         SizedBox(
-          width: wide ? 320 : double.infinity,
+          width: double.infinity,
           child: StatsModeSegment(
             mode: StatsMode.calendar,
             onChanged: widget.onModeChanged,

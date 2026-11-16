@@ -669,6 +669,9 @@ void main() {
       expect(page.contains('最近一年'), isTrue);
       expect(page.contains('数据口径：本机播放记录'), isTrue);
       expect(page.contains('服务器 + 媒体库双重隔离 · 只统计当前范围'), isTrue);
+      // v2.0.106：日历页双分段与数据洞察页统一满宽通栏，平板不再限死 320px。
+      expect(page.contains('width: double.infinity,'), isTrue);
+      expect(page.contains('wide ? 320 : double.infinity'), isFalse);
       // v2.0.102：范围选择器 + 概览按范围取数 + 海报不降采样
       expect(page.contains('_scopeChip()'), isTrue);
       expect(page.contains('_WatchScopeSheet('), isTrue);
@@ -684,14 +687,14 @@ void main() {
       expect(page.contains('追剧更新'), isFalse);
     });
 
-    test('版本与文档同步到 v2.0.105', () {
-      expect(src('pubspec.yaml').contains('version: 2.0.105+305'), isTrue);
-      expect(src('README.md').contains('v2.0.105 (305)'), isTrue);
-      expect(src('CHANGELOG.md').contains('v2.0.105 (305)'), isTrue);
+    test('版本与文档同步到 v2.0.106', () {
+      expect(src('pubspec.yaml').contains('version: 2.0.106+306'), isTrue);
+      expect(src('README.md').contains('v2.0.106 (306)'), isTrue);
+      expect(src('CHANGELOG.md').contains('v2.0.106 (306)'), isTrue);
       expect(src('VERIFICATION.md').contains('§100'), isTrue);
       expect(src('VERIFICATION.md').contains('§109'), isTrue);
       expect(
-        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.105 "),
+        src('lib/dlna/dlna_protocol.dart').contains("'Camby/2.0.106 "),
         isTrue,
       );
     });

@@ -1,10 +1,24 @@
 # 更新日志（Changelog）
 
-> Camby 历次发版记录。当前最新版本：**v2.0.105 (305)**。
+> Camby 历次发版记录。当前最新版本：**v2.0.106 (306)**。
 > **2.x.x** 为 WorkBuddy 持续迭代线；**1.7.x** 为早期反编译重建与取证基线（重建取证过程见文末「源码重建说明」）。
 > 源码仓库：[github.com/run456/camby](https://github.com/run456/camby)
 
 ## 发版记录
+
+### v2.0.106 (306) 平板观影日历页双分段改满宽，与数据洞察页一致
+
+**用户反馈**：平板侧两个子页的 tab 切换样式不一致——「数据洞察」页的分段控件
+是满宽通栏，而「观影日历」页被限死成左侧一条 320px 窄条，切来切去样式跳变。
+
+**根因**：`watch_calendar_page.dart` 的 `_header()` 把 `StatsModeSegment` 包在
+`SizedBox(width: wide ? 320 : double.infinity)` 里，平板（`wide`）被限死 320px；
+而 `stats_page.dart` 里的同款控件随卡片铺满整行。父 `Column` 是 `crossAxisAlignment.start`，
+给了固定宽度就成左对齐窄条。
+
+**改动**：观影日历页分段控件统一改 `width: double.infinity` 满宽通栏，与数据洞察页同款；
+移除 `_header` 不再使用的 `wide` 参数。手机端本来就是满宽，零漂移。
+补源码守卫：断言满宽且不再有 `wide ? 320` 限制。静态分析 0 error/0 warning。
 
 ### v2.0.105 (305) 收藏同步拆成「上传 / 下载」+「覆盖 / 合并」，根治多设备互相覆盖
 
